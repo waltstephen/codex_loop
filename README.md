@@ -208,15 +208,15 @@ If `codex-autoloop-daemon-ctl` is not found, replace it with:
 python -m codex_autoloop.daemon_ctl
 ```
 
-## Example: Use in another project (`unify_rl`) with sanitized paths
+## Example: Use in another project (`newproject`) with sanitized paths
 
-Use this pattern when `codex_loop` is cloned under a different workspace and you want the daemon to run tasks in `unify_rl`.
+Use this pattern when `codex_loop` is cloned under a different workspace and you want the daemon to run tasks in `newproject`.
 
 ```bash
 # Replace with your own locations (public-safe placeholders)
 export WORKSPACE_ROOT="/path/to/workspace"
 export LOOP_REPO="$WORKSPACE_ROOT/codex_loop"
-export TARGET_REPO="$WORKSPACE_ROOT/unify_rl"
+export TARGET_REPO="$WORKSPACE_ROOT/newproject"
 
 cd "$TARGET_REPO"
 python -m pip install -e "$LOOP_REPO"
