@@ -20,6 +20,8 @@ Apply these rules for every run:
 4. Validate behavior with runnable checks, not only static edits.
 5. Commit every meaningful fix.
 6. Push when remote is configured and credentials allow push.
+7. Treat tests as hard completion gates, not optional checks.
+8. In YOLO mode (`--dangerously-bypass-approvals-and-sandbox`), assume full execution power and apply extra caution before any destructive command.
 
 ## Step 0: Bootstrap Git Safely
 
@@ -56,6 +58,12 @@ Before coding, derive explicit objective gates:
 
 Do not stop at planning text. Execute commands to satisfy gates.
 
+Mandatory interpretation:
+
+1. Module/system design work is incomplete until relevant tests pass.
+2. Training work is incomplete until checkpoint generation and inference/load verification pass.
+3. If tests are missing, add focused tests that cover the delivered behavior.
+
 ## Step 2: Execute in Persistent Loop
 
 Use an iterative loop until gates are all green:
@@ -75,6 +83,11 @@ For experiment/training tasks, enforce:
 1. Run smoke experiment to at least 100 steps.
 2. Confirm checkpoint directory/file exists and is non-empty.
 3. Confirm checkpoint can be loaded for at least one inference/eval call.
+
+Hard rule:
+
+1. Do not mark training tasks complete based only on logs or loss curves.
+2. Completion requires a real checkpoint load + inference/eval success signal.
 
 Use project-native entrypoints when available (train script, launcher, make target, etc.).
 If multiple step flags exist, prefer `--max_steps 100` or equivalent.
@@ -134,6 +147,8 @@ Stop only when one of these is true:
 1. All completion gates are green and evidence is recorded.
 2. A hard blocker requires user-only input (credentials, missing private data, external approval).
 
+Do not stop for "likely done" or "probably correct" without test and runtime evidence.
+
 When stopping, always provide:
 
 1. What is done.
@@ -151,3 +166,13 @@ Use autonomous improvement behavior by default:
 3. Prefer smallest-change fix that unblocks progress.
 4. Preserve reproducibility: record commands, env assumptions, and outputs.
 5. Do not require user micro-instructions for obvious next debugging step.
+
+## YOLO Safety Constraints
+
+When running with full permissions (`--dangerously-bypass-approvals-and-sandbox`):
+
+1. Re-check target path and command intent before execution.
+2. Avoid destructive operations unless explicitly required by objective.
+3. Prefer reversible edits and commit before risky operations.
+4. Never run broad delete/reset commands without a clear recovery path.
+5. Keep an auditable trail: commands run, tests executed, and commit hashes.
