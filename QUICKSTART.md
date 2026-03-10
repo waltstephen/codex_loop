@@ -57,6 +57,21 @@ Then from Telegram Web:
 - `/status`
 - `/stop`
 
+## 7) Interactive setup + background daemon
+
+```bash
+codex-autoloop-setup --run-cd .
+```
+
+Then terminal control (same daemon, no restart needed):
+
+```bash
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus run "实现一个长程目标"
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "切换到更保守的方案并先跑测试"
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
+```
+
 ## 4) Optional dashboard
 
 ```bash

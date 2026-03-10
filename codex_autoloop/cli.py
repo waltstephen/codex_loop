@@ -13,6 +13,7 @@ from .live_updates import (
     TelegramStreamReporterConfig,
     extract_agent_message,
 )
+from .local_control import LocalControlCommand, LocalControlPoller
 from .orchestrator import AutoLoopConfig, AutoLoopOrchestrator
 from .reviewer import Reviewer
 from .telegram_control import TelegramCommand, TelegramCommandPoller
@@ -54,6 +55,7 @@ def main() -> None:
     telegram_notifier: TelegramNotifier | None = None
     telegram_stream_reporter: TelegramStreamReporter | None = None
     telegram_control_poller: TelegramCommandPoller | None = None
+    local_control_poller: LocalControlPoller | None = None
     control_state = LoopControlState()
     control_runtime_state: dict[str, Any] = {
         "status": "idle",
@@ -158,6 +160,32 @@ def main() -> None:
             telegram_control_poller.start()
             print("Telegram control channel enabled.", file=sys.stderr)
 
+    if args.control_file:
+        def on_local_control(command: LocalControlCommand) -> None:
+            if command.kind == "inject":
+                control_state.request_inject(command.text, source="terminal")
+                print("[control] local inject received.", file=sys.stderr)
+                return
+            if command.kind == "stop":
+                control_state.request_stop(source="terminal")
+                print("[control] local stop received.", file=sys.stderr)
+                return
+            if command.kind == "status":
+                print(format_control_status(control_runtime_state), file=sys.stderr)
+                return
+            if command.kind == "help":
+                print(control_help_text(), file=sys.stderr)
+                return
+
+        local_control_poller = LocalControlPoller(
+            control_file=args.control_file,
+            on_command=on_local_control,
+            on_error=lambda msg: print(f"[control] {msg}", file=sys.stderr),
+            poll_interval_seconds=args.control_poll_interval_seconds,
+        )
+        local_control_poller.start()
+        print(f"Local control channel enabled: {args.control_file}", file=sys.stderr)
+
     def on_event(stream: str, line: str) -> None:
         if dashboard_store is not None:
             dashboard_store.add_stream_line(stream=stream, line=line)
@@ -237,6 +265,8 @@ def main() -> None:
     finally:
         if telegram_stream_reporter is not None:
             telegram_stream_reporter.stop()
+        if local_control_poller is not None:
+            local_control_poller.stop()
         if telegram_control_poller is not None:
             telegram_control_poller.stop()
         if telegram_notifier is not None:
@@ -294,6 +324,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass `--dangerously-bypass-approvals-and-sandbox` to Codex CLI.",
     )
     parser.add_argument("--state-file", default=None, help="Write state JSON after each loop round.")
+    parser.add_argument(
+        "--control-file",
+        default=None,
+        help="Local JSONL control file for terminal commands (inject/stop/status).",
+    )
+    parser.add_argument(
+        "--control-poll-interval-seconds",
+        type=int,
+        default=1,
+        help="Polling interval for local control file.",
+    )
     parser.add_argument(
         "--stall-soft-idle-seconds",
         type=int,

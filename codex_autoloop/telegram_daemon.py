@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 
+from .daemon_bus import BusCommand, JsonlCommandBus, write_status
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 
@@ -29,6 +30,15 @@ def main() -> None:
         chat_id = resolved
         print(f"Resolved chat_id={chat_id}", file=sys.stderr)
 
+    run_cwd = Path(args.run_cd).resolve()
+    logs_dir = Path(args.logs_dir).resolve()
+    bus_dir = Path(args.bus_dir).resolve()
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    bus_dir.mkdir(parents=True, exist_ok=True)
+
+    daemon_bus = JsonlCommandBus(bus_dir / "daemon_commands.jsonl")
+    status_path = bus_dir / "daemon_status.json"
+
     notifier = TelegramNotifier(
         TelegramConfig(
             bot_token=args.telegram_bot_token,
@@ -43,17 +53,40 @@ def main() -> None:
     child_objective: str | None = None
     child_log_path: Path | None = None
     child_started_at: dt.datetime | None = None
+    child_control_bus: JsonlCommandBus | None = None
 
-    logs_dir = Path(args.logs_dir).resolve()
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    def update_status() -> None:
+        running = child is not None and child.poll() is None
+        write_status(
+            status_path,
+            {
+                "updated_at": dt.datetime.utcnow().isoformat() + "Z",
+                "daemon_running": True,
+                "running": running,
+                "child_pid": child.pid if running else None,
+                "child_objective": child_objective,
+                "child_log_path": str(child_log_path) if child_log_path else None,
+                "child_started_at": child_started_at.isoformat() + "Z" if child_started_at else None,
+                "run_cwd": str(run_cwd),
+                "logs_dir": str(logs_dir),
+                "bus_dir": str(bus_dir),
+            },
+        )
 
     def start_child(objective: str) -> None:
-        nonlocal child, child_objective, child_log_path, child_started_at
+        nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         log_path = logs_dir / f"run-{timestamp}.log"
-        cmd = build_child_command(args=args, objective=objective, chat_id=chat_id)
+        control_path = bus_dir / f"child-control-{timestamp}.jsonl"
+        child_control_bus = JsonlCommandBus(control_path)
+        cmd = build_child_command(
+            args=args,
+            objective=objective,
+            chat_id=chat_id,
+            control_file=str(control_path),
+        )
         log_file = log_path.open("w", encoding="utf-8")
-        child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True)
+        child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=run_cwd)
         child_objective = objective
         child_log_path = log_path
         child_started_at = dt.datetime.utcnow()
@@ -63,47 +96,80 @@ def main() -> None:
             f"objective={objective[:700]}\n"
             f"log={log_path}"
         )
+        update_status()
 
-    def on_command(command: TelegramCommand) -> None:
-        nonlocal child
-        if command.kind in {"help"}:
-            notifier.send_message(help_text())
+    def send_reply(source: str, message: str) -> None:
+        if source == "telegram":
+            notifier.send_message(message)
+        else:
+            print(message, file=sys.stdout)
+
+    def forward_to_child(kind: str, text: str, source: str) -> bool:
+        if child is None or child.poll() is not None:
+            return False
+        if child_control_bus is None:
+            return False
+        child_control_bus.publish(BusCommand(kind=kind, text=text, source=source, ts=time.time()))
+        return True
+
+    def handle_command(kind: str, text: str, source: str) -> None:
+        nonlocal child, child_control_bus
+        command = TelegramCommand(kind=kind, text=text)
+        if command.kind == "help":
+            send_reply(source, help_text())
             return
-        if command.kind in {"status"}:
-            notifier.send_message(
+        if command.kind == "status":
+            send_reply(
+                source,
                 format_status(
                     child=child,
                     child_objective=child_objective,
                     child_log_path=child_log_path,
                     child_started_at=child_started_at,
-                )
+                ),
             )
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
             if not objective:
-                notifier.send_message("[daemon] missing objective. Use /run <objective>.")
+                send_reply(source, "[daemon] missing objective. Use /run <objective>.")
                 return
-            if child is not None and child.poll() is None:
-                notifier.send_message(
-                    "[daemon] a run is already active.\n"
-                    "Use /status to inspect it, or send /stop to stop it."
-                )
+            running = child is not None and child.poll() is None
+            if running:
+                if forward_to_child("inject", objective, source):
+                    send_reply(
+                        source,
+                        "[daemon] inject forwarded to active run. "
+                        "Child loop will interrupt and apply your new instruction.",
+                    )
+                else:
+                    send_reply(source, "[daemon] active run exists but child control bus unavailable.")
                 return
             start_child(objective)
             return
-        if command.kind in {"stop"}:
-            if child is None or child.poll() is not None:
-                notifier.send_message("[daemon] no active run.")
+        if command.kind == "stop":
+            running = child is not None and child.poll() is None
+            if not running:
+                send_reply(source, "[daemon] no active run.")
                 return
-            child.terminate()
-            notifier.send_message("[daemon] stop signal sent to active run.")
+            if forward_to_child("stop", "", source):
+                send_reply(source, "[daemon] stop forwarded to active run.")
+            else:
+                assert child is not None
+                child.terminate()
+                send_reply(source, "[daemon] stop signal sent to active run.")
             return
+        if command.kind == "daemon-stop":
+            send_reply(source, "[daemon] stopping daemon.")
+            raise SystemExit(0)
+
+    def on_telegram_command(command: TelegramCommand) -> None:
+        handle_command(command.kind, command.text, "telegram")
 
     poller = TelegramCommandPoller(
         bot_token=args.telegram_bot_token,
         chat_id=chat_id,
-        on_command=on_command,
+        on_command=on_telegram_command,
         on_error=lambda msg: print(f"[daemon] {msg}", file=sys.stderr),
         poll_interval_seconds=args.poll_interval_seconds,
         long_poll_timeout_seconds=args.long_poll_timeout_seconds,
@@ -115,14 +181,19 @@ def main() -> None:
         "Send /run <objective> to start a new run.\n"
         "Commands: /status /stop /help"
     )
+    update_status()
 
     try:
         while True:
-            time.sleep(2)
+            time.sleep(1)
+            for item in daemon_bus.read_new():
+                handle_command(item.kind, item.text, "terminal")
             if child is None:
+                update_status()
                 continue
             rc = child.poll()
             if rc is None:
+                update_status()
                 continue
             notifier.send_message(
                 "[daemon] run finished\n"
@@ -131,16 +202,26 @@ def main() -> None:
                 f"log={child_log_path}"
             )
             child = None
+            child_control_bus = None
+            update_status()
     except KeyboardInterrupt:
         print("Daemon interrupted.", file=sys.stderr)
     finally:
         poller.stop()
         if child is not None and child.poll() is None:
             child.terminate()
+        write_status(
+            status_path,
+            {
+                "updated_at": dt.datetime.utcnow().isoformat() + "Z",
+                "daemon_running": False,
+                "running": False,
+            },
+        )
         notifier.close()
 
 
-def build_child_command(*, args: argparse.Namespace, objective: str, chat_id: str) -> list[str]:
+def build_child_command(*, args: argparse.Namespace, objective: str, chat_id: str, control_file: str) -> list[str]:
     cmd = [
         args.codex_autoloop_bin,
         "--max-rounds",
@@ -149,6 +230,8 @@ def build_child_command(*, args: argparse.Namespace, objective: str, chat_id: st
         args.telegram_bot_token,
         "--telegram-chat-id",
         chat_id,
+        "--control-file",
+        control_file,
     ]
     if args.run_skip_git_repo_check:
         cmd.append("--skip-git-repo-check")
@@ -196,8 +279,10 @@ def help_text() -> str:
     return (
         "[daemon] commands\n"
         "/run <objective> - start a new codex-autoloop run\n"
+        "/inject <instruction> - inject instruction to active run (or run if idle)\n"
         "/status - daemon + child status\n"
         "/stop - stop active run\n"
+        "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
         "Plain text message is treated as /run when idle."
     )
@@ -241,6 +326,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--logs-dir",
         default=".codex_daemon/logs",
         help="Directory for child run logs.",
+    )
+    parser.add_argument(
+        "--bus-dir",
+        default=".codex_daemon/bus",
+        help="Directory for daemon control bus files.",
+    )
+    parser.add_argument(
+        "--run-cd",
+        default=".",
+        help="Working directory for child codex-autoloop runs.",
     )
     parser.add_argument("--run-max-rounds", type=int, default=12, help="Child codex-autoloop max rounds.")
     parser.add_argument(

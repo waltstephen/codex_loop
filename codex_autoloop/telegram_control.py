@@ -148,6 +148,8 @@ def parse_command_from_update(
         return None
     if content in {"/stop", "/halt"}:
         return TelegramCommand(kind="stop", text="")
+    if content in {"/daemon-stop", "/shutdown-daemon"}:
+        return TelegramCommand(kind="daemon-stop", text="")
     if content in {"/status", "/stat"}:
         return TelegramCommand(kind="status", text="")
     if content in {"/help", "/commands"}:

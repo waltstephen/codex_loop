@@ -125,6 +125,14 @@ while [[ $# -gt 0 ]]; do
       AUTOLOOP_ARGS+=(--session-id "$2")
       shift 2
       ;;
+    --control-file)
+      AUTOLOOP_ARGS+=(--control-file "$2")
+      shift 2
+      ;;
+    --control-poll-interval-seconds)
+      AUTOLOOP_ARGS+=(--control-poll-interval-seconds "$2")
+      shift 2
+      ;;
     --stall-soft-idle-seconds)
       AUTOLOOP_ARGS+=(--stall-soft-idle-seconds "$2")
       shift 2

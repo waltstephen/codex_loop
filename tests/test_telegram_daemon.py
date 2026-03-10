@@ -17,10 +17,11 @@ def test_build_child_command_includes_core_args() -> None:
         run_state_file=".codex_daemon/last_state.json",
         run_no_dashboard=True,
     )
-    cmd = build_child_command(args=args, objective="do work", chat_id="42")
+    cmd = build_child_command(args=args, objective="do work", chat_id="42", control_file="/tmp/control.jsonl")
     assert cmd[0] == "codex-autoloop"
     assert "--telegram-bot-token" in cmd
     assert "--telegram-chat-id" in cmd
+    assert "--control-file" in cmd
     assert "--check" in cmd
     assert "--yolo" in cmd
     assert "--skip-git-repo-check" in cmd

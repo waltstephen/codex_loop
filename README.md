@@ -138,6 +138,30 @@ TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... ./scripts/start_telegram_daemon.sh
 
 Recommendation: prefer `systemd` or supervisor over raw `nohup` for production reliability.
 
+## Interactive first-run setup (recommended)
+
+Run once:
+
+```bash
+codex-autoloop-setup --run-cd .
+```
+
+The wizard will:
+
+1. Check `codex` CLI availability and basic auth probe.
+2. Prompt for Telegram bot token/chat id.
+3. Start daemon in background and save config under `.codex_daemon/`.
+
+After setup, use terminal control:
+
+```bash
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus run "帮我在这个文件夹写一下pipeline"
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "先修测试再继续"
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus daemon-stop
+```
+
 ## `codex --autoloop` style shim
 
 You can add a shell function so `codex --autoloop ...` routes to this plugin.

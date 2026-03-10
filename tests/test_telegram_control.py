@@ -47,6 +47,16 @@ def test_parse_stop_and_status() -> None:
     assert status is not None and status.kind == "status"
 
 
+def test_parse_daemon_stop() -> None:
+    cmd = parse_command_from_update(
+        update=_wrap("/daemon-stop"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert cmd is not None
+    assert cmd.kind == "daemon-stop"
+
+
 def test_parse_run_command() -> None:
     run = parse_command_from_update(
         update=_wrap("/run build training pipeline"),

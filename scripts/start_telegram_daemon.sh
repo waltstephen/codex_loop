@@ -7,14 +7,23 @@ if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
 fi
 
 LOG_DIR="${CODEX_DAEMON_LOG_DIR:-.codex_daemon}"
+BUS_DIR="${CODEX_DAEMON_BUS_DIR:-${LOG_DIR}/bus}"
+RUN_CD="${CODEX_DAEMON_RUN_CD:-$PWD}"
 mkdir -p "${LOG_DIR}"
+mkdir -p "${BUS_DIR}"
 
 nohup codex-autoloop-telegram-daemon \
   --telegram-bot-token "${TELEGRAM_BOT_TOKEN}" \
   --telegram-chat-id "${TELEGRAM_CHAT_ID:-auto}" \
   --run-check "${CODEX_DAEMON_CHECK:-pytest -q}" \
+  --run-cd "${RUN_CD}" \
+  --bus-dir "${BUS_DIR}" \
+  --logs-dir "${LOG_DIR}/logs" \
   >"${LOG_DIR}/daemon.out" 2>&1 &
 
 echo "Started codex-autoloop-telegram-daemon in background."
 echo "PID: $!"
 echo "Log: ${LOG_DIR}/daemon.out"
+echo "Bus dir: ${BUS_DIR}"
+echo "Use terminal control:"
+echo "  codex-autoloop-daemon-ctl --bus-dir ${BUS_DIR} status"
