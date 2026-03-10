@@ -101,6 +101,14 @@ while [[ $# -gt 0 ]]; do
       AUTOLOOP_ARGS+=(--session-id "$2")
       shift 2
       ;;
+    --stall-soft-idle-seconds)
+      AUTOLOOP_ARGS+=(--stall-soft-idle-seconds "$2")
+      shift 2
+      ;;
+    --stall-hard-idle-seconds)
+      AUTOLOOP_ARGS+=(--stall-hard-idle-seconds "$2")
+      shift 2
+      ;;
     -m|--model)
       MODEL="$2"
       shift 2

@@ -23,6 +23,16 @@ def main() -> None:
     objective = " ".join(args.objective).strip()
     if not objective:
         parser.error("objective cannot be empty")
+    if args.stall_soft_idle_seconds < 0:
+        parser.error("--stall-soft-idle-seconds must be >= 0")
+    if args.stall_hard_idle_seconds < 0:
+        parser.error("--stall-hard-idle-seconds must be >= 0")
+    if (
+        args.stall_soft_idle_seconds > 0
+        and args.stall_hard_idle_seconds > 0
+        and args.stall_hard_idle_seconds < args.stall_soft_idle_seconds
+    ):
+        parser.error("--stall-hard-idle-seconds must be >= --stall-soft-idle-seconds")
 
     dashboard_store: DashboardStore | None = None
     dashboard_server: DashboardServer | None = None
@@ -139,6 +149,8 @@ def main() -> None:
             state_file=args.state_file,
             initial_session_id=args.session_id,
             loop_event_callback=on_loop_event,
+            stall_soft_idle_seconds=args.stall_soft_idle_seconds,
+            stall_hard_idle_seconds=args.stall_hard_idle_seconds,
         ),
     )
     try:
@@ -223,6 +235,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass `--dangerously-bypass-approvals-and-sandbox` to Codex CLI.",
     )
     parser.add_argument("--state-file", default=None, help="Write state JSON after each loop round.")
+    parser.add_argument(
+        "--stall-soft-idle-seconds",
+        type=int,
+        default=1200,
+        help=(
+            "Soft idle threshold in seconds. When exceeded without new output, "
+            "stall sub-agent inspects recent messages and decides whether to restart."
+        ),
+    )
+    parser.add_argument(
+        "--stall-hard-idle-seconds",
+        type=int,
+        default=10800,
+        help=(
+            "Hard idle threshold in seconds. When exceeded without new output, "
+            "force a restart regardless of sub-agent decision."
+        ),
+    )
     parser.add_argument("--dashboard", action="store_true", help="Serve local live dashboard while running.")
     parser.add_argument("--dashboard-host", default="127.0.0.1", help="Dashboard host bind address.")
     parser.add_argument("--dashboard-port", type=int, default=8787, help="Dashboard TCP port.")

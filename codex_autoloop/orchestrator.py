@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .checks import all_checks_passed, run_checks
-from .codex_runner import CodexRunner, RunnerOptions
+from .codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
 from .models import ReviewDecision, RoundSummary
 from .reviewer import Reviewer, ReviewerConfig
+from .stall_subagent import analyze_stall
 
 LoopEventCallback = Callable[[dict[str, Any]], None]
 
@@ -31,6 +32,8 @@ class AutoLoopConfig:
     state_file: str | None = None
     initial_session_id: str | None = None
     loop_event_callback: LoopEventCallback | None = None
+    stall_soft_idle_seconds: int = 1200
+    stall_hard_idle_seconds: int = 10800
 
 
 @dataclass
@@ -63,6 +66,9 @@ class AutoLoopOrchestrator:
         )
 
         for round_index in range(1, self.config.max_rounds + 1):
+            def inactivity_callback(snapshot: InactivitySnapshot) -> str:
+                return self._handle_inactivity(round_index=round_index, snapshot=snapshot)
+
             self._emit(
                 {
                     "type": "round.started",
@@ -79,6 +85,9 @@ class AutoLoopOrchestrator:
                     full_auto=self.config.full_auto,
                     skip_git_repo_check=self.config.skip_git_repo_check,
                     extra_args=self.config.main_extra_args,
+                    watchdog_soft_idle_seconds=self.config.stall_soft_idle_seconds,
+                    watchdog_hard_idle_seconds=self.config.stall_hard_idle_seconds,
+                    inactivity_callback=inactivity_callback,
                 ),
                 run_label="main",
             )
@@ -268,3 +277,27 @@ class AutoLoopOrchestrator:
         if callback is None:
             return
         callback(event)
+
+    def _handle_inactivity(self, *, round_index: int, snapshot: InactivitySnapshot) -> str:
+        decision = analyze_stall(snapshot)
+        self._emit(
+            {
+                "type": "round.watchdog.checked",
+                "round_index": round_index,
+                "idle_seconds": int(snapshot.idle_seconds),
+                "should_restart": decision.should_restart,
+                "reason": decision.reason,
+                "matched_pattern": decision.matched_pattern,
+            }
+        )
+        if decision.should_restart:
+            self._emit(
+                {
+                    "type": "round.watchdog.restart_requested",
+                    "round_index": round_index,
+                    "idle_seconds": int(snapshot.idle_seconds),
+                    "reason": decision.reason,
+                }
+            )
+            return "restart"
+        return "continue"

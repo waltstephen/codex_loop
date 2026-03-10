@@ -43,6 +43,8 @@ Common options:
 - `--telegram-events`: choose which events are pushed (comma-separated)
 - `--telegram-live-interval-seconds 30`: push live agent message deltas every 30s (only when changed)
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
+- `--stall-soft-idle-seconds 1200`: after 20m no new output, run stall sub-agent diagnosis (do not force kill)
+- `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
 
 Example with live dashboard:
 
@@ -78,6 +80,11 @@ Live visibility defaults:
 
 - Terminal prints main/reviewer agent messages in realtime.
 - Telegram sends live message deltas every 30 seconds only if there are new changes.
+
+Stall watchdog defaults:
+
+- If no new output for 20 minutes, sub-agent inspects the latest message/tails and decides whether restart is needed.
+- If no new output reaches 3 hours, process is force-restarted regardless.
 
 Typing heartbeat is enabled by default during execution. Disable with:
 
