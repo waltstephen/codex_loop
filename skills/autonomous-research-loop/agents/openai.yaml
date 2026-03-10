@@ -1,0 +1,4 @@
+interface:
+  display_name: "Autonomous Research Loop"
+  short_description: "Autonomous loops with strict git and runtime gates"
+  default_prompt: "Use $autonomous-research-loop to execute and validate this repo task end-to-end with commit discipline, smoke tests, checkpoint checks, and optional push."

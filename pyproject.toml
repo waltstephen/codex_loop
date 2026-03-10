@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codex-autoloop"
+version = "0.1.0"
+description = "Supervisor loop for Codex CLI with reviewer sub-agent gating."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+codex-autoloop = "codex_autoloop.cli:main"
+
+[tool.setuptools]
+packages = ["codex_autoloop"]
+
+[tool.setuptools.package-data]
+codex_autoloop = ["reviewer_schema.json"]
