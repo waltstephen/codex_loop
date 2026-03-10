@@ -1,5 +1,5 @@
 from codex_autoloop.dashboard import DashboardStore
-from codex_autoloop.cli import parse_telegram_events
+from codex_autoloop.cli import parse_telegram_events, resolve_operator_messages_file
 
 
 def test_dashboard_store_state_and_events() -> None:
@@ -23,3 +23,12 @@ def test_dashboard_store_state_and_events() -> None:
 def test_parse_telegram_events() -> None:
     parsed = parse_telegram_events("loop.started, round.review.completed , ,loop.completed")
     assert parsed == {"loop.started", "round.review.completed", "loop.completed"}
+
+
+def test_resolve_operator_messages_file_prefers_explicit() -> None:
+    out = resolve_operator_messages_file(
+        explicit_path="/tmp/a.md",
+        control_file="/tmp/control.jsonl",
+        state_file="/tmp/state.json",
+    )
+    assert out == "/tmp/a.md"

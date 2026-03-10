@@ -173,6 +173,7 @@ Default behavior for daemon-launched runs:
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
+- Operator messages (initial objective + terminal/Telegram injects) are written to per-run markdown files in the daemon logs directory.
 
 After setup, use terminal control:
 
@@ -195,6 +196,11 @@ Realtime log mirror:
 ```bash
 ./scripts/watch_daemon_logs.sh .codex_daemon
 ```
+
+This mirrors:
+
+- `.codex_daemon/daemon.out`
+- `.codex_daemon/logs/daemon-events.jsonl` (Telegram/terminal control interactions)
 
 If `codex-autoloop-daemon-ctl` is not found, replace it with:
 

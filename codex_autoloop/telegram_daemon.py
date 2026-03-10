@@ -108,12 +108,14 @@ def main() -> None:
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
+        messages_path = logs_dir / f"run-{timestamp}-operator_messages.md"
         child_control_bus = JsonlCommandBus(control_path)
         cmd = build_child_command(
             args=args,
             objective=objective,
             chat_id=chat_id,
             control_file=str(control_path),
+            operator_messages_file=str(messages_path),
         )
         log_file = log_path.open("w", encoding="utf-8")
         child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=run_cwd)
@@ -132,6 +134,7 @@ def main() -> None:
             objective=objective[:700],
             log_path=str(log_path),
             control_path=str(control_path),
+            operator_messages_file=str(messages_path),
         )
         update_status()
 
@@ -283,7 +286,14 @@ def main() -> None:
         notifier.close()
 
 
-def build_child_command(*, args: argparse.Namespace, objective: str, chat_id: str, control_file: str) -> list[str]:
+def build_child_command(
+    *,
+    args: argparse.Namespace,
+    objective: str,
+    chat_id: str,
+    control_file: str,
+    operator_messages_file: str,
+) -> list[str]:
     cmd = [
         args.codex_autoloop_bin,
         "--max-rounds",
@@ -294,6 +304,8 @@ def build_child_command(*, args: argparse.Namespace, objective: str, chat_id: st
         chat_id,
         "--control-file",
         control_file,
+        "--operator-messages-file",
+        operator_messages_file,
         "--telegram-control-whisper-model",
         args.telegram_control_whisper_model,
         "--telegram-control-whisper-base-url",

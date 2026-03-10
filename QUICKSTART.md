@@ -82,6 +82,7 @@ Defaults:
 - Daemon-launched run uses `--yolo` by default.
 - Default check command is optional (leave empty for no forced check).
 - One Telegram token can only be used by one active daemon.
+- Operator messages are recorded into per-run markdown files in `.codex_daemon/logs/`.
 
 One-click kill:
 

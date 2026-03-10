@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 from .control_state import LoopControlState
@@ -52,11 +53,17 @@ def main() -> None:
             file=sys.stderr,
         )
 
+    operator_messages_file = resolve_operator_messages_file(
+        explicit_path=args.operator_messages_file,
+        control_file=args.control_file,
+        state_file=args.state_file,
+    )
     telegram_notifier: TelegramNotifier | None = None
     telegram_stream_reporter: TelegramStreamReporter | None = None
     telegram_control_poller: TelegramCommandPoller | None = None
     local_control_poller: LocalControlPoller | None = None
-    control_state = LoopControlState()
+    control_state = LoopControlState(operator_messages_file=operator_messages_file)
+    control_state.record_message(text=objective, source="operator", kind="initial-objective")
     control_runtime_state: dict[str, Any] = {
         "status": "idle",
         "round": 0,
@@ -241,6 +248,7 @@ def main() -> None:
             external_interrupt_reason_provider=control_state.consume_interrupt_reason,
             pending_instruction_consumer=control_state.consume_pending_instruction,
             stop_requested_checker=control_state.is_stop_requested,
+            operator_messages_provider=control_state.list_messages,
         ),
     )
     try:
@@ -329,6 +337,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass `--dangerously-bypass-approvals-and-sandbox` to Codex CLI.",
     )
     parser.add_argument("--state-file", default=None, help="Write state JSON after each loop round.")
+    parser.add_argument(
+        "--operator-messages-file",
+        default=None,
+        help="Markdown document path for operator message history used by reviewer.",
+    )
     parser.add_argument(
         "--control-file",
         default=None,
@@ -482,6 +495,21 @@ def looks_like_bot_token(token: str) -> bool:
         return False
     left, right = token.split(":", 1)
     return left.isdigit() and len(right) >= 10
+
+
+def resolve_operator_messages_file(
+    *,
+    explicit_path: str | None,
+    control_file: str | None,
+    state_file: str | None,
+) -> str | None:
+    if explicit_path:
+        return explicit_path
+    if control_file:
+        return str(Path(control_file).resolve().parent / "operator_messages.md")
+    if state_file:
+        return str(Path(state_file).resolve().parent / "operator_messages.md")
+    return None
 
 
 def update_runtime_state(state: dict[str, Any], event: dict[str, Any]) -> None:

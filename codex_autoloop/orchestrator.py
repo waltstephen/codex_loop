@@ -37,6 +37,7 @@ class AutoLoopConfig:
     external_interrupt_reason_provider: Callable[[], str | None] | None = None
     pending_instruction_consumer: Callable[[], str | None] | None = None
     stop_requested_checker: Callable[[], bool] | None = None
+    operator_messages_provider: Callable[[], list[str]] | None = None
 
 
 @dataclass
@@ -199,6 +200,7 @@ class AutoLoopOrchestrator:
             )
             review = self.reviewer.evaluate(
                 objective=self.config.objective,
+                operator_messages=self._get_operator_messages(),
                 round_index=round_index,
                 session_id=session_id,
                 main_summary=main_result.last_agent_message,
@@ -391,6 +393,12 @@ class AutoLoopOrchestrator:
         if checker is None:
             return False
         return checker()
+
+    def _get_operator_messages(self) -> list[str]:
+        provider = self.config.operator_messages_provider
+        if provider is None:
+            return []
+        return provider()
 
     @staticmethod
     def _build_operator_override_prompt(*, objective: str, instruction: str) -> str:

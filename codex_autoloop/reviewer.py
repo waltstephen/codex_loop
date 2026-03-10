@@ -27,6 +27,7 @@ class Reviewer:
         self,
         *,
         objective: str,
+        operator_messages: list[str],
         round_index: int,
         session_id: str | None,
         main_summary: str,
@@ -36,6 +37,7 @@ class Reviewer:
     ) -> ReviewDecision:
         prompt = self._build_prompt(
             objective=objective,
+            operator_messages=operator_messages,
             round_index=round_index,
             session_id=session_id,
             main_summary=main_summary,
@@ -77,6 +79,7 @@ class Reviewer:
         self,
         *,
         objective: str,
+        operator_messages: list[str],
         round_index: int,
         session_id: str | None,
         main_summary: str,
@@ -85,6 +88,7 @@ class Reviewer:
     ) -> str:
         error_text = main_error or "none"
         check_text = summarize_checks(checks)
+        operator_text = "\n".join(f"- {line}" for line in operator_messages) if operator_messages else "- none"
         return (
             "You are the reviewer sub-agent for a Codex autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
@@ -94,6 +98,8 @@ class Reviewer:
             "3) Use `blocked` only if additional user input is strictly required.\n"
             "4) `next_action` must be a concrete instruction for the primary agent.\n\n"
             f"Objective:\n{objective}\n\n"
+            "Operator message history (source of truth for user instructions):\n"
+            f"{operator_text}\n\n"
             f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
             f"Main agent fatal error: {error_text}\n\n"
