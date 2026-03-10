@@ -8,6 +8,18 @@
 
 This solves the common "agent stopped early and asked for next instruction" problem.
 
+## Current Feature Snapshot
+
+- Persistent main-agent loop with reviewer gating (`done/continue/blocked`).
+- Stall watchdog with soft diagnosis and hard restart safety window.
+- Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
+- Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
+- Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
+- Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
+- Token-exclusive daemon lock: one active daemon per Telegram token.
+- Operator message history persisted to markdown and fed to reviewer decisions.
+- Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
+
 ## Why this is a plugin, not a native flag
 
 Current Codex CLI does not expose a built-in `--autoloop` flag, so this repo adds a wrapper layer around `codex exec`.
