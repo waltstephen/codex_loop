@@ -9,6 +9,7 @@ fi
 LOG_DIR="${CODEX_DAEMON_LOG_DIR:-.codex_daemon}"
 BUS_DIR="${CODEX_DAEMON_BUS_DIR:-${LOG_DIR}/bus}"
 RUN_CD="${CODEX_DAEMON_RUN_CD:-$PWD}"
+TOKEN_LOCK_DIR="${CODEX_DAEMON_TOKEN_LOCK_DIR:-/tmp/codex-autoloop-token-locks}"
 mkdir -p "${LOG_DIR}"
 mkdir -p "${BUS_DIR}"
 
@@ -34,6 +35,7 @@ nohup "${DAEMON_CMD[@]}" \
   --run-cd "${RUN_CD}" \
   --bus-dir "${BUS_DIR}" \
   --logs-dir "${LOG_DIR}/logs" \
+  --token-lock-dir "${TOKEN_LOCK_DIR}" \
   "${EXTRA_ARGS[@]}" \
   >"${LOG_DIR}/daemon.out" 2>&1 &
 
@@ -43,3 +45,5 @@ echo "Log: ${LOG_DIR}/daemon.out"
 echo "Bus dir: ${BUS_DIR}"
 echo "Use terminal control:"
 echo "  codex-autoloop-daemon-ctl --bus-dir ${BUS_DIR} status"
+echo "Live logs:"
+echo "  ./scripts/watch_daemon_logs.sh ${LOG_DIR%/logs}"

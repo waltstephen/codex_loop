@@ -6,7 +6,10 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+from .token_lock import acquire_token_lock
 
 
 def main() -> None:
@@ -46,6 +49,18 @@ def main() -> None:
     bus_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
+    try:
+        probe_lock = acquire_token_lock(
+            token=token,
+            owner_info={"pid": "setup-probe", "run_cd": str(Path(args.run_cd).resolve())},
+            lock_dir=args.token_lock_dir,
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2)
+    else:
+        probe_lock.release()
+
     config = {
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
@@ -78,6 +93,8 @@ def main() -> None:
         str(bus_dir),
         "--logs-dir",
         str(logs_dir),
+        "--token-lock-dir",
+        args.token_lock_dir,
     ]
     if check_cmd:
         daemon_cmd.extend(["--run-check", check_cmd])
@@ -98,6 +115,11 @@ def main() -> None:
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
+    time.sleep(1.0)
+    if proc.poll() is not None:
+        print("Daemon failed to start. Recent log:", file=sys.stderr)
+        print(read_log_tail(daemon_log, max_lines=25), file=sys.stderr)
+        raise SystemExit(2)
 
     pid_path = home_dir / "daemon.pid"
     pid_path.write_text(str(proc.pid), encoding="utf-8")
@@ -168,6 +190,16 @@ def resolve_daemon_ctl_hint() -> str:
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
 
 
+def read_log_tail(path: Path, max_lines: int) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return "<unable to read daemon log>"
+    if len(lines) <= max_lines:
+        return "\n".join(lines)
+    return "\n".join(lines[-max_lines:])
+
+
 def prompt_input(prompt: str, default: str) -> str:
     raw = input(prompt).strip()
     if not raw:
@@ -206,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable/disable --yolo for daemon-launched runs (default: enabled).",
+    )
+    parser.add_argument(
+        "--token-lock-dir",
+        default="/tmp/codex-autoloop-token-locks",
+        help="Global lock directory to enforce one daemon per Telegram token.",
     )
     return parser
 

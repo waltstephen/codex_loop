@@ -172,6 +172,7 @@ Default behavior for daemon-launched runs:
 
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
+- One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 
 After setup, use terminal control:
 
@@ -187,6 +188,12 @@ One-click kill script:
 
 ```bash
 ./scripts/kill_telegram_daemon.sh
+```
+
+Realtime log mirror:
+
+```bash
+./scripts/watch_daemon_logs.sh .codex_daemon
 ```
 
 If `codex-autoloop-daemon-ctl` is not found, replace it with:

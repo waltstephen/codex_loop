@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+import os
 import subprocess
 import sys
 import time
@@ -10,6 +12,7 @@ from pathlib import Path
 from .daemon_bus import BusCommand, JsonlCommandBus, write_status
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
+from .token_lock import TokenLock, acquire_token_lock
 
 
 def main() -> None:
@@ -35,6 +38,23 @@ def main() -> None:
     bus_dir = Path(args.bus_dir).resolve()
     logs_dir.mkdir(parents=True, exist_ok=True)
     bus_dir.mkdir(parents=True, exist_ok=True)
+    events_log = logs_dir / "daemon-events.jsonl"
+
+    token_lock: TokenLock | None = None
+    try:
+        token_lock = acquire_token_lock(
+            token=args.telegram_bot_token,
+            owner_info={
+                "pid": os.getpid(),
+                "chat_id": chat_id,
+                "run_cwd": str(run_cwd),
+                "bus_dir": str(bus_dir),
+                "started_at": dt.datetime.utcnow().isoformat() + "Z",
+            },
+            lock_dir=args.token_lock_dir,
+        )
+    except RuntimeError as exc:
+        parser.error(str(exc))
 
     daemon_bus = JsonlCommandBus(bus_dir / "daemon_commands.jsonl")
     status_path = bus_dir / "daemon_status.json"
@@ -55,6 +75,15 @@ def main() -> None:
     child_started_at: dt.datetime | None = None
     child_control_bus: JsonlCommandBus | None = None
 
+    def log_event(event_type: str, **kwargs) -> None:
+        payload = {
+            "ts": dt.datetime.utcnow().isoformat() + "Z",
+            "type": event_type,
+            **kwargs,
+        }
+        with events_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
     def update_status() -> None:
         running = child is not None and child.poll() is None
         write_status(
@@ -70,6 +99,7 @@ def main() -> None:
                 "run_cwd": str(run_cwd),
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
+                "events_log": str(events_log),
             },
         )
 
@@ -96,6 +126,13 @@ def main() -> None:
             f"objective={objective[:700]}\n"
             f"log={log_path}"
         )
+        log_event(
+            "child.launched",
+            pid=child.pid,
+            objective=objective[:700],
+            log_path=str(log_path),
+            control_path=str(control_path),
+        )
         update_status()
 
     def send_reply(source: str, message: str) -> None:
@@ -103,6 +140,7 @@ def main() -> None:
             notifier.send_message(message)
         else:
             print(message, file=sys.stdout)
+        log_event("reply.sent", source=source, message=message[:700])
 
     def forward_to_child(kind: str, text: str, source: str) -> bool:
         if child is None or child.poll() is not None:
@@ -110,11 +148,13 @@ def main() -> None:
         if child_control_bus is None:
             return False
         child_control_bus.publish(BusCommand(kind=kind, text=text, source=source, ts=time.time()))
+        log_event("child.command.forwarded", source=source, kind=kind, text=text[:700])
         return True
 
     def handle_command(kind: str, text: str, source: str) -> None:
         nonlocal child, child_control_bus
         command = TelegramCommand(kind=kind, text=text)
+        log_event("command.received", source=source, kind=kind, text=text[:700])
         if command.kind == "help":
             send_reply(source, help_text())
             return
@@ -186,6 +226,13 @@ def main() -> None:
         "Send /run <objective> to start a new run.\n"
         "Commands: /status /stop /help"
     )
+    log_event(
+        "daemon.started",
+        run_cwd=str(run_cwd),
+        logs_dir=str(logs_dir),
+        bus_dir=str(bus_dir),
+        token_hash=(token_lock.token_hash if token_lock else None),
+    )
     update_status()
 
     try:
@@ -206,11 +253,18 @@ def main() -> None:
                 f"objective={str(child_objective or '')[:700]}\n"
                 f"log={child_log_path}"
             )
+            log_event(
+                "child.finished",
+                exit_code=rc,
+                objective=str(child_objective or "")[:700],
+                log_path=str(child_log_path) if child_log_path else None,
+            )
             child = None
             child_control_bus = None
             update_status()
     except KeyboardInterrupt:
         print("Daemon interrupted.", file=sys.stderr)
+        log_event("daemon.interrupted")
     finally:
         poller.stop()
         if child is not None and child.poll() is None:
@@ -223,6 +277,9 @@ def main() -> None:
                 "running": False,
             },
         )
+        log_event("daemon.stopped")
+        if token_lock is not None:
+            token_lock.release()
         notifier.close()
 
 
@@ -349,6 +406,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--bus-dir",
         default=".codex_daemon/bus",
         help="Directory for daemon control bus files.",
+    )
+    parser.add_argument(
+        "--token-lock-dir",
+        default="/tmp/codex-autoloop-token-locks",
+        help="Global lock directory to enforce one daemon per Telegram token.",
     )
     parser.add_argument(
         "--run-cd",

@@ -81,11 +81,18 @@ codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
 Defaults:
 - Daemon-launched run uses `--yolo` by default.
 - Default check command is optional (leave empty for no forced check).
+- One Telegram token can only be used by one active daemon.
 
 One-click kill:
 
 ```bash
 ./scripts/kill_telegram_daemon.sh
+```
+
+Realtime log mirror:
+
+```bash
+./scripts/watch_daemon_logs.sh .codex_daemon
 ```
 
 If command is missing, use:
