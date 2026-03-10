@@ -183,6 +183,41 @@ If `codex-autoloop-daemon-ctl` is not found, replace it with:
 python -m codex_autoloop.daemon_ctl
 ```
 
+## Example: Use in another project (`unify_rl`) with sanitized paths
+
+Use this pattern when `codex_loop` is cloned under a different workspace and you want the daemon to run tasks in `unify_rl`.
+
+```bash
+# Replace with your own locations (public-safe placeholders)
+export WORKSPACE_ROOT="/path/to/workspace"
+export LOOP_REPO="$WORKSPACE_ROOT/codex_loop"
+export TARGET_REPO="$WORKSPACE_ROOT/unify_rl"
+
+cd "$TARGET_REPO"
+python -m pip install -e "$LOOP_REPO"
+
+# First-time setup (interactive)
+python -m codex_autoloop.setup_wizard \
+  --run-cd "$TARGET_REPO" \
+  --home-dir "$TARGET_REPO/.codex_daemon"
+```
+
+After setup:
+
+```bash
+# Terminal control (same running daemon)
+python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" status
+python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" run "run 100-step smoke and validate checkpoint+infer"
+python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" inject "fix test failures first, then continue"
+```
+
+Telegram control in parallel:
+
+- `/run <objective>`
+- `/inject <instruction>`
+- `/status`
+- `/stop`
+
 ## `codex --autoloop` style shim
 
 You can add a shell function so `codex --autoloop ...` routes to this plugin.
