@@ -47,6 +47,17 @@ def test_parse_stop_and_status() -> None:
     assert status is not None and status.kind == "status"
 
 
+def test_parse_run_command() -> None:
+    run = parse_command_from_update(
+        update=_wrap("/run build training pipeline"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert run is not None
+    assert run.kind == "run"
+    assert run.text == "build training pipeline"
+
+
 def test_ignore_other_chat() -> None:
     command = parse_command_from_update(
         update=_wrap("/inject x", chat_id=999),

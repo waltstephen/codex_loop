@@ -12,6 +12,7 @@ dependencies = []
 
 [project.scripts]
 codex-autoloop = "codex_autoloop.cli:main"
+codex-autoloop-telegram-daemon = "codex_autoloop.telegram_daemon:main"
 
 [tool.setuptools]
 packages = ["codex_autoloop"]

@@ -142,6 +142,10 @@ def parse_command_from_update(
         return None
     if content.startswith("/interrupt "):
         return TelegramCommand(kind="inject", text=content[len("/interrupt ") :].strip())
+    if content.startswith("/run "):
+        return TelegramCommand(kind="run", text=content[len("/run ") :].strip())
+    if content == "/run":
+        return None
     if content in {"/stop", "/halt"}:
         return TelegramCommand(kind="stop", text="")
     if content in {"/status", "/stat"}:

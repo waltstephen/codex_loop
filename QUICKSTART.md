@@ -42,6 +42,21 @@ Control examples from Telegram Web:
 - `/status`
 - `/stop`
 
+## 6) Keep Telegram online even when no run is active
+
+```bash
+codex-autoloop-telegram-daemon \
+  --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
+  --telegram-chat-id auto \
+  --run-check "pytest -q"
+```
+
+Then from Telegram Web:
+
+- `/run 帮我在这个文件夹写一下pipeline`
+- `/status`
+- `/stop`
+
 ## 4) Optional dashboard
 
 ```bash

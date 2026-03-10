@@ -112,6 +112,32 @@ Troubleshooting:
 - If no message arrives, run once with `--verbose-events` and check stderr lines prefixed with `[telegram]`.
 - If control commands are ignored, verify command comes from the same chat id resolved for notifications.
 
+## Always-on Telegram daemon (start jobs even when idle)
+
+If you want Telegram to trigger runs when no loop process is active, run:
+
+```bash
+codex-autoloop-telegram-daemon \
+  --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
+  --telegram-chat-id auto \
+  --run-check "pytest -q"
+```
+
+Daemon commands from Telegram:
+
+- `/run <objective>`: start a new `codex-autoloop` run
+- `/status`: daemon/child status
+- `/stop`: stop active run
+- `/help`
+
+For background mode:
+
+```bash
+TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... ./scripts/start_telegram_daemon.sh
+```
+
+Recommendation: prefer `systemd` or supervisor over raw `nohup` for production reliability.
+
 ## `codex --autoloop` style shim
 
 You can add a shell function so `codex --autoloop ...` routes to this plugin.

@@ -139,6 +139,12 @@ def main() -> None:
                 if command.kind == "help":
                     telegram_notifier.send_message(control_help_text())
                     return
+                if command.kind == "run":
+                    telegram_notifier.send_message(
+                        "[autoloop] /run is available in daemon mode.\n"
+                        "Current loop is already active; use /inject, /status, or /stop."
+                    )
+                    return
 
             telegram_control_poller = TelegramCommandPoller(
                 bot_token=args.telegram_bot_token,
