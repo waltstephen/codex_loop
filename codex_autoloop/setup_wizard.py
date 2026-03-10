@@ -34,7 +34,10 @@ def main() -> None:
         print("Token format looks invalid. Expected <digits>:<secret>.", file=sys.stderr)
         raise SystemExit(2)
     chat_id = prompt_input("Telegram chat id (or 'auto'): ", default="auto").strip() or "auto"
-    check_cmd = prompt_input("Default check command: ", default="pytest -q").strip() or "pytest -q"
+    check_cmd = prompt_input(
+        "Default check command (optional, leave empty for none): ",
+        default="",
+    ).strip()
 
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -47,7 +50,7 @@ def main() -> None:
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
         "run_cd": str(Path(args.run_cd).resolve()),
-        "run_check": check_cmd,
+        "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": args.run_max_rounds,
         "run_skip_git_repo_check": args.run_skip_git_repo_check,
         "run_full_auto": args.run_full_auto,
@@ -71,19 +74,21 @@ def main() -> None:
         str(Path(args.run_cd).resolve()),
         "--run-max-rounds",
         str(args.run_max_rounds),
-        "--run-check",
-        check_cmd,
         "--bus-dir",
         str(bus_dir),
         "--logs-dir",
         str(logs_dir),
     ]
+    if check_cmd:
+        daemon_cmd.extend(["--run-check", check_cmd])
     if args.run_skip_git_repo_check:
         daemon_cmd.append("--run-skip-git-repo-check")
     if args.run_full_auto:
         daemon_cmd.append("--run-full-auto")
     if args.run_yolo:
         daemon_cmd.append("--run-yolo")
+    else:
+        daemon_cmd.append("--no-run-yolo")
 
     with daemon_log.open("a", encoding="utf-8") as f:
         proc = subprocess.Popen(
@@ -196,7 +201,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass --skip-git-repo-check for daemon-launched runs.",
     )
     parser.add_argument("--run-full-auto", action="store_true", help="Pass --full-auto for daemon-launched runs.")
-    parser.add_argument("--run-yolo", action="store_true", help="Pass --yolo for daemon-launched runs.")
+    parser.add_argument(
+        "--run-yolo",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable --yolo for daemon-launched runs (default: enabled).",
+    )
     return parser
 
 

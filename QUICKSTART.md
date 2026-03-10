@@ -78,6 +78,16 @@ codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
 ```
 
+Defaults:
+- Daemon-launched run uses `--yolo` by default.
+- Default check command is optional (leave empty for no forced check).
+
+One-click kill:
+
+```bash
+./scripts/kill_telegram_daemon.sh
+```
+
 If command is missing, use:
 
 ```bash

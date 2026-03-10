@@ -18,13 +18,23 @@ else
   DAEMON_CMD=(python -m codex_autoloop.telegram_daemon)
 fi
 
+EXTRA_ARGS=()
+if [[ -n "${CODEX_DAEMON_CHECK:-}" ]]; then
+  EXTRA_ARGS+=(--run-check "${CODEX_DAEMON_CHECK}")
+fi
+if [[ "${CODEX_DAEMON_YOLO:-1}" == "1" || "${CODEX_DAEMON_YOLO:-1}" == "true" ]]; then
+  EXTRA_ARGS+=(--run-yolo)
+else
+  EXTRA_ARGS+=(--no-run-yolo)
+fi
+
 nohup "${DAEMON_CMD[@]}" \
   --telegram-bot-token "${TELEGRAM_BOT_TOKEN}" \
   --telegram-chat-id "${TELEGRAM_CHAT_ID:-auto}" \
-  --run-check "${CODEX_DAEMON_CHECK:-pytest -q}" \
   --run-cd "${RUN_CD}" \
   --bus-dir "${BUS_DIR}" \
   --logs-dir "${LOG_DIR}/logs" \
+  "${EXTRA_ARGS[@]}" \
   >"${LOG_DIR}/daemon.out" 2>&1 &
 
 echo "Started codex-autoloop-telegram-daemon in background."

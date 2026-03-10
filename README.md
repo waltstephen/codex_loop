@@ -165,7 +165,13 @@ The wizard will:
 
 1. Check `codex` CLI availability and basic auth probe.
 2. Prompt for Telegram bot token/chat id.
-3. Start daemon in background and save config under `.codex_daemon/`.
+3. Prompt optional default check command (empty means no forced check command).
+4. Start daemon in background and save config under `.codex_daemon/`.
+
+Default behavior for daemon-launched runs:
+
+- `--yolo` is enabled by default.
+- No default `--check` is enforced unless you set one.
 
 After setup, use terminal control:
 
@@ -175,6 +181,12 @@ codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "先修测试再继
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus daemon-stop
+```
+
+One-click kill script:
+
+```bash
+./scripts/kill_telegram_daemon.sh
 ```
 
 If `codex-autoloop-daemon-ctl` is not found, replace it with:

@@ -368,7 +368,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Pass --skip-git-repo-check to child run.",
     )
     parser.add_argument("--run-full-auto", action="store_true", help="Pass --full-auto to child run.")
-    parser.add_argument("--run-yolo", action="store_true", help="Pass --yolo to child run.")
+    parser.add_argument(
+        "--run-yolo",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable --yolo for child runs (default: enabled).",
+    )
     parser.add_argument(
         "--run-stall-soft-idle-seconds",
         type=int,
