@@ -5,6 +5,7 @@ import json
 import sys
 from typing import Any
 
+from .control_state import LoopControlState
 from .codex_runner import CodexRunner
 from .dashboard import DashboardServer, DashboardStore
 from .live_updates import (
@@ -14,6 +15,7 @@ from .live_updates import (
 )
 from .orchestrator import AutoLoopConfig, AutoLoopOrchestrator
 from .reviewer import Reviewer
+from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 
 
@@ -51,6 +53,14 @@ def main() -> None:
 
     telegram_notifier: TelegramNotifier | None = None
     telegram_stream_reporter: TelegramStreamReporter | None = None
+    telegram_control_poller: TelegramCommandPoller | None = None
+    control_state = LoopControlState()
+    control_runtime_state: dict[str, Any] = {
+        "status": "idle",
+        "round": 0,
+        "session_id": None,
+        "updated_at": None,
+    }
     raw_chat_id = (args.telegram_chat_id or "").strip()
     telegram_requested = bool(args.telegram_bot_token) or raw_chat_id.lower() not in {"", "auto"}
     if telegram_requested:
@@ -91,8 +101,7 @@ def main() -> None:
                 timeout_seconds=args.telegram_timeout_seconds,
                 typing_enabled=(not args.telegram_no_typing),
                 typing_interval_seconds=args.telegram_typing_interval_seconds,
-            )
-            ,
+            ),
             on_error=lambda msg: print(f"[telegram] {msg}", file=sys.stderr),
         )
         print("Telegram notifications enabled.", file=sys.stderr)
@@ -105,6 +114,43 @@ def main() -> None:
                 on_error=lambda msg: print(f"[telegram] {msg}", file=sys.stderr),
             )
             telegram_stream_reporter.start()
+
+        if args.telegram_control:
+            def on_command(command: TelegramCommand) -> None:
+                if command.kind == "inject":
+                    control_state.request_inject(command.text, source="telegram")
+                    telegram_notifier.send_message(
+                        "[autoloop] control ack\n"
+                        "Action: inject\n"
+                        "Main agent will be interrupted and resumed with your new instruction."
+                    )
+                    return
+                if command.kind == "stop":
+                    control_state.request_stop(source="telegram")
+                    telegram_notifier.send_message(
+                        "[autoloop] control ack\n"
+                        "Action: stop\n"
+                        "Current run will be interrupted and loop will stop."
+                    )
+                    return
+                if command.kind == "status":
+                    telegram_notifier.send_message(format_control_status(control_runtime_state))
+                    return
+                if command.kind == "help":
+                    telegram_notifier.send_message(control_help_text())
+                    return
+
+            telegram_control_poller = TelegramCommandPoller(
+                bot_token=args.telegram_bot_token,
+                chat_id=telegram_chat_id,
+                on_command=on_command,
+                on_error=lambda msg: print(f"[telegram-control] {msg}", file=sys.stderr),
+                poll_interval_seconds=args.telegram_control_poll_interval_seconds,
+                long_poll_timeout_seconds=args.telegram_control_long_poll_timeout_seconds,
+                plain_text_as_inject=args.telegram_control_plain_text_inject,
+            )
+            telegram_control_poller.start()
+            print("Telegram control channel enabled.", file=sys.stderr)
 
     def on_event(stream: str, line: str) -> None:
         if dashboard_store is not None:
@@ -124,7 +170,9 @@ def main() -> None:
 
     runner = CodexRunner(codex_bin=args.codex_bin, event_callback=on_event)
     reviewer = Reviewer(runner=runner)
+
     def on_loop_event(event: dict[str, Any]) -> None:
+        update_runtime_state(control_runtime_state, event)
         if dashboard_store is not None:
             dashboard_store.apply_loop_event(event)
         if telegram_notifier is not None:
@@ -151,6 +199,9 @@ def main() -> None:
             loop_event_callback=on_loop_event,
             stall_soft_idle_seconds=args.stall_soft_idle_seconds,
             stall_hard_idle_seconds=args.stall_hard_idle_seconds,
+            external_interrupt_reason_provider=control_state.consume_interrupt_reason,
+            pending_instruction_consumer=control_state.consume_pending_instruction,
+            stop_requested_checker=control_state.is_stop_requested,
         ),
     )
     try:
@@ -180,6 +231,8 @@ def main() -> None:
     finally:
         if telegram_stream_reporter is not None:
             telegram_stream_reporter.stop()
+        if telegram_control_poller is not None:
+            telegram_control_poller.stop()
         if telegram_notifier is not None:
             telegram_notifier.close()
         if dashboard_server is not None:
@@ -303,6 +356,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Push interval for Telegram live updates; sends only when there are changes.",
     )
     parser.add_argument(
+        "--telegram-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Telegram inbound control commands (/inject, /stop, /status).",
+    )
+    parser.add_argument(
+        "--telegram-control-poll-interval-seconds",
+        type=int,
+        default=2,
+        help="Polling interval for Telegram control command loop.",
+    )
+    parser.add_argument(
+        "--telegram-control-long-poll-timeout-seconds",
+        type=int,
+        default=20,
+        help="Long-poll timeout for Telegram getUpdates control loop.",
+    )
+    parser.add_argument(
+        "--telegram-control-plain-text-inject",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Treat plain text Telegram messages as injected instruction updates.",
+    )
+    parser.add_argument(
         "--live-terminal",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -326,6 +403,54 @@ def looks_like_bot_token(token: str) -> bool:
         return False
     left, right = token.split(":", 1)
     return left.isdigit() and len(right) >= 10
+
+
+def update_runtime_state(state: dict[str, Any], event: dict[str, Any]) -> None:
+    event_type = str(event.get("type", ""))
+    state["updated_at"] = event.get("ts")
+    if event_type == "loop.started":
+        state["status"] = "running"
+        state["session_id"] = event.get("session_id")
+        state["round"] = 0
+    elif event_type == "round.started":
+        state["round"] = event.get("round_index", state.get("round", 0))
+        state["session_id"] = event.get("session_id", state.get("session_id"))
+    elif event_type == "round.main.completed":
+        state["session_id"] = event.get("session_id", state.get("session_id"))
+    elif event_type == "loop.completed":
+        state["status"] = "completed"
+        state["success"] = event.get("success")
+        state["stop_reason"] = event.get("stop_reason")
+
+
+def format_control_status(state: dict[str, Any]) -> str:
+    status = state.get("status", "unknown")
+    round_index = state.get("round", 0)
+    session_id = state.get("session_id")
+    success = state.get("success")
+    stop_reason = state.get("stop_reason")
+    lines = [
+        "[autoloop] status",
+        f"status={status}",
+        f"round={round_index}",
+        f"session_id={session_id}",
+    ]
+    if success is not None:
+        lines.append(f"success={success}")
+    if stop_reason:
+        lines.append(f"stop_reason={stop_reason}")
+    return "\n".join(lines)
+
+
+def control_help_text() -> str:
+    return (
+        "[autoloop] control commands\n"
+        "/status - show loop status\n"
+        "/inject <instruction> - interrupt main agent and apply new instruction\n"
+        "/stop - interrupt and stop loop\n"
+        "/help - show command help\n"
+        "Plain text message is treated as instruction inject by default."
+    )
 
 
 if __name__ == "__main__":

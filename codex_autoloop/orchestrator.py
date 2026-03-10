@@ -34,6 +34,9 @@ class AutoLoopConfig:
     loop_event_callback: LoopEventCallback | None = None
     stall_soft_idle_seconds: int = 1200
     stall_hard_idle_seconds: int = 10800
+    external_interrupt_reason_provider: Callable[[], str | None] | None = None
+    pending_instruction_consumer: Callable[[], str | None] | None = None
+    stop_requested_checker: Callable[[], bool] | None = None
 
 
 @dataclass
@@ -66,6 +69,16 @@ class AutoLoopOrchestrator:
         )
 
         for round_index in range(1, self.config.max_rounds + 1):
+            if self._is_stop_requested():
+                result = AutoLoopResult(
+                    success=False,
+                    session_id=session_id,
+                    rounds=rounds,
+                    stop_reason="Stopped by operator command.",
+                )
+                self._emit({"type": "loop.completed", "success": result.success, "stop_reason": result.stop_reason})
+                return result
+
             def inactivity_callback(snapshot: InactivitySnapshot) -> str:
                 return self._handle_inactivity(round_index=round_index, snapshot=snapshot)
 
@@ -88,6 +101,7 @@ class AutoLoopOrchestrator:
                     watchdog_soft_idle_seconds=self.config.stall_soft_idle_seconds,
                     watchdog_hard_idle_seconds=self.config.stall_hard_idle_seconds,
                     inactivity_callback=inactivity_callback,
+                    external_interrupt_reason_provider=self.config.external_interrupt_reason_provider,
                 ),
                 run_label="main",
             )
@@ -104,6 +118,70 @@ class AutoLoopOrchestrator:
                     "last_message": main_result.last_agent_message,
                 }
             )
+            interrupted = (
+                main_result.fatal_error is not None
+                and main_result.fatal_error.startswith("External interrupt:")
+            )
+            if interrupted:
+                injected_instruction = self._consume_pending_instruction()
+                review_reason = main_result.fatal_error
+                next_action = "Continue with prior objective after external interruption."
+                if injected_instruction:
+                    review_reason = (
+                        f"{main_result.fatal_error}. New operator instruction injected and will be applied."
+                    )
+                    next_action = "Apply injected operator instruction in next round."
+                    self._emit(
+                        {
+                            "type": "round.control.injected",
+                            "round_index": round_index,
+                            "instruction": injected_instruction,
+                        }
+                    )
+                review = ReviewDecision(
+                    status="continue",
+                    confidence=1.0,
+                    reason=review_reason,
+                    next_action=next_action,
+                )
+                round_summary = RoundSummary(
+                    round_index=round_index,
+                    thread_id=session_id,
+                    main_exit_code=main_result.exit_code,
+                    main_turn_completed=main_result.turn_completed,
+                    main_turn_failed=True,
+                    checks=[],
+                    review=review,
+                    main_last_message=main_result.last_agent_message,
+                )
+                rounds.append(round_summary)
+                self._persist_state(rounds=rounds, session_id=session_id, current_review=review)
+
+                if self._is_stop_requested():
+                    result = AutoLoopResult(
+                        success=False,
+                        session_id=session_id,
+                        rounds=rounds,
+                        stop_reason="Stopped by operator command.",
+                    )
+                    self._emit(
+                        {"type": "loop.completed", "success": result.success, "stop_reason": result.stop_reason}
+                    )
+                    return result
+
+                if injected_instruction:
+                    next_main_prompt = self._build_operator_override_prompt(
+                        objective=self.config.objective,
+                        instruction=injected_instruction,
+                    )
+                else:
+                    next_main_prompt = self._build_continue_prompt(
+                        objective=self.config.objective,
+                        review=review,
+                        checks_ok=False,
+                    )
+                continue
+
             checks = run_checks(self.config.check_commands or [], self.config.check_timeout_seconds)
             self._emit(
                 {
@@ -301,3 +379,26 @@ class AutoLoopOrchestrator:
             )
             return "restart"
         return "continue"
+
+    def _consume_pending_instruction(self) -> str | None:
+        consumer = self.config.pending_instruction_consumer
+        if consumer is None:
+            return None
+        return consumer()
+
+    def _is_stop_requested(self) -> bool:
+        checker = self.config.stop_requested_checker
+        if checker is None:
+            return False
+        return checker()
+
+    @staticmethod
+    def _build_operator_override_prompt(*, objective: str, instruction: str) -> str:
+        return (
+            "Operator override received from control channel.\n"
+            "Immediately switch to the following instruction while preserving repository safety.\n\n"
+            f"Original objective:\n{objective}\n\n"
+            f"New operator instruction:\n{instruction}\n\n"
+            "Execute concrete work now and continue until completion gates are met.\n"
+            "End with DONE/REMAINING/BLOCKERS."
+        )

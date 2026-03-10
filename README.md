@@ -45,6 +45,7 @@ Common options:
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
 - `--stall-soft-idle-seconds 1200`: after 20m no new output, run stall sub-agent diagnosis (do not force kill)
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
+- `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
 
 Example with live dashboard:
 
@@ -81,6 +82,13 @@ Live visibility defaults:
 - Terminal prints main/reviewer agent messages in realtime.
 - Telegram sends live message deltas every 30 seconds only if there are new changes.
 
+Telegram control channel defaults:
+
+- `/inject <text>` or plain text message: interrupt current main-agent run and apply new instruction next round.
+- `/status`: return current loop state.
+- `/stop`: interrupt current run and stop the loop.
+- `/help`: print command summary.
+
 Stall watchdog defaults:
 
 - If no new output for 20 minutes, sub-agent inspects the latest message/tails and decides whether restart is needed.
@@ -102,6 +110,7 @@ Troubleshooting:
 
 - Bot token must be full format: `<digits>:<secret>`, not only the secret part.
 - If no message arrives, run once with `--verbose-events` and check stderr lines prefixed with `[telegram]`.
+- If control commands are ignored, verify command comes from the same chat id resolved for notifications.
 
 ## `codex --autoloop` style shim
 

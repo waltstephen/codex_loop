@@ -85,6 +85,30 @@ while [[ $# -gt 0 ]]; do
       AUTOLOOP_ARGS+=(--telegram-live-interval-seconds "$2")
       shift 2
       ;;
+    --telegram-control)
+      AUTOLOOP_ARGS+=(--telegram-control)
+      shift
+      ;;
+    --no-telegram-control)
+      AUTOLOOP_ARGS+=(--no-telegram-control)
+      shift
+      ;;
+    --telegram-control-poll-interval-seconds)
+      AUTOLOOP_ARGS+=(--telegram-control-poll-interval-seconds "$2")
+      shift 2
+      ;;
+    --telegram-control-long-poll-timeout-seconds)
+      AUTOLOOP_ARGS+=(--telegram-control-long-poll-timeout-seconds "$2")
+      shift 2
+      ;;
+    --telegram-control-plain-text-inject)
+      AUTOLOOP_ARGS+=(--telegram-control-plain-text-inject)
+      shift
+      ;;
+    --no-telegram-control-plain-text-inject)
+      AUTOLOOP_ARGS+=(--no-telegram-control-plain-text-inject)
+      shift
+      ;;
     --no-telegram-live-updates)
       AUTOLOOP_ARGS+=(--no-telegram-live-updates)
       shift

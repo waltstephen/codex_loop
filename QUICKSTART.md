@@ -34,6 +34,13 @@ Notes:
 - `chat_id` defaults to `auto` and is resolved from Telegram updates.
 - Live terminal streaming is on by default.
 - Telegram live deltas are sent every 30s only when content changes.
+- Telegram control commands are enabled by default (`/inject`, `/status`, `/stop`).
+
+Control examples from Telegram Web:
+
+- `/inject 先停止当前实验，改成只跑100 step并保存checkpoint`
+- `/status`
+- `/stop`
 
 ## 4) Optional dashboard
 

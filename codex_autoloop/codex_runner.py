@@ -27,6 +27,7 @@ class InactivitySnapshot:
 
 
 InactivityCallback = Callable[[InactivitySnapshot], InactivityDecision]
+ExternalInterruptProvider = Callable[[], str | None]
 
 
 @dataclass
@@ -40,6 +41,7 @@ class RunnerOptions:
     watchdog_soft_idle_seconds: int | None = None
     watchdog_hard_idle_seconds: int | None = None
     inactivity_callback: InactivityCallback | None = None
+    external_interrupt_reason_provider: ExternalInterruptProvider | None = None
 
 
 class CodexRunner:
@@ -110,6 +112,17 @@ class CodexRunner:
             except queue.Empty:
                 now = time.monotonic()
                 idle_seconds = now - last_activity_at
+
+                if process.poll() is None and options.external_interrupt_reason_provider is not None:
+                    interrupt_reason = options.external_interrupt_reason_provider()
+                    if interrupt_reason:
+                        watchdog_reason = f"External interrupt: {interrupt_reason}"
+                        self._emit(
+                            self._stream_name("stderr", run_label),
+                            f"[watchdog] {watchdog_reason}",
+                        )
+                        self._terminate_process(process)
+                        watchdog_terminated = True
 
                 if (
                     soft_idle > 0
