@@ -174,6 +174,11 @@ def main() -> None:
         poll_interval_seconds=args.poll_interval_seconds,
         long_poll_timeout_seconds=args.long_poll_timeout_seconds,
         plain_text_as_inject=True,
+        whisper_enabled=args.telegram_control_whisper,
+        whisper_api_key=args.telegram_control_whisper_api_key,
+        whisper_model=args.telegram_control_whisper_model,
+        whisper_base_url=args.telegram_control_whisper_base_url,
+        whisper_timeout_seconds=args.telegram_control_whisper_timeout_seconds,
     )
     poller.start()
     notifier.send_message(
@@ -232,7 +237,19 @@ def build_child_command(*, args: argparse.Namespace, objective: str, chat_id: st
         chat_id,
         "--control-file",
         control_file,
+        "--telegram-control-whisper-model",
+        args.telegram_control_whisper_model,
+        "--telegram-control-whisper-base-url",
+        args.telegram_control_whisper_base_url,
+        "--telegram-control-whisper-timeout-seconds",
+        str(args.telegram_control_whisper_timeout_seconds),
     ]
+    if args.telegram_control_whisper:
+        cmd.append("--telegram-control-whisper")
+    else:
+        cmd.append("--no-telegram-control-whisper")
+    if args.telegram_control_whisper_api_key:
+        cmd.extend(["--telegram-control-whisper-api-key", args.telegram_control_whisper_api_key])
     if args.run_skip_git_repo_check:
         cmd.append("--skip-git-repo-check")
     if args.run_full_auto:
@@ -284,7 +301,8 @@ def help_text() -> str:
         "/stop - stop active run\n"
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
-        "Plain text message is treated as /run when idle."
+        "Plain text message is treated as /run when idle.\n"
+        "Voice/audio message will be transcribed by Whisper when enabled."
     )
 
 
@@ -372,6 +390,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-no-dashboard",
         action="store_true",
         help="Disable dashboard in child run (default: enabled by child default args only).",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Whisper transcription for Telegram voice/audio commands.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-api-key",
+        default=None,
+        help="OpenAI API key for Whisper. Defaults to OPENAI_API_KEY.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-model",
+        default="whisper-1",
+        help="OpenAI transcription model used for Telegram voice/audio messages.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-base-url",
+        default="https://api.openai.com/v1",
+        help="OpenAI-compatible API base URL for Whisper transcription.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-timeout-seconds",
+        type=int,
+        default=90,
+        help="Timeout in seconds for Whisper transcription requests.",
     )
     return parser
 

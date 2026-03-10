@@ -46,6 +46,7 @@ Common options:
 - `--stall-soft-idle-seconds 1200`: after 20m no new output, run stall sub-agent diagnosis (do not force kill)
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
 - `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
+- `--telegram-control-whisper`: enable Telegram voice/audio transcription for control messages (default on)
 
 Example with live dashboard:
 
@@ -85,9 +86,17 @@ Live visibility defaults:
 Telegram control channel defaults:
 
 - `/inject <text>` or plain text message: interrupt current main-agent run and apply new instruction next round.
+- Voice/audio message: auto-transcribed via Whisper and treated like text input (for example spoken `/inject ...`).
 - `/status`: return current loop state.
 - `/stop`: interrupt current run and stop the loop.
 - `/help`: print command summary.
+
+Whisper-related options:
+
+- `--telegram-control-whisper-api-key`: OpenAI API key (defaults to `OPENAI_API_KEY`).
+- `--telegram-control-whisper-model`: transcription model (default `whisper-1`).
+- `--telegram-control-whisper-base-url`: OpenAI-compatible API base URL.
+- `--telegram-control-whisper-timeout-seconds`: transcription request timeout.
 
 Stall watchdog defaults:
 

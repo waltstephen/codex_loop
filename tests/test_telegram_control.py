@@ -1,4 +1,8 @@
-from codex_autoloop.telegram_control import parse_command_from_update
+from codex_autoloop.telegram_control import (
+    TelegramWhisperTranscriber,
+    extract_audio_file_from_message,
+    parse_command_from_update,
+)
 
 
 def _wrap(text: str, chat_id: int = 100) -> dict:
@@ -7,6 +11,16 @@ def _wrap(text: str, chat_id: int = 100) -> dict:
         "message": {
             "chat": {"id": chat_id},
             "text": text,
+        },
+    }
+
+
+def _wrap_voice(file_id: str = "voice-file", chat_id: int = 100) -> dict:
+    return {
+        "update_id": 2,
+        "message": {
+            "chat": {"id": chat_id},
+            "voice": {"file_id": file_id},
         },
     }
 
@@ -75,3 +89,53 @@ def test_ignore_other_chat() -> None:
         plain_text_as_inject=True,
     )
     assert command is None
+
+
+def test_parse_caption_command() -> None:
+    command = parse_command_from_update(
+        update={
+            "update_id": 9,
+            "message": {
+                "chat": {"id": 100},
+                "caption": "/run review open prs",
+            },
+        },
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert command is not None
+    assert command.kind == "run"
+    assert command.text == "review open prs"
+
+
+def test_extract_audio_file_from_message_voice() -> None:
+    audio = extract_audio_file_from_message({"voice": {"file_id": "abc"}})
+    assert audio is not None
+    assert audio.file_id == "abc"
+    assert audio.file_name == "voice.ogg"
+
+
+def test_extract_audio_file_from_message_audio_and_document() -> None:
+    from_audio = extract_audio_file_from_message(
+        {"audio": {"file_id": "audio-id", "file_name": "memo.m4a"}}
+    )
+    from_document = extract_audio_file_from_message(
+        {"document": {"file_id": "doc-id", "mime_type": "audio/ogg", "file_name": "clip.ogg"}}
+    )
+    assert from_audio is not None and from_audio.file_name == "memo.m4a"
+    assert from_document is not None and from_document.file_id == "doc-id"
+
+
+def test_whisper_transcriber_missing_key_reports_once() -> None:
+    errors: list[str] = []
+    transcriber = TelegramWhisperTranscriber(
+        bot_token="123:abc",
+        api_key="",
+        on_error=errors.append,
+    )
+    first = transcriber.transcribe_update(update=_wrap_voice(), expected_chat_id="100")
+    second = transcriber.transcribe_update(update=_wrap_voice(file_id="other"), expected_chat_id="100")
+    assert first is None
+    assert second is None
+    assert len(errors) == 1
+    assert "missing OPENAI_API_KEY" in errors[0]

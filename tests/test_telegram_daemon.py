@@ -8,6 +8,11 @@ def test_build_child_command_includes_core_args() -> None:
         codex_autoloop_bin="codex-autoloop",
         run_max_rounds=8,
         telegram_bot_token="123:abc",
+        telegram_control_whisper=True,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
         run_skip_git_repo_check=True,
         run_full_auto=False,
         run_yolo=True,
@@ -26,4 +31,6 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--yolo" in cmd
     assert "--skip-git-repo-check" in cmd
     assert "--no-dashboard" in cmd
+    assert "--telegram-control-whisper" in cmd
+    assert "--telegram-control-whisper-model" in cmd
     assert cmd[-1] == "do work"

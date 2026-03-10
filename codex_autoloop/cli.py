@@ -156,6 +156,11 @@ def main() -> None:
                 poll_interval_seconds=args.telegram_control_poll_interval_seconds,
                 long_poll_timeout_seconds=args.telegram_control_long_poll_timeout_seconds,
                 plain_text_as_inject=args.telegram_control_plain_text_inject,
+                whisper_enabled=args.telegram_control_whisper,
+                whisper_api_key=args.telegram_control_whisper_api_key,
+                whisper_model=args.telegram_control_whisper_model,
+                whisper_base_url=args.telegram_control_whisper_base_url,
+                whisper_timeout_seconds=args.telegram_control_whisper_timeout_seconds,
             )
             telegram_control_poller.start()
             print("Telegram control channel enabled.", file=sys.stderr)
@@ -427,6 +432,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Treat plain text Telegram messages as injected instruction updates.",
     )
     parser.add_argument(
+        "--telegram-control-whisper",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Whisper transcription for Telegram voice/audio control messages.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-api-key",
+        default=None,
+        help="OpenAI API key for Whisper. Defaults to OPENAI_API_KEY.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-model",
+        default="whisper-1",
+        help="OpenAI transcription model used for Telegram voice/audio messages.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-base-url",
+        default="https://api.openai.com/v1",
+        help="OpenAI-compatible API base URL for Whisper transcription.",
+    )
+    parser.add_argument(
+        "--telegram-control-whisper-timeout-seconds",
+        type=int,
+        default=90,
+        help="Timeout in seconds for Whisper transcription requests.",
+    )
+    parser.add_argument(
         "--live-terminal",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -496,7 +528,8 @@ def control_help_text() -> str:
         "/inject <instruction> - interrupt main agent and apply new instruction\n"
         "/stop - interrupt and stop loop\n"
         "/help - show command help\n"
-        "Plain text message is treated as instruction inject by default."
+        "Plain text message is treated as instruction inject by default.\n"
+        "Voice/audio message will be transcribed by Whisper when enabled."
     )
 
 
