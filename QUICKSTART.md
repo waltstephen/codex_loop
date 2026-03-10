@@ -63,6 +63,12 @@ Then from Telegram Web:
 codex-autoloop-setup --run-cd .
 ```
 
+If the command is missing, use:
+
+```bash
+python -m codex_autoloop.setup_wizard --run-cd .
+```
+
 Then terminal control (same daemon, no restart needed):
 
 ```bash
@@ -70,6 +76,12 @@ codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus run "实现一个长程目
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "切换到更保守的方案并先跑测试"
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
+```
+
+If command is missing, use:
+
+```bash
+python -m codex_autoloop.daemon_ctl --bus-dir .codex_daemon/bus status
 ```
 
 ## 4) Optional dashboard

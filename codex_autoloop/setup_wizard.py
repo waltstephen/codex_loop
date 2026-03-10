@@ -60,8 +60,9 @@ def main() -> None:
     config_path.chmod(0o600)
 
     daemon_log = home_dir / "daemon.out"
+    daemon_prefix = resolve_daemon_launch_prefix()
     daemon_cmd = [
-        "codex-autoloop-telegram-daemon",
+        *daemon_prefix,
         "--telegram-bot-token",
         token,
         "--telegram-chat-id",
@@ -103,11 +104,12 @@ def main() -> None:
     print(f"Log: {daemon_log}")
     print(f"Bus dir: {bus_dir}")
     print("")
+    ctl_hint = resolve_daemon_ctl_hint()
     print("Terminal control examples:")
-    print(f"  codex-autoloop-daemon-ctl --bus-dir {bus_dir} run \"帮我在这个文件夹写一下pipeline\"")
-    print(f"  codex-autoloop-daemon-ctl --bus-dir {bus_dir} inject \"继续并优先修复测试\"")
-    print(f"  codex-autoloop-daemon-ctl --bus-dir {bus_dir} status")
-    print(f"  codex-autoloop-daemon-ctl --bus-dir {bus_dir} stop")
+    print(f"  {ctl_hint} --bus-dir {bus_dir} run \"帮我在这个文件夹写一下pipeline\"")
+    print(f"  {ctl_hint} --bus-dir {bus_dir} inject \"继续并优先修复测试\"")
+    print(f"  {ctl_hint} --bus-dir {bus_dir} status")
+    print(f"  {ctl_hint} --bus-dir {bus_dir} stop")
     print("")
     print("Telegram control examples:")
     print("  /run <objective>")
@@ -145,6 +147,20 @@ def check_codex_auth(*, codex_bin: str, cwd: Path, timeout_seconds: int) -> bool
     if "unauthorized" in lowered or "missing bearer" in lowered:
         return False
     return '"text":"ok"' in text or '"text": "ok"' in text
+
+
+def resolve_daemon_launch_prefix() -> list[str]:
+    daemon_bin = shutil.which("codex-autoloop-telegram-daemon")
+    if daemon_bin:
+        return [daemon_bin]
+    return [sys.executable, "-m", "codex_autoloop.telegram_daemon"]
+
+
+def resolve_daemon_ctl_hint() -> str:
+    ctl_bin = shutil.which("codex-autoloop-daemon-ctl")
+    if ctl_bin:
+        return ctl_bin
+    return f"{sys.executable} -m codex_autoloop.daemon_ctl"
 
 
 def prompt_input(prompt: str, default: str) -> str:

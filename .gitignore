@@ -3,4 +3,6 @@ __pycache__/
 .venv/
 *.pyc
 .codexhome/
+.codex_daemon/
+*.egg-info/
 *.log

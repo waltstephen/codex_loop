@@ -12,7 +12,13 @@ RUN_CD="${CODEX_DAEMON_RUN_CD:-$PWD}"
 mkdir -p "${LOG_DIR}"
 mkdir -p "${BUS_DIR}"
 
-nohup codex-autoloop-telegram-daemon \
+if command -v codex-autoloop-telegram-daemon >/dev/null 2>&1; then
+  DAEMON_CMD=(codex-autoloop-telegram-daemon)
+else
+  DAEMON_CMD=(python -m codex_autoloop.telegram_daemon)
+fi
+
+nohup "${DAEMON_CMD[@]}" \
   --telegram-bot-token "${TELEGRAM_BOT_TOKEN}" \
   --telegram-chat-id "${TELEGRAM_CHAT_ID:-auto}" \
   --run-check "${CODEX_DAEMON_CHECK:-pytest -q}" \

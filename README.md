@@ -146,6 +146,12 @@ Run once:
 codex-autoloop-setup --run-cd .
 ```
 
+If command is not found in your environment, use:
+
+```bash
+python -m codex_autoloop.setup_wizard --run-cd .
+```
+
 The wizard will:
 
 1. Check `codex` CLI availability and basic auth probe.
@@ -160,6 +166,12 @@ codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "先修测试再继
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
 codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus daemon-stop
+```
+
+If `codex-autoloop-daemon-ctl` is not found, replace it with:
+
+```bash
+python -m codex_autoloop.daemon_ctl
 ```
 
 ## `codex --autoloop` style shim
