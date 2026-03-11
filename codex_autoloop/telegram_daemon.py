@@ -456,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Working directory for child codex-autoloop runs.",
     )
-    parser.add_argument("--run-max-rounds", type=int, default=36, help="Child codex-autoloop max rounds.")
+    parser.add_argument("--run-max-rounds", type=int, default=50, help="Child codex-autoloop max rounds.")
     parser.add_argument(
         "--run-check",
         action="append",

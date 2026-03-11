@@ -10,7 +10,7 @@ This solves the common "agent stopped early and asked for next instruction" prob
 
 Current defaults:
 
-- `max_rounds` defaults to `36`.
+- `max_rounds` defaults to `50`.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
 ## Current Feature Snapshot

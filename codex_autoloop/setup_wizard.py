@@ -289,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Working directory for launched codex-autoloop runs.",
     )
-    parser.add_argument("--run-max-rounds", type=int, default=36, help="Default max rounds for daemon-launched runs.")
+    parser.add_argument("--run-max-rounds", type=int, default=50, help="Default max rounds for daemon-launched runs.")
     parser.add_argument(
         "--run-skip-git-repo-check",
         action="store_true",
