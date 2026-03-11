@@ -19,3 +19,8 @@ def test_resolve_daemon_ctl_hint_fallback(monkeypatch) -> None:
 
 def test_stop_existing_daemon_no_pid_file(tmp_path: Path) -> None:
     setup_wizard.stop_existing_daemon(home_dir=tmp_path, bus_dir=tmp_path / "bus")
+
+
+def test_prompt_model_choice_default(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "")
+    assert setup_wizard.prompt_model_choice() == "quality"

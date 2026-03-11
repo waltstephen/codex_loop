@@ -33,7 +33,7 @@ Notes:
 - Live terminal streaming is on by default.
 - Telegram live deltas are sent every 30s only when content changes.
 - Telegram control commands are enabled by default (`/inject`, `/status`, `/stop`).
-- Daemon defaults to the `cheap` model preset unless you override it.
+- Daemon defaults to the `quality` model preset (`gpt-5.4` + `high`) unless you override it.
 
 Control examples from Telegram Web:
 

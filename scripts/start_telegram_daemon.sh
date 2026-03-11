@@ -48,8 +48,14 @@ fi
 if [[ -n "${CODEX_DAEMON_MAIN_MODEL:-}" ]]; then
   EXTRA_ARGS+=(--run-main-model "${CODEX_DAEMON_MAIN_MODEL}")
 fi
+if [[ -n "${CODEX_DAEMON_MAIN_REASONING_EFFORT:-}" ]]; then
+  EXTRA_ARGS+=(--run-main-reasoning-effort "${CODEX_DAEMON_MAIN_REASONING_EFFORT}")
+fi
 if [[ -n "${CODEX_DAEMON_REVIEWER_MODEL:-}" ]]; then
   EXTRA_ARGS+=(--run-reviewer-model "${CODEX_DAEMON_REVIEWER_MODEL}")
+fi
+if [[ -n "${CODEX_DAEMON_REVIEWER_REASONING_EFFORT:-}" ]]; then
+  EXTRA_ARGS+=(--run-reviewer-reasoning-effort "${CODEX_DAEMON_REVIEWER_REASONING_EFFORT}")
 fi
 if [[ "${CODEX_DAEMON_YOLO:-1}" == "1" || "${CODEX_DAEMON_YOLO:-1}" == "true" ]]; then
   EXTRA_ARGS+=(--run-yolo)

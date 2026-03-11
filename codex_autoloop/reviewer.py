@@ -12,6 +12,7 @@ from .models import CheckResult, ReviewDecision
 @dataclass
 class ReviewerConfig:
     model: str | None = None
+    reasoning_effort: str | None = None
     extra_args: list[str] | None = None
     skip_git_repo_check: bool = False
     full_auto: bool = False
@@ -49,6 +50,7 @@ class Reviewer:
             resume_thread_id=None,
             options=RunnerOptions(
                 model=config.model,
+                reasoning_effort=config.reasoning_effort,
                 dangerous_yolo=config.dangerous_yolo,
                 full_auto=config.full_auto,
                 skip_git_repo_check=config.skip_git_repo_check,

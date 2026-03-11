@@ -23,7 +23,9 @@ class AutoLoopConfig:
     check_commands: list[str] | None = None
     check_timeout_seconds: int = 1200
     main_model: str | None = None
+    main_reasoning_effort: str | None = None
     reviewer_model: str | None = None
+    reviewer_reasoning_effort: str | None = None
     main_extra_args: list[str] | None = None
     reviewer_extra_args: list[str] | None = None
     skip_git_repo_check: bool = False
@@ -95,6 +97,7 @@ class AutoLoopOrchestrator:
                 resume_thread_id=session_id,
                 options=RunnerOptions(
                     model=self.config.main_model,
+                    reasoning_effort=self.config.main_reasoning_effort,
                     dangerous_yolo=self.config.dangerous_yolo,
                     full_auto=self.config.full_auto,
                     skip_git_repo_check=self.config.skip_git_repo_check,
@@ -208,6 +211,7 @@ class AutoLoopOrchestrator:
                 checks=checks,
                 config=ReviewerConfig(
                     model=self.config.reviewer_model,
+                    reasoning_effort=self.config.reviewer_reasoning_effort,
                     extra_args=self.config.reviewer_extra_args,
                     skip_git_repo_check=self.config.skip_git_repo_check,
                     full_auto=self.config.full_auto,

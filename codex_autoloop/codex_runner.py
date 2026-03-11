@@ -33,6 +33,7 @@ ExternalInterruptProvider = Callable[[], str | None]
 @dataclass
 class RunnerOptions:
     model: str | None = None
+    reasoning_effort: str | None = None
     dangerous_yolo: bool = False
     full_auto: bool = False
     skip_git_repo_check: bool = False
@@ -244,6 +245,8 @@ class CodexRunner:
         command.append("--json")
         if options.model:
             command.extend(["-m", options.model])
+        if options.reasoning_effort:
+            command.extend(["-c", f'model_reasoning_effort="{options.reasoning_effort}"'])
         if options.dangerous_yolo:
             command.append("--dangerously-bypass-approvals-and-sandbox")
         elif options.full_auto:

@@ -45,24 +45,36 @@ def main() -> None:
     preset_names = ", ".join(p.name for p in MODEL_PRESETS)
     preset_name = args.run_model_preset
     if preset_name is None and args.run_main_model is None and args.run_reviewer_model is None:
-        preset_name = prompt_input(
-            f"Model preset ({preset_names}, custom, or empty to keep daemon default): ",
-            default="cheap",
-        ).strip()
+        preset_name = prompt_model_choice()
     resolved_preset = get_preset(preset_name) if preset_name and preset_name.lower() != "custom" else None
     if preset_name and preset_name.lower() != "custom" and resolved_preset is None:
         print(f"Unknown model preset: {preset_name}", file=sys.stderr)
         raise SystemExit(2)
     if resolved_preset is not None:
         main_model = resolved_preset.main_model
+        main_reasoning_effort = resolved_preset.main_reasoning_effort
         reviewer_model = resolved_preset.reviewer_model
+        reviewer_reasoning_effort = resolved_preset.reviewer_reasoning_effort
     else:
         if args.run_main_model is not None or args.run_reviewer_model is not None:
             main_model = args.run_main_model
+            main_reasoning_effort = args.run_main_reasoning_effort
             reviewer_model = args.run_reviewer_model
+            reviewer_reasoning_effort = args.run_reviewer_reasoning_effort
         else:
             main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
+            main_reasoning_effort = (
+                prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default="").strip()
+                or None
+            )
             reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
+            reviewer_reasoning_effort = (
+                prompt_input(
+                    "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
+                    default="",
+                ).strip()
+                or None
+            )
 
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -96,6 +108,8 @@ def main() -> None:
         "run_full_auto": args.run_full_auto,
         "run_yolo": args.run_yolo,
         "run_resume_last_session": args.run_resume_last_session,
+        "run_main_reasoning_effort": main_reasoning_effort,
+        "run_reviewer_reasoning_effort": reviewer_reasoning_effort,
         "run_main_model": main_model,
         "run_reviewer_model": reviewer_model,
         "run_model_preset": (resolved_preset.name if resolved_preset else (preset_name or None)),
@@ -132,8 +146,12 @@ def main() -> None:
     else:
         if main_model:
             daemon_cmd.extend(["--run-main-model", main_model])
+        if main_reasoning_effort:
+            daemon_cmd.extend(["--run-main-reasoning-effort", main_reasoning_effort])
         if reviewer_model:
             daemon_cmd.extend(["--run-reviewer-model", reviewer_model])
+        if reviewer_reasoning_effort:
+            daemon_cmd.extend(["--run-reviewer-reasoning-effort", reviewer_reasoning_effort])
     if args.run_skip_git_repo_check:
         daemon_cmd.append("--run-skip-git-repo-check")
     if args.run_full_auto:
@@ -171,10 +189,18 @@ def main() -> None:
     print(f"Log: {daemon_log}")
     print(f"Bus dir: {bus_dir}")
     if resolved_preset is not None:
-        print(f"Model preset: {resolved_preset.name} ({resolved_preset.main_model} / {resolved_preset.reviewer_model})")
+        print(
+            "Model preset: "
+            f"{resolved_preset.name} "
+            f"({resolved_preset.main_model}/{resolved_preset.main_reasoning_effort} "
+            f"/ {resolved_preset.reviewer_model}/{resolved_preset.reviewer_reasoning_effort})"
+        )
     else:
-        print(f"Main model: {main_model or '<daemon default>'}")
-        print(f"Reviewer model: {reviewer_model or '<daemon default>'}")
+        print(f"Main model: {main_model or '<daemon default>'} effort={main_reasoning_effort or '<default>'}")
+        print(
+            f"Reviewer model: {reviewer_model or '<daemon default>'} "
+            f"effort={reviewer_reasoning_effort or '<default>'}"
+        )
     print("")
     ctl_hint = resolve_daemon_ctl_hint()
     print("Terminal control examples:")
@@ -311,6 +337,25 @@ def prompt_secret(prompt: str) -> str:
     return getpass.getpass(prompt).strip()
 
 
+def prompt_model_choice() -> str:
+    print("Choose a model preset:")
+    for idx, preset in enumerate(MODEL_PRESETS, start=1):
+        print(
+            f"  {idx}. {preset.name}: "
+            f"main={preset.main_model}/{preset.main_reasoning_effort}, "
+            f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort}"
+        )
+    print(f"  {len(MODEL_PRESETS) + 1}. custom")
+    raw = prompt_input("Preset number: ", default="1").strip()
+    try:
+        index = int(raw)
+    except ValueError:
+        return "quality"
+    if 1 <= index <= len(MODEL_PRESETS):
+        return MODEL_PRESETS[index - 1].name
+    return "custom"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-setup",
@@ -356,9 +401,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override main agent model for daemon-launched runs.",
     )
     parser.add_argument(
+        "--run-main-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Override main agent reasoning effort for daemon-launched runs.",
+    )
+    parser.add_argument(
         "--run-reviewer-model",
         default=None,
         help="Override reviewer agent model for daemon-launched runs.",
+    )
+    parser.add_argument(
+        "--run-reviewer-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Override reviewer agent reasoning effort for daemon-launched runs.",
     )
     parser.add_argument(
         "--token-lock-dir",

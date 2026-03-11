@@ -305,7 +305,11 @@ def build_child_command(
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
     main_model = preset.main_model if preset is not None else args.run_main_model
+    main_reasoning_effort = preset.main_reasoning_effort if preset is not None else args.run_main_reasoning_effort
     reviewer_model = preset.reviewer_model if preset is not None else args.run_reviewer_model
+    reviewer_reasoning_effort = (
+        preset.reviewer_reasoning_effort if preset is not None else args.run_reviewer_reasoning_effort
+    )
     cmd = [
         args.codex_autoloop_bin,
         "--max-rounds",
@@ -327,8 +331,12 @@ def build_child_command(
     ]
     if main_model:
         cmd.extend(["--main-model", main_model])
+    if main_reasoning_effort:
+        cmd.extend(["--main-reasoning-effort", main_reasoning_effort])
     if reviewer_model:
         cmd.extend(["--reviewer-model", reviewer_model])
+    if reviewer_reasoning_effort:
+        cmd.extend(["--reviewer-reasoning-effort", reviewer_reasoning_effort])
     if args.telegram_control_whisper:
         cmd.append("--telegram-control-whisper")
     else:
@@ -476,9 +484,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Explicit main agent model override for child runs.",
     )
     parser.add_argument(
+        "--run-main-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Explicit main agent reasoning effort override for child runs.",
+    )
+    parser.add_argument(
         "--run-reviewer-model",
         default=None,
         help="Explicit reviewer agent model override for child runs.",
+    )
+    parser.add_argument(
+        "--run-reviewer-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Explicit reviewer agent reasoning effort override for child runs.",
     )
     parser.add_argument(
         "--run-check",

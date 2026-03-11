@@ -11,7 +11,7 @@ This solves the common "agent stopped early and asked for next instruction" prob
 Current defaults:
 
 - `max_rounds` defaults to `50`.
-- Daemon child model preset defaults to `cheap` unless overridden.
+- Daemon child model preset defaults to `quality` (`gpt-5.4` + `high`) unless overridden.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
 ## Current Feature Snapshot
@@ -240,10 +240,15 @@ python -m codex_autoloop.model_catalog
 
 Current presets:
 
-- `cheap`: `main=gpt-5-mini`, `reviewer=gpt-5-nano`
-- `balanced`: `main=gpt-5.1-codex`, `reviewer=gpt-5-mini`
-- `strong`: `main=gpt-5.2-codex`, `reviewer=gpt-5-mini`
-- `max`: `main=gpt-5.1-codex-max`, `reviewer=gpt-5-mini`
+- `quality`: `main=gpt-5.4/high`, `reviewer=gpt-5.4/high`
+- `balanced`: `main=gpt-5.3-codex/high`, `reviewer=gpt-5.1-codex/medium`
+- `cheap`: `main=gpt-5.1-codex-mini/medium`, `reviewer=gpt-5-codex-mini/low`
+- `max`: `main=gpt-5.1-codex-max/xhigh`, `reviewer=gpt-5.3-codex/high`
+
+Note:
+
+- `gpt-5.4` is the model name.
+- `high` is the reasoning effort level, not part of the model name.
 
 Daemon overrides:
 

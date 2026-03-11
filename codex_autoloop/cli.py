@@ -234,7 +234,9 @@ def main() -> None:
             check_commands=args.check or [],
             check_timeout_seconds=args.check_timeout_seconds,
             main_model=args.main_model,
+            main_reasoning_effort=args.main_reasoning_effort,
             reviewer_model=args.reviewer_model,
+            reviewer_reasoning_effort=args.reviewer_reasoning_effort,
             main_extra_args=args.main_extra_arg or [],
             reviewer_extra_args=args.reviewer_extra_arg or [],
             skip_git_repo_check=args.skip_git_repo_check,
@@ -319,6 +321,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--main-model", default=None, help="Primary agent model override.")
     parser.add_argument("--reviewer-model", default=None, help="Reviewer sub-agent model override.")
+    parser.add_argument(
+        "--main-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Primary agent reasoning effort override.",
+    )
+    parser.add_argument(
+        "--reviewer-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Reviewer sub-agent reasoning effort override.",
+    )
     parser.add_argument(
         "--main-extra-arg",
         action="append",
