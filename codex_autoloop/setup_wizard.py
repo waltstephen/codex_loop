@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -10,7 +11,7 @@ import time
 from pathlib import Path
 
 from .model_catalog import MODEL_PRESETS, get_preset
-from .token_lock import acquire_token_lock
+from .token_lock import acquire_token_lock, default_token_lock_dir
 
 
 def main() -> None:
@@ -268,11 +269,7 @@ def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
     if pid_path.exists():
         existing_pid = pid_path.read_text(encoding="utf-8").strip()
         if existing_pid and existing_pid.isdigit():
-            daemon_running = subprocess.run(
-                ["kill", "-0", existing_pid],
-                capture_output=True,
-                text=True,
-            ).returncode == 0
+            daemon_running = _is_pid_running(existing_pid)
     if not daemon_running:
         return
 
@@ -294,21 +291,13 @@ def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
 
     if existing_pid and existing_pid.isdigit():
         time.sleep(1.0)
-        still_running = subprocess.run(
-            ["kill", "-0", existing_pid],
-            capture_output=True,
-            text=True,
-        ).returncode == 0
+        still_running = _is_pid_running(existing_pid)
         if still_running:
-            subprocess.run(["kill", existing_pid], capture_output=True, text=True, timeout=5)
+            _terminate_pid(existing_pid, force=False)
             time.sleep(1.0)
-            still_running = subprocess.run(
-                ["kill", "-0", existing_pid],
-                capture_output=True,
-                text=True,
-            ).returncode == 0
+            still_running = _is_pid_running(existing_pid)
             if still_running:
-                subprocess.run(["kill", "-9", existing_pid], capture_output=True, text=True, timeout=5)
+                _terminate_pid(existing_pid, force=True)
 
     try:
         pid_path.unlink(missing_ok=True)
@@ -324,6 +313,41 @@ def read_log_tail(path: Path, max_lines: int) -> str:
     if len(lines) <= max_lines:
         return "\n".join(lines)
     return "\n".join(lines[-max_lines:])
+
+
+def _is_pid_running(pid: str) -> bool:
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if completed.returncode != 0:
+            return False
+        return pid in (completed.stdout or "")
+    completed = subprocess.run(
+        ["kill", "-0", pid],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return completed.returncode == 0
+
+
+def _terminate_pid(pid: str, *, force: bool) -> None:
+    if os.name == "nt":
+        cmd = ["taskkill", "/PID", pid]
+        if force:
+            cmd.append("/F")
+        subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return
+    cmd = ["kill", "-9" if force else pid]
+    if force:
+        cmd = ["kill", "-9", pid]
+    else:
+        cmd = ["kill", pid]
+    subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -419,7 +443,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--token-lock-dir",
-        default="/tmp/codex-autoloop-token-locks",
+        default=default_token_lock_dir(),
         help="Global lock directory to enforce one daemon per Telegram token.",
     )
     parser.add_argument(
