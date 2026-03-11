@@ -10,8 +10,27 @@ LOG_DIR="${CODEX_DAEMON_LOG_DIR:-.codex_daemon}"
 BUS_DIR="${CODEX_DAEMON_BUS_DIR:-${LOG_DIR}/bus}"
 RUN_CD="${CODEX_DAEMON_RUN_CD:-$PWD}"
 TOKEN_LOCK_DIR="${CODEX_DAEMON_TOKEN_LOCK_DIR:-/tmp/codex-autoloop-token-locks}"
+HOME_DIR="${CODEX_DAEMON_HOME_DIR:-${LOG_DIR}}"
 mkdir -p "${LOG_DIR}"
 mkdir -p "${BUS_DIR}"
+
+PID_FILE="${HOME_DIR}/daemon.pid"
+if [[ -f "${PID_FILE}" ]]; then
+  if command -v codex-autoloop-daemon-ctl >/dev/null 2>&1; then
+    codex-autoloop-daemon-ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
+  else
+    python -m codex_autoloop.daemon_ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
+  fi
+  PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
+  if [[ -n "${PID}" ]] && kill -0 "${PID}" 2>/dev/null; then
+    kill "${PID}" >/dev/null 2>&1 || true
+    sleep 1
+    if kill -0 "${PID}" 2>/dev/null; then
+      kill -9 "${PID}" >/dev/null 2>&1 || true
+    fi
+  fi
+  rm -f "${PID_FILE}"
+fi
 
 if command -v codex-autoloop-telegram-daemon >/dev/null 2>&1; then
   DAEMON_CMD=(codex-autoloop-telegram-daemon)
@@ -43,6 +62,8 @@ nohup "${DAEMON_CMD[@]}" \
   --token-lock-dir "${TOKEN_LOCK_DIR}" \
   "${EXTRA_ARGS[@]}" \
   >"${LOG_DIR}/daemon.out" 2>&1 &
+
+echo "$!" > "${PID_FILE}"
 
 echo "Started codex-autoloop-telegram-daemon in background."
 echo "PID: $!"

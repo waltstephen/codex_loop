@@ -49,6 +49,9 @@ def main() -> None:
     bus_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.restart_existing:
+        stop_existing_daemon(home_dir=home_dir, bus_dir=bus_dir)
+
     try:
         probe_lock = acquire_token_lock(
             token=token,
@@ -195,6 +198,61 @@ def resolve_daemon_ctl_hint() -> str:
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
 
 
+def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
+    pid_path = home_dir / "daemon.pid"
+    daemon_running = False
+    existing_pid = None
+    if pid_path.exists():
+        existing_pid = pid_path.read_text(encoding="utf-8").strip()
+        if existing_pid and existing_pid.isdigit():
+            daemon_running = subprocess.run(
+                ["kill", "-0", existing_pid],
+                capture_output=True,
+                text=True,
+            ).returncode == 0
+    if not daemon_running:
+        return
+
+    ctl_bin = shutil.which("codex-autoloop-daemon-ctl")
+    if ctl_bin:
+        subprocess.run(
+            [ctl_bin, "--bus-dir", str(bus_dir), "daemon-stop"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    else:
+        subprocess.run(
+            [sys.executable, "-m", "codex_autoloop.daemon_ctl", "--bus-dir", str(bus_dir), "daemon-stop"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    if existing_pid and existing_pid.isdigit():
+        time.sleep(1.0)
+        still_running = subprocess.run(
+            ["kill", "-0", existing_pid],
+            capture_output=True,
+            text=True,
+        ).returncode == 0
+        if still_running:
+            subprocess.run(["kill", existing_pid], capture_output=True, text=True, timeout=5)
+            time.sleep(1.0)
+            still_running = subprocess.run(
+                ["kill", "-0", existing_pid],
+                capture_output=True,
+                text=True,
+            ).returncode == 0
+            if still_running:
+                subprocess.run(["kill", "-9", existing_pid], capture_output=True, text=True, timeout=5)
+
+    try:
+        pid_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def read_log_tail(path: Path, max_lines: int) -> str:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -254,6 +312,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--token-lock-dir",
         default="/tmp/codex-autoloop-token-locks",
         help="Global lock directory to enforce one daemon per Telegram token.",
+    )
+    parser.add_argument(
+        "--restart-existing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stop an existing daemon under the same home-dir before starting a new one.",
     )
     return parser
 

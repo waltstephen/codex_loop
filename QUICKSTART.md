@@ -81,6 +81,7 @@ Defaults:
 - Idle daemon tries to resume from the last saved `session_id`.
 - One Telegram token can only be used by one active daemon.
 - Operator messages are recorded into per-run markdown files in `.codex_daemon/logs/`.
+- Re-running setup/start will stop the previous daemon for the same `.codex_daemon` before starting a new one.
 
 One-click kill:
 

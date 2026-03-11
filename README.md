@@ -192,6 +192,7 @@ Default behavior for daemon-launched runs:
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - Operator messages (initial objective + terminal/Telegram injects) are written to per-run markdown files in the daemon logs directory.
+- Re-running setup or start script will stop the previous daemon under the same `home-dir` before launching the new one.
 
 After setup, use terminal control:
 
