@@ -70,16 +70,25 @@ def main() -> None:
             reviewer_model = args.run_reviewer_model
             reviewer_reasoning_effort = args.run_reviewer_reasoning_effort
         else:
-            main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
+            main_model = prompt_input(
+                "Main agent model (optional): ",
+                default="gpt-5.2-codex",
+            ).strip() or None
             main_reasoning_effort = (
-                prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default="").strip()
+                prompt_input(
+                    "Main agent reasoning effort (low/medium/high/xhigh, optional): ",
+                    default="xhigh",
+                ).strip()
                 or None
             )
-            reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
+            reviewer_model = prompt_input(
+                "Reviewer agent model (optional): ",
+                default="gpt-5.2-codex",
+            ).strip() or None
             reviewer_reasoning_effort = (
                 prompt_input(
                     "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
-                    default="",
+                    default="xhigh",
                 ).strip()
                 or None
             )

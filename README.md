@@ -350,6 +350,7 @@ python -m codex_autoloop.model_catalog
 Current presets:
 
 - `quality`: `main=gpt-5.4/high`, `reviewer=gpt-5.4/high`
+- `codex52-xhigh`: `main=gpt-5.2-codex/xhigh`, `reviewer=gpt-5.2-codex/xhigh`
 - `quality-xhigh`: `main=gpt-5.4/xhigh`, `reviewer=gpt-5.4/xhigh`
 - `balanced`: `main=gpt-5.3-codex/high`, `reviewer=gpt-5.1-codex/medium`
 - `codex-xhigh`: `main=gpt-5.3-codex/xhigh`, `reviewer=gpt-5.3-codex/xhigh`

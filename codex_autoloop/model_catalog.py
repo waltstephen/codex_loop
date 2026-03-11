@@ -44,6 +44,14 @@ MODEL_PRESETS: list[ModelPreset] = [
         note="Highest-quality default with high reasoning for both agents.",
     ),
     ModelPreset(
+        name="codex52-xhigh",
+        main_model="gpt-5.2-codex",
+        main_reasoning_effort="xhigh",
+        reviewer_model="gpt-5.2-codex",
+        reviewer_reasoning_effort="xhigh",
+        note="Codex 5.2 with maximum reasoning for both agents.",
+    ),
+    ModelPreset(
         name="quality-xhigh",
         main_model="gpt-5.4",
         main_reasoning_effort="xhigh",
