@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -39,6 +40,16 @@ class GitCheckpointResult:
     ok_to_continue: bool
     message: str
     commit_hash: str | None = None
+
+
+DEFAULT_CODEX_AUTOLOOP_CMD = f"{sys.executable} -m codex_autoloop.cli"
+
+
+def resolve_autoloop_command(command: str) -> list[str]:
+    parts = shlex.split(command) if command else []
+    if not parts:
+        raise ValueError("codex-autoloop command cannot be empty")
+    return parts
 
 
 def main() -> None:
@@ -528,8 +539,7 @@ def build_child_command(
     )
     planner_model = args.run_planner_model
     planner_reasoning_effort = args.run_planner_reasoning_effort
-    cmd = [
-        args.codex_autoloop_bin,
+    cmd = resolve_autoloop_command(args.codex_autoloop_bin) + [
         "--max-rounds",
         str(args.run_max_rounds),
         "--telegram-bot-token",
@@ -833,8 +843,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--codex-autoloop-bin",
-        default="codex-autoloop",
-        help="Executable used to launch child runs.",
+        default=DEFAULT_CODEX_AUTOLOOP_CMD,
+        help=(
+            "Executable or command used to launch child runs. "
+            "Supports full commands like 'python -m codex_autoloop.cli'."
+        ),
     )
     parser.add_argument(
         "--poll-interval-seconds",
