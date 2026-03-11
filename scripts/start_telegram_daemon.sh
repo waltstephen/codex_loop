@@ -28,6 +28,11 @@ if [[ "${CODEX_DAEMON_YOLO:-1}" == "1" || "${CODEX_DAEMON_YOLO:-1}" == "true" ]]
 else
   EXTRA_ARGS+=(--no-run-yolo)
 fi
+if [[ "${CODEX_DAEMON_RESUME_LAST_SESSION:-1}" == "1" || "${CODEX_DAEMON_RESUME_LAST_SESSION:-1}" == "true" ]]; then
+  EXTRA_ARGS+=(--run-resume-last-session)
+else
+  EXTRA_ARGS+=(--no-run-resume-last-session)
+fi
 
 nohup "${DAEMON_CMD[@]}" \
   --telegram-bot-token "${TELEGRAM_BOT_TOKEN}" \

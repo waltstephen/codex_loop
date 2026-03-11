@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from .daemon_bus import BusCommand, JsonlCommandBus, write_status
+from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -86,6 +86,7 @@ def main() -> None:
 
     def update_status() -> None:
         running = child is not None and child.poll() is None
+        last_session_id = resolve_saved_session_id(args.run_state_file)
         write_status(
             status_path,
             {
@@ -96,6 +97,7 @@ def main() -> None:
                 "child_objective": child_objective,
                 "child_log_path": str(child_log_path) if child_log_path else None,
                 "child_started_at": child_started_at.isoformat() + "Z" if child_started_at else None,
+                "last_session_id": last_session_id,
                 "run_cwd": str(run_cwd),
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
@@ -109,6 +111,7 @@ def main() -> None:
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
         messages_path = logs_dir / f"run-{timestamp}-operator_messages.md"
+        resume_session_id = resolve_saved_session_id(args.run_state_file) if args.run_resume_last_session else None
         child_control_bus = JsonlCommandBus(control_path)
         cmd = build_child_command(
             args=args,
@@ -116,6 +119,7 @@ def main() -> None:
             chat_id=chat_id,
             control_file=str(control_path),
             operator_messages_file=str(messages_path),
+            resume_session_id=resume_session_id,
         )
         log_file = log_path.open("w", encoding="utf-8")
         child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=run_cwd)
@@ -135,6 +139,7 @@ def main() -> None:
             log_path=str(log_path),
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
+            resume_session_id=resume_session_id,
         )
         update_status()
 
@@ -162,6 +167,7 @@ def main() -> None:
             send_reply(source, help_text())
             return
         if command.kind == "status":
+            last_session_id = resolve_saved_session_id(args.run_state_file)
             send_reply(
                 source,
                 format_status(
@@ -169,6 +175,7 @@ def main() -> None:
                     child_objective=child_objective,
                     child_log_path=child_log_path,
                     child_started_at=child_started_at,
+                    last_session_id=last_session_id,
                 ),
             )
             return
@@ -293,6 +300,7 @@ def build_child_command(
     chat_id: str,
     control_file: str,
     operator_messages_file: str,
+    resume_session_id: str | None,
 ) -> list[str]:
     cmd = [
         args.codex_autoloop_bin,
@@ -319,6 +327,8 @@ def build_child_command(
         cmd.append("--no-telegram-control-whisper")
     if args.telegram_control_whisper_api_key:
         cmd.extend(["--telegram-control-whisper-api-key", args.telegram_control_whisper_api_key])
+    if resume_session_id:
+        cmd.extend(["--session-id", resume_session_id])
     if args.run_skip_git_repo_check:
         cmd.append("--skip-git-repo-check")
     if args.run_full_auto:
@@ -345,9 +355,13 @@ def format_status(
     child_objective: str | None,
     child_log_path: Path | None,
     child_started_at: dt.datetime | None,
+    last_session_id: str | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
-        return "[daemon] status=idle"
+        base = "[daemon] status=idle"
+        if last_session_id:
+            base += f"\nlast_session_id={last_session_id}"
+        return base
     elapsed = "unknown"
     if child_started_at is not None:
         elapsed_seconds = int((dt.datetime.utcnow() - child_started_at).total_seconds())
@@ -356,9 +370,22 @@ def format_status(
         "[daemon] status=running\n"
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
+        f"last_session_id={last_session_id}\n"
         f"objective={str(child_objective or '')[:700]}\n"
         f"log={child_log_path}"
     )
+
+
+def resolve_saved_session_id(state_file: str | None) -> str | None:
+    if not state_file:
+        return None
+    payload = read_status(state_file)
+    if payload is None:
+        return None
+    session_id = payload.get("session_id")
+    if isinstance(session_id, str) and session_id.strip():
+        return session_id.strip()
+    return None
 
 
 def help_text() -> str:
@@ -429,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Working directory for child codex-autoloop runs.",
     )
-    parser.add_argument("--run-max-rounds", type=int, default=12, help="Child codex-autoloop max rounds.")
+    parser.add_argument("--run-max-rounds", type=int, default=36, help="Child codex-autoloop max rounds.")
     parser.add_argument(
         "--run-check",
         action="append",
@@ -464,6 +491,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-state-file",
         default=".codex_daemon/last_state.json",
         help="Child --state-file value.",
+    )
+    parser.add_argument(
+        "--run-resume-last-session",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from last saved session_id when daemon starts a new idle run.",
     )
     parser.add_argument(
         "--run-no-dashboard",

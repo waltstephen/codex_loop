@@ -8,6 +8,11 @@
 
 This solves the common "agent stopped early and asked for next instruction" problem.
 
+Current defaults:
+
+- `max_rounds` defaults to `36`.
+- Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
+
 ## Current Feature Snapshot
 
 - Persistent main-agent loop with reviewer gating (`done/continue/blocked`).
@@ -184,6 +189,7 @@ Default behavior for daemon-launched runs:
 
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
+- When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - Operator messages (initial objective + terminal/Telegram injects) are written to per-run markdown files in the daemon logs directory.
 

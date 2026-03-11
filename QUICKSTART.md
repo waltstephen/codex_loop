@@ -12,8 +12,7 @@ pip install -e .
 
 ```bash
 codex-autoloop \
-  --max-rounds 12 \
-  --check "pytest -q" \
+  --max-rounds 36 \
   "帮我在这个文件夹写一下pipeline"
 ```
 
@@ -23,8 +22,7 @@ codex-autoloop \
 export TELEGRAM_BOT_TOKEN='123456789:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
 codex-autoloop \
-  --max-rounds 12 \
-  --check "pytest -q" \
+  --max-rounds 36 \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
   --telegram-events "loop.started,round.review.completed,loop.completed" \
   "帮我在这个文件夹写一下pipeline"
@@ -47,8 +45,7 @@ Control examples from Telegram Web:
 ```bash
 codex-autoloop-telegram-daemon \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
-  --telegram-chat-id auto \
-  --run-check "pytest -q"
+  --telegram-chat-id auto
 ```
 
 Then from Telegram Web:
@@ -81,6 +78,7 @@ codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
 Defaults:
 - Daemon-launched run uses `--yolo` by default.
 - Default check command is optional (leave empty for no forced check).
+- Idle daemon tries to resume from the last saved `session_id`.
 - One Telegram token can only be used by one active daemon.
 - Operator messages are recorded into per-run markdown files in `.codex_daemon/logs/`.
 
@@ -109,7 +107,7 @@ codex-autoloop \
   --dashboard \
   --dashboard-host 127.0.0.1 \
   --dashboard-port 8787 \
-  --max-rounds 12 \
+  --max-rounds 36 \
   "your objective"
 ```
 

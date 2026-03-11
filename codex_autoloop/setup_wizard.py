@@ -70,6 +70,7 @@ def main() -> None:
         "run_skip_git_repo_check": args.run_skip_git_repo_check,
         "run_full_auto": args.run_full_auto,
         "run_yolo": args.run_yolo,
+        "run_resume_last_session": args.run_resume_last_session,
         "bus_dir": str(bus_dir),
         "logs_dir": str(logs_dir),
     }
@@ -106,6 +107,10 @@ def main() -> None:
         daemon_cmd.append("--run-yolo")
     else:
         daemon_cmd.append("--no-run-yolo")
+    if args.run_resume_last_session:
+        daemon_cmd.append("--run-resume-last-session")
+    else:
+        daemon_cmd.append("--no-run-resume-last-session")
 
     with daemon_log.open("a", encoding="utf-8") as f:
         proc = subprocess.Popen(
@@ -226,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Working directory for launched codex-autoloop runs.",
     )
-    parser.add_argument("--run-max-rounds", type=int, default=12, help="Default max rounds for daemon-launched runs.")
+    parser.add_argument("--run-max-rounds", type=int, default=36, help="Default max rounds for daemon-launched runs.")
     parser.add_argument(
         "--run-skip-git-repo-check",
         action="store_true",
@@ -238,6 +243,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable/disable --yolo for daemon-launched runs (default: enabled).",
+    )
+    parser.add_argument(
+        "--run-resume-last-session",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from the last saved session_id when daemon receives a new run while idle.",
     )
     parser.add_argument(
         "--token-lock-dir",
