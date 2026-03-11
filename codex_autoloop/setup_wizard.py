@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,6 +19,9 @@ from .planner_modes import (
     planner_mode_label,
 )
 from .token_lock import acquire_token_lock
+
+
+DEFAULT_CODEX_AUTOLOOP_CMD = f"{sys.executable} -m codex_autoloop.cli"
 
 
 def main() -> None:
@@ -135,6 +140,7 @@ def main() -> None:
         "run_model_preset": (resolved_preset.name if resolved_preset else (preset_name or None)),
         "run_planner_mode": planner_mode,
         "follow_up_auto_execute_seconds": args.follow_up_auto_execute_seconds,
+        "codex_autoloop_bin": DEFAULT_CODEX_AUTOLOOP_CMD,
         "bus_dir": str(bus_dir),
         "logs_dir": str(logs_dir),
     }
@@ -150,6 +156,8 @@ def main() -> None:
         token,
         "--telegram-chat-id",
         chat_id,
+        "--codex-autoloop-bin",
+        DEFAULT_CODEX_AUTOLOOP_CMD,
         "--run-cd",
         str(Path(args.run_cd).resolve()),
         "--run-max-rounds",
@@ -277,6 +285,11 @@ def check_codex_auth(*, codex_bin: str, cwd: Path, timeout_seconds: int) -> bool
 
 
 def resolve_daemon_launch_prefix() -> list[str]:
+    override = os.environ.get("CODEX_AUTOLOOP_DAEMON_BIN", "").strip()
+    if override:
+        return shlex.split(override)
+    if _detect_local_repo_root(Path.cwd()) or _detect_local_repo_root(Path(__file__).resolve().parent):
+        return [sys.executable, "-m", "codex_autoloop.telegram_daemon"]
     daemon_bin = shutil.which("codex-autoloop-telegram-daemon")
     if daemon_bin:
         return [daemon_bin]
@@ -288,6 +301,20 @@ def resolve_daemon_ctl_hint() -> str:
     if ctl_bin:
         return ctl_bin
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
+
+
+def _detect_local_repo_root(start: Path) -> Path | None:
+    for parent in (start,) + tuple(start.parents):
+        pyproject = parent / "pyproject.toml"
+        if not pyproject.exists():
+            continue
+        try:
+            text = pyproject.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if 'name = "codex-autoloop"' in text or "name = 'codex-autoloop'" in text:
+            return parent
+    return None
 
 
 def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
