@@ -43,6 +43,7 @@ class GitCheckpointResult:
 
 
 DEFAULT_CODEX_AUTOLOOP_CMD = f"{sys.executable} -m codex_autoloop.cli"
+LOCAL_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def resolve_autoloop_command(command: str) -> list[str]:
@@ -50,6 +51,17 @@ def resolve_autoloop_command(command: str) -> list[str]:
     if not parts:
         raise ValueError("codex-autoloop command cannot be empty")
     return parts
+
+
+def resolve_child_env() -> dict[str, str]:
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    parts = [item for item in existing.split(os.pathsep) if item]
+    repo_root = str(LOCAL_REPO_ROOT)
+    if repo_root not in parts:
+        parts.insert(0, repo_root)
+    env["PYTHONPATH"] = os.pathsep.join(parts)
+    return env
 
 
 def main() -> None:
@@ -192,7 +204,14 @@ def main() -> None:
             resume_session_id=resume_session_id,
         )
         log_file = log_path.open("w", encoding="utf-8")
-        child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=run_cwd)
+        child = subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=log_file,
+            text=True,
+            cwd=run_cwd,
+            env=resolve_child_env(),
+        )
         child_objective = objective
         child_log_path = log_path
         child_plan_report_path = plan_report_path
