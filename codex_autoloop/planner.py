@@ -130,13 +130,17 @@ class Planner:
         return (
             "You are the planning manager sub-agent for a Codex autoloop run.\n"
             "Your job is to maintain the implementation framework, identify what is complete, "
-            "what remains, and what the next executable objective should be.\n\n"
+            "what remains, what should be explored next, and what the next executable objective should be.\n"
+            "Use the local $planner-manager-explorer skill if it exists.\n\n"
             "Strict rules:\n"
             "1) Work in read-only mode. Inspect the repository if useful, but do not modify files.\n"
             "2) Maintain a concrete workstream table. Do not output vague goals.\n"
             "3) Infer missing framework work if the main agent did not explicitly list it, but stay grounded in the repo state.\n"
-            "4) If the current session is terminal, propose one follow-up objective that can be executed as a new session.\n"
-            "5) If no good follow-up exists yet, set should_propose_follow_up=false and leave suggested_next_objective empty.\n\n"
+            "4) Behave like an explorer-architect, not a passive summarizer.\n"
+            "5) If external knowledge is missing, browse official docs, trusted APIs, datasets, or strong open-source references.\n"
+            "6) Capture worthwhile exploration leads as concrete items, for example missing data sources, API integrations, or comparable projects.\n"
+            "7) If the current session is terminal, propose one follow-up objective that can be executed as a new session.\n"
+            "8) If no good follow-up exists yet, set should_propose_follow_up=false and leave suggested_next_objective empty.\n\n"
             f"Trigger: {trigger}\n"
             f"Terminal session: {terminal}\n"
             f"Stop reason: {stop_text}\n"
@@ -182,6 +186,7 @@ class Planner:
             remaining_items=[review_hint[:300] or "Re-run planner with clearer context."],
             risks=[error[:300]],
             next_steps=[review_hint[:300] or "Continue with the latest reviewer instruction."],
+            exploration_items=[],
             suggested_next_objective="",
             should_propose_follow_up=False,
         )
@@ -217,7 +222,8 @@ def parse_plan_text(text: str) -> PlanSnapshot | None:
     remaining_items = _parse_string_list(parsed.get("remaining_items"))
     risks = _parse_string_list(parsed.get("risks"))
     next_steps = _parse_string_list(parsed.get("next_steps"))
-    if any(item is None for item in [done_items, remaining_items, risks, next_steps]):
+    exploration_items = _parse_string_list(parsed.get("exploration_items"))
+    if any(item is None for item in [done_items, remaining_items, risks, next_steps, exploration_items]):
         return None
 
     should_propose_follow_up = parsed.get("should_propose_follow_up", False)
@@ -238,6 +244,7 @@ def parse_plan_text(text: str) -> PlanSnapshot | None:
         remaining_items=remaining_items or [],
         risks=risks or [],
         next_steps=next_steps or [],
+        exploration_items=exploration_items or [],
         suggested_next_objective=suggested_next_objective,
         should_propose_follow_up=should_propose_follow_up,
     )
@@ -278,6 +285,7 @@ def format_plan_markdown(
     lines.extend(_markdown_list("Remaining", snapshot.remaining_items))
     lines.extend(_markdown_list("Risks", snapshot.risks))
     lines.extend(_markdown_list("Recommended Next Steps", snapshot.next_steps))
+    lines.extend(_markdown_list("Explorer Backlog", snapshot.exploration_items))
     if review is not None:
         lines.extend(
             [
@@ -308,6 +316,34 @@ def format_plan_markdown(
         )
     else:
         lines.extend(["## Suggested Next Objective", "No follow-up objective proposed yet.", ""])
+    return "\n".join(lines).strip() + "\n"
+
+
+def format_plan_todo_markdown(*, objective: str, snapshot: PlanSnapshot) -> str:
+    lines = [
+        "# Planner TODO Board",
+        "",
+        f"- Objective: {objective.strip()}",
+        f"- Updated At (UTC): {snapshot.generated_at}",
+        f"- Plan ID: {snapshot.plan_id}",
+        "",
+        "## Summary",
+        snapshot.summary.strip(),
+        "",
+        "## Workstream Table",
+        "| Area | Status | Evidence | Next Step |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in snapshot.workstreams:
+        lines.append(
+            f"| {_escape_table(item.area)} | {_escape_table(item.status)} | "
+            f"{_escape_table(item.evidence)} | {_escape_table(item.next_step)} |"
+        )
+    lines.extend(_markdown_list("Priority Queue", snapshot.next_steps))
+    lines.extend(_markdown_list("Remaining", snapshot.remaining_items))
+    lines.extend(_markdown_list("Explorer Backlog", snapshot.exploration_items))
+    if snapshot.should_propose_follow_up and snapshot.suggested_next_objective:
+        lines.extend(["## Proposed Next Session", snapshot.suggested_next_objective.strip(), ""])
     return "\n".join(lines).strip() + "\n"
 
 

@@ -64,6 +64,7 @@ class PlanSnapshot:
     remaining_items: list[str]
     risks: list[str]
     next_steps: list[str]
+    exploration_items: list[str]
     suggested_next_objective: str
     should_propose_follow_up: bool
     report_markdown: str = ""

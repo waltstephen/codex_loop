@@ -8,6 +8,7 @@
     "remaining_items",
     "risks",
     "next_steps",
+    "exploration_items",
     "suggested_next_objective",
     "should_propose_follow_up"
   ],
@@ -73,6 +74,13 @@
       }
     },
     "next_steps": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    },
+    "exploration_items": {
       "type": "array",
       "maxItems": 10,
       "items": {

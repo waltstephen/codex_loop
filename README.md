@@ -19,6 +19,7 @@ Current defaults:
 
 - Persistent main-agent loop with reviewer gating (`done/continue/blocked`).
 - Planner/manager agent with live plan snapshots, workstream table, and follow-up objective proposal.
+- Planner TODO board (`plan_todo.md`) and explorer backlog maintained across planning sweeps.
 - Stall watchdog with soft diagnosis and hard restart safety window.
 - Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
@@ -60,6 +61,7 @@ Common options:
 - `--full-auto`: pass full-auto mode to Codex
 - `--state-file <file>`: write round-by-round state JSON
 - `--plan-report-file <file>`: write the latest planner markdown snapshot
+- `--plan-todo-file <file>`: write the latest planner TODO board markdown
 - `--plan-update-interval-seconds 1800`: run background planning sweeps every 30 minutes
 - `--verbose-events`: print raw JSONL stream
 - `--dashboard`: launch a live local web dashboard
@@ -164,6 +166,9 @@ Daemon commands from Telegram:
 - `/stop`: stop active run
 - `/help`
 - After a child run finishes, the daemon can offer a Telegram button to execute the planner's next suggested objective.
+- If the user does nothing, daemon auto-executes the planned next session after the follow-up countdown (default: 1 hour).
+- Before executing that follow-up, daemon creates a git checkpoint commit when the workspace is dirty.
+- Telegram follow-up options are: direct execute, reject plan, or modify then execute while inheriting the planner objective. That follow-up starts as a fresh session.
 
 For background mode:
 

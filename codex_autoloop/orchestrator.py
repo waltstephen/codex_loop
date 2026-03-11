@@ -10,7 +10,7 @@ from typing import Any, Callable
 from .checks import all_checks_passed, run_checks
 from .codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
 from .models import PlanSnapshot, ReviewDecision, RoundSummary
-from .planner import Planner, PlannerConfig
+from .planner import Planner, PlannerConfig, format_plan_todo_markdown
 from .reviewer import Reviewer, ReviewerConfig
 from .stall_subagent import analyze_stall
 
@@ -38,6 +38,7 @@ class AutoLoopConfig:
     dangerous_yolo: bool = False
     state_file: str | None = None
     plan_report_file: str | None = None
+    plan_todo_file: str | None = None
     initial_session_id: str | None = None
     loop_event_callback: LoopEventCallback | None = None
     stall_soft_idle_seconds: int = 1200
@@ -404,7 +405,7 @@ class AutoLoopOrchestrator:
         current_review: ReviewDecision | None,
     ) -> None:
         if not self.config.state_file:
-            self._write_plan_report()
+            self._write_plan_artifacts()
             return
         payload = {
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -418,7 +419,7 @@ class AutoLoopOrchestrator:
         path = Path(self.config.state_file)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        self._write_plan_report()
+        self._write_plan_artifacts()
 
     @staticmethod
     def _serialize_round(round_summary: RoundSummary) -> dict:
@@ -584,6 +585,7 @@ class AutoLoopOrchestrator:
                     "remaining_items": plan.remaining_items,
                     "risks": plan.risks,
                     "next_steps": plan.next_steps,
+                    "exploration_items": plan.exploration_items,
                     "suggested_next_objective": plan.suggested_next_objective,
                     "should_propose_follow_up": plan.should_propose_follow_up,
                     "report_markdown": plan.report_markdown,
@@ -624,12 +626,23 @@ class AutoLoopOrchestrator:
     def _planner_enabled(self) -> bool:
         return self.config.planner_enabled and self.planner is not None
 
-    def _write_plan_report(self) -> None:
-        if not self.config.plan_report_file or self._latest_plan is None:
+    def _write_plan_artifacts(self) -> None:
+        if self._latest_plan is None:
             return
-        path = Path(self.config.plan_report_file)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self._latest_plan.report_markdown, encoding="utf-8")
+        if self.config.plan_report_file:
+            path = Path(self.config.plan_report_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self._latest_plan.report_markdown, encoding="utf-8")
+        if self.config.plan_todo_file:
+            path = Path(self.config.plan_todo_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                format_plan_todo_markdown(
+                    objective=self.config.objective,
+                    snapshot=self._latest_plan,
+                ),
+                encoding="utf-8",
+            )
 
     @staticmethod
     def _build_operator_override_prompt(*, objective: str, instruction: str) -> str:

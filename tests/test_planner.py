@@ -19,6 +19,7 @@ def test_parse_plan_text_plain_json() -> None:
           "remaining_items": ["Daemon follow-up buttons"],
           "risks": ["Need callback parsing"],
           "next_steps": ["Finish Telegram callback flow"],
+          "exploration_items": ["Inspect Telegram callback UX patterns from similar bots"],
           "suggested_next_objective": "Ship daemon callback buttons for planner follow-up",
           "should_propose_follow_up": true
         }
@@ -27,6 +28,7 @@ def test_parse_plan_text_plain_json() -> None:
     assert snapshot is not None
     assert snapshot.summary.startswith("Core loop")
     assert snapshot.workstreams[0].status == "in_progress"
+    assert snapshot.exploration_items[0].startswith("Inspect Telegram")
     assert snapshot.should_propose_follow_up is True
 
 
@@ -49,6 +51,7 @@ def test_format_plan_markdown_includes_follow_up() -> None:
         remaining_items=["Measure behavior on long sessions"],
         risks=["Concurrent planner sweeps share repo access"],
         next_steps=["Benchmark the daemon flow"],
+        exploration_items=["Compare other Telegram bot follow-up patterns"],
         suggested_next_objective="Benchmark the planner-managed daemon flow end-to-end",
         should_propose_follow_up=True,
     )

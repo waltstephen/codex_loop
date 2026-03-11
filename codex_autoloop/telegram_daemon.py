@@ -22,11 +22,24 @@ class PlanFollowUp:
     plan_id: str
     objective: str
     report_markdown: str
+    created_at: dt.datetime
+    auto_execute_at: dt.datetime | None
+    awaiting_user_edit: bool = False
+    auto_execute_enabled: bool = True
+
+
+@dataclass
+class GitCheckpointResult:
+    ok_to_continue: bool
+    message: str
+    commit_hash: str | None = None
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.follow_up_auto_execute_seconds < 0:
+        parser.error("--follow-up-auto-execute-seconds must be >= 0")
 
     chat_id = (args.telegram_chat_id or "").strip()
     if chat_id.lower() in {"", "auto", "none", "null"}:
@@ -82,6 +95,7 @@ def main() -> None:
     child_objective: str | None = None
     child_log_path: Path | None = None
     child_plan_report_path: Path | None = None
+    child_plan_todo_path: Path | None = None
     child_started_at: dt.datetime | None = None
     child_control_bus: JsonlCommandBus | None = None
     pending_follow_up: PlanFollowUp | None = None
@@ -108,10 +122,22 @@ def main() -> None:
                 "child_objective": child_objective,
                 "child_log_path": str(child_log_path) if child_log_path else None,
                 "child_plan_report_path": str(child_plan_report_path) if child_plan_report_path else None,
+                "child_plan_todo_path": str(child_plan_todo_path) if child_plan_todo_path else None,
                 "child_started_at": child_started_at.isoformat() + "Z" if child_started_at else None,
                 "last_session_id": last_session_id,
                 "pending_follow_up_plan_id": pending_follow_up.plan_id if pending_follow_up else None,
                 "pending_follow_up_objective": pending_follow_up.objective if pending_follow_up else None,
+                "pending_follow_up_created_at": (
+                    pending_follow_up.created_at.isoformat() + "Z" if pending_follow_up else None
+                ),
+                "pending_follow_up_auto_execute_at": (
+                    pending_follow_up.auto_execute_at.isoformat() + "Z"
+                    if pending_follow_up and pending_follow_up.auto_execute_at is not None
+                    else None
+                ),
+                "pending_follow_up_awaiting_user_edit": (
+                    pending_follow_up.awaiting_user_edit if pending_follow_up else None
+                ),
                 "run_cwd": str(run_cwd),
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
@@ -119,15 +145,21 @@ def main() -> None:
             },
         )
 
-    def start_child(objective: str) -> None:
-        nonlocal child, child_objective, child_log_path, child_plan_report_path, child_started_at
+    def start_child(objective: str, *, resume_last_session: bool = True) -> None:
+        nonlocal child, child_objective, child_log_path, child_plan_report_path, child_plan_todo_path
+        nonlocal child_started_at
         nonlocal child_control_bus, pending_follow_up
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
         messages_path = logs_dir / f"run-{timestamp}-operator_messages.md"
         plan_report_path = logs_dir / f"run-{timestamp}-plan.md"
-        resume_session_id = resolve_saved_session_id(args.run_state_file) if args.run_resume_last_session else None
+        plan_todo_path = logs_dir / f"run-{timestamp}-todo.md"
+        resume_session_id = (
+            resolve_saved_session_id(args.run_state_file)
+            if args.run_resume_last_session and resume_last_session
+            else None
+        )
         child_control_bus = JsonlCommandBus(control_path)
         pending_follow_up = None
         cmd = build_child_command(
@@ -137,6 +169,7 @@ def main() -> None:
             control_file=str(control_path),
             operator_messages_file=str(messages_path),
             plan_report_file=str(plan_report_path),
+            plan_todo_file=str(plan_todo_path),
             resume_session_id=resume_session_id,
         )
         log_file = log_path.open("w", encoding="utf-8")
@@ -144,6 +177,7 @@ def main() -> None:
         child_objective = objective
         child_log_path = log_path
         child_plan_report_path = plan_report_path
+        child_plan_todo_path = plan_todo_path
         child_started_at = dt.datetime.utcnow()
         notifier.send_message(
             "[daemon] launched run\n"
@@ -159,6 +193,7 @@ def main() -> None:
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
             plan_report_file=str(plan_report_path),
+            plan_todo_file=str(plan_todo_path),
             resume_session_id=resume_session_id,
         )
         update_status()
@@ -166,20 +201,72 @@ def main() -> None:
     def send_follow_up_prompt() -> None:
         if pending_follow_up is None:
             return
+        countdown_text = "disabled"
+        if pending_follow_up.auto_execute_at is not None:
+            remaining = max(0, int((pending_follow_up.auto_execute_at - dt.datetime.utcnow()).total_seconds()))
+            countdown_text = format_countdown(remaining)
         keyboard = {
             "inline_keyboard": [
                 [
                     {"text": "Execute Next Step", "callback_data": f"plan_run:{pending_follow_up.plan_id}"},
-                    {"text": "Dismiss", "callback_data": f"plan_skip:{pending_follow_up.plan_id}"},
+                    {"text": "Reject Plan", "callback_data": f"plan_reject:{pending_follow_up.plan_id}"},
+                ],
+                [
+                    {"text": "Modify Then Execute", "callback_data": f"plan_modify:{pending_follow_up.plan_id}"},
                 ]
             ]
         }
         message = (
             "[daemon] suggested next session\n"
-            "The current run is finished. Launch the follow-up objective below?\n\n"
+            "The current run is finished. The planner recommends the follow-up objective below.\n"
+            "Options:\n"
+            "1. Direct execute\n"
+            "2. Reject and wait for your instruction\n"
+            "3. Modify and inherit this plan before execution\n"
+            f"If you do nothing, daemon will auto-execute in {countdown_text}.\n"
+            "Before execution, daemon will create a git checkpoint commit when the repo is dirty.\n"
+            "This follow-up launches as a fresh session instead of resuming the old one.\n\n"
             f"{pending_follow_up.report_markdown[:3200]}"
         )
         notifier.send_message(message, reply_markup=keyboard)
+
+    def send_modify_prompt() -> None:
+        if pending_follow_up is None:
+            return
+        notifier.send_message(
+            "[daemon] modify planned next session\n"
+            "Send the revised objective or constraints now.\n"
+            "Daemon will inherit the existing planner objective and append your changes before execution.\n\n"
+            f"Current planned objective:\n{pending_follow_up.objective[:1500]}"
+        )
+
+    def launch_follow_up(
+        *,
+        follow_up: PlanFollowUp,
+        source: str,
+        override_text: str | None = None,
+        auto_triggered: bool = False,
+    ) -> bool:
+        checkpoint = create_git_checkpoint(
+            run_cwd=run_cwd,
+            plan_id=follow_up.plan_id,
+            auto_triggered=auto_triggered,
+        )
+        if checkpoint.message:
+            send_reply(source, checkpoint.message)
+        if not checkpoint.ok_to_continue:
+            if auto_triggered:
+                follow_up.auto_execute_enabled = False
+                follow_up.auto_execute_at = None
+            return False
+        objective = follow_up.objective
+        if override_text:
+            objective = build_modified_follow_up_objective(
+                base_objective=follow_up.objective,
+                user_text=override_text,
+            )
+        start_child(objective, resume_last_session=False)
+        return True
 
     def send_reply(source: str, message: str) -> None:
         if source == "telegram":
@@ -213,7 +300,7 @@ def main() -> None:
                     child_log_path=child_log_path,
                     child_started_at=child_started_at,
                     last_session_id=last_session_id,
-                    pending_follow_up=pending_follow_up.objective if pending_follow_up else None,
+                    pending_follow_up=pending_follow_up,
                 ),
             )
             return
@@ -227,22 +314,52 @@ def main() -> None:
             if running:
                 send_reply(source, "[daemon] active run exists. Finish or stop it before launching the next step.")
                 return
-            objective = pending_follow_up.objective
-            pending_follow_up = None
-            start_child(objective)
+            launched = launch_follow_up(
+                follow_up=pending_follow_up,
+                source=source,
+                auto_triggered=False,
+            )
+            if launched:
+                pending_follow_up = None
             return
-        if command.kind == "plan-skip":
+        if command.kind == "plan-reject":
             if command.callback_query_id:
-                notifier.answer_callback_query(command.callback_query_id, text="Dismissed")
+                notifier.answer_callback_query(command.callback_query_id, text="Rejected")
             if pending_follow_up is not None and pending_follow_up.plan_id == command.text:
                 pending_follow_up = None
                 update_status()
-            send_reply(source, "[daemon] follow-up suggestion dismissed.")
+            send_reply(source, "[daemon] follow-up plan rejected. Waiting for your next instruction.")
+            return
+        if command.kind == "plan-modify":
+            if command.callback_query_id:
+                notifier.answer_callback_query(command.callback_query_id, text="Send your changes")
+            if pending_follow_up is None or pending_follow_up.plan_id != command.text:
+                send_reply(source, "[daemon] suggested next step is stale or unavailable.")
+                return
+            pending_follow_up.awaiting_user_edit = True
+            pending_follow_up.auto_execute_enabled = False
+            pending_follow_up.auto_execute_at = None
+            update_status()
+            send_modify_prompt()
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
             if not objective:
                 send_reply(source, "[daemon] missing objective. Use /run <objective>.")
+                return
+            if (
+                child is None or child.poll() is not None
+            ) and pending_follow_up is not None and pending_follow_up.awaiting_user_edit:
+                launched = launch_follow_up(
+                    follow_up=pending_follow_up,
+                    source=source,
+                    override_text=objective,
+                    auto_triggered=False,
+                )
+                if launched:
+                    pending_follow_up = None
+                else:
+                    update_status()
                 return
             running = child is not None and child.poll() is None
             if running:
@@ -314,6 +431,19 @@ def main() -> None:
                     "terminal",
                 )
             if child is None:
+                if (
+                    pending_follow_up is not None
+                    and pending_follow_up.auto_execute_enabled
+                    and pending_follow_up.auto_execute_at is not None
+                    and dt.datetime.utcnow() >= pending_follow_up.auto_execute_at
+                ):
+                    launched = launch_follow_up(
+                        follow_up=pending_follow_up,
+                        source="telegram",
+                        auto_triggered=True,
+                    )
+                    if launched:
+                        pending_follow_up = None
                 update_status()
                 continue
             rc = child.poll()
@@ -335,6 +465,7 @@ def main() -> None:
             pending_follow_up = resolve_plan_follow_up(
                 state_file=args.run_state_file,
                 report_path=child_plan_report_path,
+                auto_execute_after_seconds=args.follow_up_auto_execute_seconds,
             )
             if pending_follow_up is not None:
                 log_event(
@@ -346,6 +477,7 @@ def main() -> None:
             child = None
             child_control_bus = None
             child_plan_report_path = None
+            child_plan_todo_path = None
             update_status()
     except KeyboardInterrupt:
         print("Daemon interrupted.", file=sys.stderr)
@@ -376,6 +508,7 @@ def build_child_command(
     control_file: str,
     operator_messages_file: str,
     plan_report_file: str,
+    plan_todo_file: str,
     resume_session_id: str | None,
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
@@ -401,6 +534,8 @@ def build_child_command(
         operator_messages_file,
         "--plan-report-file",
         plan_report_file,
+        "--plan-todo-file",
+        plan_todo_file,
         "--telegram-control-whisper-model",
         args.telegram_control_whisper_model,
         "--telegram-control-whisper-base-url",
@@ -460,14 +595,18 @@ def format_status(
     child_log_path: Path | None,
     child_started_at: dt.datetime | None,
     last_session_id: str | None = None,
-    pending_follow_up: str | None = None,
+    pending_follow_up: PlanFollowUp | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
         base = "[daemon] status=idle"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
-        if pending_follow_up:
-            base += f"\npending_follow_up={pending_follow_up[:700]}"
+        if pending_follow_up is not None:
+            base += f"\npending_follow_up={pending_follow_up.objective[:700]}"
+            base += f"\npending_follow_up_mode={'edit' if pending_follow_up.awaiting_user_edit else 'ready'}"
+            if pending_follow_up.auto_execute_at is not None:
+                remaining = max(0, int((pending_follow_up.auto_execute_at - dt.datetime.utcnow()).total_seconds()))
+                base += f"\nauto_execute_in={format_countdown(remaining)}"
         return base
     elapsed = "unknown"
     if child_started_at is not None:
@@ -495,7 +634,11 @@ def resolve_saved_session_id(state_file: str | None) -> str | None:
     return None
 
 
-def resolve_plan_follow_up(state_file: str | None, report_path: Path | None) -> PlanFollowUp | None:
+def resolve_plan_follow_up(
+    state_file: str | None,
+    report_path: Path | None,
+    auto_execute_after_seconds: int,
+) -> PlanFollowUp | None:
     if not state_file:
         return None
     payload = read_status(state_file)
@@ -519,11 +662,132 @@ def resolve_plan_follow_up(state_file: str | None, report_path: Path | None) -> 
         candidate = plan.get("report_markdown")
         if isinstance(candidate, str):
             report_markdown = candidate
+    created_at = dt.datetime.utcnow()
+    auto_execute_at = created_at + dt.timedelta(seconds=max(0, auto_execute_after_seconds))
     return PlanFollowUp(
         plan_id=plan_id.strip(),
         objective=objective.strip(),
         report_markdown=report_markdown.strip() or objective.strip(),
+        created_at=created_at,
+        auto_execute_at=auto_execute_at,
     )
+
+
+def format_countdown(total_seconds: int) -> str:
+    remaining = max(0, int(total_seconds))
+    hours, rem = divmod(remaining, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    if minutes > 0:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
+def build_modified_follow_up_objective(*, base_objective: str, user_text: str) -> str:
+    return (
+        "Continue from the planner's proposed next session objective, but apply the user's revision.\n\n"
+        f"Base planner objective:\n{base_objective.strip()}\n\n"
+        f"User revision to inherit:\n{user_text.strip()}"
+    )
+
+
+def create_git_checkpoint(*, run_cwd: Path, plan_id: str, auto_triggered: bool) -> GitCheckpointResult:
+    if not _git_ok(run_cwd, "rev-parse", "--is-inside-work-tree"):
+        return GitCheckpointResult(
+            ok_to_continue=True,
+            message="[daemon] follow-up checkpoint skipped: current workspace is not a git repository.",
+        )
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=run_cwd,
+        capture_output=True,
+        text=True,
+    )
+    if status.returncode != 0:
+        return GitCheckpointResult(
+            ok_to_continue=False,
+            message="[daemon] follow-up checkpoint failed: unable to inspect git status.",
+        )
+    if not status.stdout.strip():
+        return GitCheckpointResult(
+            ok_to_continue=True,
+            message="[daemon] workspace already clean. No checkpoint commit was needed.",
+            commit_hash=_resolve_head(run_cwd),
+        )
+    add = subprocess.run(
+        ["git", "add", "-A"],
+        cwd=run_cwd,
+        capture_output=True,
+        text=True,
+    )
+    if add.returncode != 0:
+        return GitCheckpointResult(
+            ok_to_continue=False,
+            message="[daemon] follow-up checkpoint failed during `git add -A`. Auto execution has been paused.",
+        )
+    commit_message = (
+        f"chore: checkpoint before planner follow-up {plan_id}"
+        if not auto_triggered
+        else f"chore: auto checkpoint before planner follow-up {plan_id}"
+    )
+    commit = subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Codex Planner",
+            "-c",
+            "user.email=codex-planner@local",
+            "commit",
+            "-m",
+            commit_message,
+        ],
+        cwd=run_cwd,
+        capture_output=True,
+        text=True,
+    )
+    if commit.returncode != 0:
+        output = (commit.stderr or commit.stdout).strip().splitlines()
+        tail = output[-1] if output else "unknown git error"
+        return GitCheckpointResult(
+            ok_to_continue=False,
+            message=(
+                "[daemon] follow-up checkpoint failed during commit. "
+                f"Auto execution has been paused.\nreason={tail[:500]}"
+            ),
+        )
+    commit_hash = _resolve_head(run_cwd)
+    return GitCheckpointResult(
+        ok_to_continue=True,
+        commit_hash=commit_hash,
+        message=(
+            "[daemon] git checkpoint created before follow-up execution.\n"
+            f"commit={commit_hash}\nmessage={commit_message}"
+        ),
+    )
+
+
+def _git_ok(run_cwd: Path, *args: str) -> bool:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=run_cwd,
+        capture_output=True,
+        text=True,
+    )
+    return completed.returncode == 0 and completed.stdout.strip() == "true"
+
+
+def _resolve_head(run_cwd: Path) -> str | None:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=run_cwd,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.strip()
+    return value or None
 
 
 def help_text() -> str:
@@ -535,6 +799,7 @@ def help_text() -> str:
         "/stop - stop active run\n"
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
+        "When planner proposes a next session, use the Telegram buttons to execute, reject, or modify it.\n"
         "Plain text message is treated as /run when idle.\n"
         "Voice/audio message will be transcribed by Whisper when enabled."
     )
@@ -573,6 +838,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Telegram getUpdates long-poll timeout.",
+    )
+    parser.add_argument(
+        "--follow-up-auto-execute-seconds",
+        type=int,
+        default=3600,
+        help="Seconds to wait before automatically executing the planner's proposed next session.",
     )
     parser.add_argument(
         "--logs-dir",

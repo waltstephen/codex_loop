@@ -2,7 +2,13 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
-from codex_autoloop.telegram_daemon import build_child_command, resolve_plan_follow_up, resolve_saved_session_id
+from codex_autoloop.telegram_daemon import (
+    build_child_command,
+    build_modified_follow_up_objective,
+    format_countdown,
+    resolve_plan_follow_up,
+    resolve_saved_session_id,
+)
 
 
 def test_build_child_command_includes_core_args() -> None:
@@ -18,6 +24,7 @@ def test_build_child_command_includes_core_args() -> None:
         run_planner_reasoning_effort="high",
         run_planner=True,
         run_plan_update_interval_seconds=1800,
+        follow_up_auto_execute_seconds=3600,
         telegram_bot_token="123:abc",
         telegram_control_whisper=True,
         telegram_control_whisper_api_key=None,
@@ -41,6 +48,7 @@ def test_build_child_command_includes_core_args() -> None:
         control_file="/tmp/control.jsonl",
         operator_messages_file="/tmp/operator_messages.md",
         plan_report_file="/tmp/plan.md",
+        plan_todo_file="/tmp/todo.md",
         resume_session_id="thread123",
     )
     assert cmd[0] == "codex-autoloop"
@@ -56,6 +64,7 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--planner-reasoning-effort" in cmd
     assert "--planner" in cmd
     assert "--plan-report-file" in cmd
+    assert "--plan-todo-file" in cmd
     assert "--plan-update-interval-seconds" in cmd
     assert "--session-id" in cmd
     assert "--check" in cmd
@@ -90,8 +99,19 @@ def test_resolve_plan_follow_up(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    follow_up = resolve_plan_follow_up(str(state_file), report_file)
+    follow_up = resolve_plan_follow_up(str(state_file), report_file, 3600)
     assert follow_up is not None
     assert follow_up.plan_id == "plan-123"
     assert follow_up.objective == "benchmark pipeline"
     assert "Planning Snapshot" in follow_up.report_markdown
+    assert follow_up.auto_execute_at is not None
+
+
+def test_format_countdown_and_build_modified_follow_up_objective() -> None:
+    assert format_countdown(3661) == "1h 1m"
+    objective = build_modified_follow_up_objective(
+        base_objective="benchmark pipeline",
+        user_text="focus on Telegram follow-up flow first",
+    )
+    assert "benchmark pipeline" in objective
+    assert "Telegram follow-up flow first" in objective

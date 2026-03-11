@@ -304,9 +304,15 @@ def parse_command_from_update(
                     text=data.split(":", 1)[1],
                     callback_query_id=callback_query_id,
                 )
-            if data.startswith("plan_skip:"):
+            if data.startswith("plan_reject:"):
                 return TelegramCommand(
-                    kind="plan-skip",
+                    kind="plan-reject",
+                    text=data.split(":", 1)[1],
+                    callback_query_id=callback_query_id,
+                )
+            if data.startswith("plan_modify:"):
+                return TelegramCommand(
+                    kind="plan-modify",
                     text=data.split(":", 1)[1],
                     callback_query_id=callback_query_id,
                 )

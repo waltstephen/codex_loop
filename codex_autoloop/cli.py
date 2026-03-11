@@ -65,6 +65,10 @@ def main() -> None:
         explicit_path=args.plan_report_file,
         state_file=args.state_file,
     )
+    plan_todo_file = resolve_plan_todo_file(
+        explicit_path=args.plan_todo_file,
+        state_file=args.state_file,
+    )
     telegram_notifier: TelegramNotifier | None = None
     telegram_stream_reporter: TelegramStreamReporter | None = None
     telegram_control_poller: TelegramCommandPoller | None = None
@@ -258,6 +262,7 @@ def main() -> None:
             dangerous_yolo=args.yolo,
             state_file=args.state_file,
             plan_report_file=plan_report_file,
+            plan_todo_file=plan_todo_file,
             initial_session_id=args.session_id,
             loop_event_callback=on_loop_event,
             stall_soft_idle_seconds=args.stall_soft_idle_seconds,
@@ -281,6 +286,7 @@ def main() -> None:
             else {
                 "plan_id": result.plan.plan_id,
                 "summary": result.plan.summary,
+                "exploration_items": result.plan.exploration_items,
                 "suggested_next_objective": result.plan.suggested_next_objective,
                 "should_propose_follow_up": result.plan.should_propose_follow_up,
                 "report_markdown": result.plan.report_markdown,
@@ -393,6 +399,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--plan-report-file",
         default=None,
         help="Write the latest planner markdown snapshot to this file.",
+    )
+    parser.add_argument(
+        "--plan-todo-file",
+        default=None,
+        help="Write the latest planner TODO board markdown to this file.",
     )
     parser.add_argument(
         "--operator-messages-file",
@@ -590,6 +601,18 @@ def resolve_plan_report_file(
         return explicit_path
     if state_file:
         return str(Path(state_file).resolve().parent / "plan_report.md")
+    return None
+
+
+def resolve_plan_todo_file(
+    *,
+    explicit_path: str | None,
+    state_file: str | None,
+) -> str | None:
+    if explicit_path:
+        return explicit_path
+    if state_file:
+        return str(Path(state_file).resolve().parent / "plan_todo.md")
     return None
 
 

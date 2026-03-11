@@ -49,8 +49,9 @@ flowchart TD
 6. 调用规划代理，更新：
    - 工作流表格（已完成 / 进行中 / 待做 / 阻塞）
    - 当前 session 剩余项与风险
+   - Explorer backlog（缺失数据、外部 API、相似项目）
    - 若 session 终止则生成下一次可执行 objective
-7. 产出 `RoundSummary` 并可选写入 `--state-file` 和 `--plan-report-file`。
+7. 产出 `RoundSummary` 并可选写入 `--state-file`、`--plan-report-file` 和 `--plan-todo-file`。
 8. 根据停止条件决定结束或继续下一轮。
 
 ## 4. 停止条件（按优先级）
@@ -100,6 +101,8 @@ flowchart TD
   - 全量轮次信息、最新评审状态与最新规划快照
 - 可选规划 Markdown（`--plan-report-file`）：
   - 可直接展示给 Web/Telegram 的经理报告
+- 可选 TODO Markdown（`--plan-todo-file`）：
+  - 持续维护的工作流表格、优先队列与探索 backlog
 
 ## 7. 最小使用示例
 

@@ -1,5 +1,10 @@
 from codex_autoloop.dashboard import DashboardStore
-from codex_autoloop.cli import parse_telegram_events, resolve_operator_messages_file, resolve_plan_report_file
+from codex_autoloop.cli import (
+    parse_telegram_events,
+    resolve_operator_messages_file,
+    resolve_plan_report_file,
+    resolve_plan_todo_file,
+)
 
 
 def test_dashboard_store_state_and_events() -> None:
@@ -50,3 +55,11 @@ def test_resolve_plan_report_file_prefers_explicit() -> None:
         state_file="/tmp/state.json",
     )
     assert out == "/tmp/plan.md"
+
+
+def test_resolve_plan_todo_file_prefers_explicit() -> None:
+    out = resolve_plan_todo_file(
+        explicit_path="/tmp/todo.md",
+        state_file="/tmp/state.json",
+    )
+    assert out == "/tmp/todo.md"
