@@ -15,6 +15,7 @@ from typing import Any, Callable
 class TelegramCommand:
     kind: str
     text: str
+    callback_query_id: str | None = None
 
 
 CommandCallback = Callable[[TelegramCommand], None]
@@ -286,6 +287,29 @@ def parse_command_from_update(
     expected_chat_id: str,
     plain_text_as_inject: bool,
 ) -> TelegramCommand | None:
+    callback_query = update.get("callback_query")
+    if isinstance(callback_query, dict):
+        message = callback_query.get("message")
+        data = callback_query.get("data")
+        callback_query_id = callback_query.get("id")
+        if (
+            isinstance(message, dict)
+            and isinstance(data, str)
+            and isinstance(callback_query_id, str)
+            and _message_matches_chat(message=message, expected_chat_id=expected_chat_id)
+        ):
+            if data.startswith("plan_run:"):
+                return TelegramCommand(
+                    kind="plan-run",
+                    text=data.split(":", 1)[1],
+                    callback_query_id=callback_query_id,
+                )
+            if data.startswith("plan_skip:"):
+                return TelegramCommand(
+                    kind="plan-skip",
+                    text=data.split(":", 1)[1],
+                    callback_query_id=callback_query_id,
+                )
     message = extract_message_for_chat(update=update, expected_chat_id=expected_chat_id)
     if message is None:
         return None
@@ -302,13 +326,17 @@ def extract_message_for_chat(*, update: dict[str, Any], expected_chat_id: str) -
     message = update.get("message")
     if not isinstance(message, dict):
         return None
-    chat = message.get("chat")
-    if not isinstance(chat, dict):
-        return None
-    chat_id = chat.get("id")
-    if str(chat_id) != str(expected_chat_id):
+    if not _message_matches_chat(message=message, expected_chat_id=expected_chat_id):
         return None
     return message
+
+
+def _message_matches_chat(*, message: dict[str, Any], expected_chat_id: str) -> bool:
+    chat = message.get("chat")
+    if not isinstance(chat, dict):
+        return False
+    chat_id = chat.get("id")
+    return str(chat_id) == str(expected_chat_id)
 
 
 def extract_audio_file_from_message(message: dict[str, Any]) -> TelegramAudioFile | None:

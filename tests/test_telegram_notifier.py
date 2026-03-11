@@ -38,6 +38,20 @@ def test_unknown_event_empty() -> None:
     assert format_event_message({"type": "x.unknown"}) == ""
 
 
+def test_format_plan_finalized() -> None:
+    message = format_event_message(
+        {
+            "type": "plan.finalized",
+            "trigger": "final",
+            "terminal": True,
+            "summary": "core implementation is complete",
+            "suggested_next_objective": "benchmark the new pipeline end-to-end",
+        }
+    )
+    assert "planner final" in message
+    assert "benchmark the new pipeline" in message
+
+
 def test_token_shape_validation() -> None:
     assert looks_like_bot_token("123456:ABCDEFGHIJK")
     assert not looks_like_bot_token("ABCDEFGHIJK")

@@ -16,6 +16,7 @@ from .live_updates import (
 )
 from .local_control import LocalControlCommand, LocalControlPoller
 from .orchestrator import AutoLoopConfig, AutoLoopOrchestrator
+from .planner import Planner
 from .reviewer import Reviewer
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
@@ -37,6 +38,8 @@ def main() -> None:
         and args.stall_hard_idle_seconds < args.stall_soft_idle_seconds
     ):
         parser.error("--stall-hard-idle-seconds must be >= --stall-soft-idle-seconds")
+    if args.plan_update_interval_seconds < 0:
+        parser.error("--plan-update-interval-seconds must be >= 0")
 
     dashboard_store: DashboardStore | None = None
     dashboard_server: DashboardServer | None = None
@@ -58,6 +61,10 @@ def main() -> None:
         control_file=args.control_file,
         state_file=args.state_file,
     )
+    plan_report_file = resolve_plan_report_file(
+        explicit_path=args.plan_report_file,
+        state_file=args.state_file,
+    )
     telegram_notifier: TelegramNotifier | None = None
     telegram_stream_reporter: TelegramStreamReporter | None = None
     telegram_control_poller: TelegramCommandPoller | None = None
@@ -69,6 +76,8 @@ def main() -> None:
         "round": 0,
         "session_id": None,
         "updated_at": None,
+        "plan_summary": None,
+        "plan_next_objective": None,
     }
     raw_chat_id = (args.telegram_chat_id or "").strip()
     telegram_requested = bool(args.telegram_bot_token) or raw_chat_id.lower() not in {"", "auto"}
@@ -216,6 +225,7 @@ def main() -> None:
 
     runner = CodexRunner(codex_bin=args.codex_bin, event_callback=on_event)
     reviewer = Reviewer(runner=runner)
+    planner = Planner(runner=runner) if args.planner else None
 
     def on_loop_event(event: dict[str, Any]) -> None:
         update_runtime_state(control_runtime_state, event)
@@ -227,6 +237,7 @@ def main() -> None:
     orchestrator = AutoLoopOrchestrator(
         runner=runner,
         reviewer=reviewer,
+        planner=planner,
         config=AutoLoopConfig(
             objective=objective,
             max_rounds=args.max_rounds,
@@ -237,16 +248,22 @@ def main() -> None:
             main_reasoning_effort=args.main_reasoning_effort,
             reviewer_model=args.reviewer_model,
             reviewer_reasoning_effort=args.reviewer_reasoning_effort,
+            planner_model=args.planner_model,
+            planner_reasoning_effort=args.planner_reasoning_effort,
             main_extra_args=args.main_extra_arg or [],
             reviewer_extra_args=args.reviewer_extra_arg or [],
+            planner_extra_args=args.planner_extra_arg or [],
             skip_git_repo_check=args.skip_git_repo_check,
             full_auto=args.full_auto,
             dangerous_yolo=args.yolo,
             state_file=args.state_file,
+            plan_report_file=plan_report_file,
             initial_session_id=args.session_id,
             loop_event_callback=on_loop_event,
             stall_soft_idle_seconds=args.stall_soft_idle_seconds,
             stall_hard_idle_seconds=args.stall_hard_idle_seconds,
+            plan_update_interval_seconds=args.plan_update_interval_seconds,
+            planner_enabled=args.planner,
             external_interrupt_reason_provider=control_state.consume_interrupt_reason,
             pending_instruction_consumer=control_state.consume_pending_instruction,
             stop_requested_checker=control_state.is_stop_requested,
@@ -259,6 +276,15 @@ def main() -> None:
             "success": result.success,
             "session_id": result.session_id,
             "stop_reason": result.stop_reason,
+            "plan": None
+            if result.plan is None
+            else {
+                "plan_id": result.plan.plan_id,
+                "summary": result.plan.summary,
+                "suggested_next_objective": result.plan.suggested_next_objective,
+                "should_propose_follow_up": result.plan.should_propose_follow_up,
+                "report_markdown": result.plan.report_markdown,
+            },
             "rounds": [
                 {
                     "round": item.round_index,
@@ -321,6 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--main-model", default=None, help="Primary agent model override.")
     parser.add_argument("--reviewer-model", default=None, help="Reviewer sub-agent model override.")
+    parser.add_argument("--planner-model", default=None, help="Planner/manager sub-agent model override.")
     parser.add_argument(
         "--main-reasoning-effort",
         default=None,
@@ -334,6 +361,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reviewer sub-agent reasoning effort override.",
     )
     parser.add_argument(
+        "--planner-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Planner/manager sub-agent reasoning effort override.",
+    )
+    parser.add_argument(
         "--main-extra-arg",
         action="append",
         help="Extra argument passed to main `codex exec` command (repeatable).",
@@ -342,6 +375,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--reviewer-extra-arg",
         action="append",
         help="Extra argument passed to reviewer `codex exec` command (repeatable).",
+    )
+    parser.add_argument(
+        "--planner-extra-arg",
+        action="append",
+        help="Extra argument passed to planner `codex exec` command (repeatable).",
     )
     parser.add_argument("--skip-git-repo-check", action="store_true", help="Pass through to Codex CLI.")
     parser.add_argument("--full-auto", action="store_true", help="Pass `--full-auto` to Codex CLI.")
@@ -352,9 +390,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--state-file", default=None, help="Write state JSON after each loop round.")
     parser.add_argument(
+        "--plan-report-file",
+        default=None,
+        help="Write the latest planner markdown snapshot to this file.",
+    )
+    parser.add_argument(
         "--operator-messages-file",
         default=None,
         help="Markdown document path for operator message history used by reviewer.",
+    )
+    parser.add_argument(
+        "--planner",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable planner manager sub-agent.",
+    )
+    parser.add_argument(
+        "--plan-update-interval-seconds",
+        type=int,
+        default=1800,
+        help="Planner sweep interval while the loop is still running (0 disables background sweeps).",
     )
     parser.add_argument(
         "--control-file",
@@ -396,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--telegram-events",
-        default="loop.started,round.review.completed,loop.completed",
+        default="loop.started,round.review.completed,plan.finalized,loop.completed",
         help="Comma-separated event names to send to Telegram.",
     )
     parser.add_argument(
@@ -526,6 +581,18 @@ def resolve_operator_messages_file(
     return None
 
 
+def resolve_plan_report_file(
+    *,
+    explicit_path: str | None,
+    state_file: str | None,
+) -> str | None:
+    if explicit_path:
+        return explicit_path
+    if state_file:
+        return str(Path(state_file).resolve().parent / "plan_report.md")
+    return None
+
+
 def update_runtime_state(state: dict[str, Any], event: dict[str, Any]) -> None:
     event_type = str(event.get("type", ""))
     state["updated_at"] = event.get("ts")
@@ -538,6 +605,10 @@ def update_runtime_state(state: dict[str, Any], event: dict[str, Any]) -> None:
         state["session_id"] = event.get("session_id", state.get("session_id"))
     elif event_type == "round.main.completed":
         state["session_id"] = event.get("session_id", state.get("session_id"))
+    elif event_type in {"plan.updated", "plan.finalized"}:
+        state["plan_summary"] = event.get("summary")
+        state["plan_next_objective"] = event.get("suggested_next_objective")
+        state["plan_report_markdown"] = event.get("report_markdown")
     elif event_type == "loop.completed":
         state["status"] = "completed"
         state["success"] = event.get("success")
@@ -550,6 +621,8 @@ def format_control_status(state: dict[str, Any]) -> str:
     session_id = state.get("session_id")
     success = state.get("success")
     stop_reason = state.get("stop_reason")
+    plan_summary = state.get("plan_summary")
+    plan_next_objective = state.get("plan_next_objective")
     lines = [
         "[autoloop] status",
         f"status={status}",
@@ -560,6 +633,10 @@ def format_control_status(state: dict[str, Any]) -> str:
         lines.append(f"success={success}")
     if stop_reason:
         lines.append(f"stop_reason={stop_reason}")
+    if plan_summary:
+        lines.append(f"plan_summary={plan_summary}")
+    if plan_next_objective:
+        lines.append(f"plan_next_objective={plan_next_objective}")
     return "\n".join(lines)
 
 

@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
@@ -14,6 +15,13 @@ from .model_catalog import get_preset
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
+
+
+@dataclass
+class PlanFollowUp:
+    plan_id: str
+    objective: str
+    report_markdown: str
 
 
 def main() -> None:
@@ -73,8 +81,10 @@ def main() -> None:
     child: subprocess.Popen[str] | None = None
     child_objective: str | None = None
     child_log_path: Path | None = None
+    child_plan_report_path: Path | None = None
     child_started_at: dt.datetime | None = None
     child_control_bus: JsonlCommandBus | None = None
+    pending_follow_up: PlanFollowUp | None = None
 
     def log_event(event_type: str, **kwargs) -> None:
         payload = {
@@ -97,8 +107,11 @@ def main() -> None:
                 "child_pid": child.pid if running else None,
                 "child_objective": child_objective,
                 "child_log_path": str(child_log_path) if child_log_path else None,
+                "child_plan_report_path": str(child_plan_report_path) if child_plan_report_path else None,
                 "child_started_at": child_started_at.isoformat() + "Z" if child_started_at else None,
                 "last_session_id": last_session_id,
+                "pending_follow_up_plan_id": pending_follow_up.plan_id if pending_follow_up else None,
+                "pending_follow_up_objective": pending_follow_up.objective if pending_follow_up else None,
                 "run_cwd": str(run_cwd),
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
@@ -107,25 +120,30 @@ def main() -> None:
         )
 
     def start_child(objective: str) -> None:
-        nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
+        nonlocal child, child_objective, child_log_path, child_plan_report_path, child_started_at
+        nonlocal child_control_bus, pending_follow_up
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
         messages_path = logs_dir / f"run-{timestamp}-operator_messages.md"
+        plan_report_path = logs_dir / f"run-{timestamp}-plan.md"
         resume_session_id = resolve_saved_session_id(args.run_state_file) if args.run_resume_last_session else None
         child_control_bus = JsonlCommandBus(control_path)
+        pending_follow_up = None
         cmd = build_child_command(
             args=args,
             objective=objective,
             chat_id=chat_id,
             control_file=str(control_path),
             operator_messages_file=str(messages_path),
+            plan_report_file=str(plan_report_path),
             resume_session_id=resume_session_id,
         )
         log_file = log_path.open("w", encoding="utf-8")
         child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=run_cwd)
         child_objective = objective
         child_log_path = log_path
+        child_plan_report_path = plan_report_path
         child_started_at = dt.datetime.utcnow()
         notifier.send_message(
             "[daemon] launched run\n"
@@ -140,9 +158,28 @@ def main() -> None:
             log_path=str(log_path),
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
+            plan_report_file=str(plan_report_path),
             resume_session_id=resume_session_id,
         )
         update_status()
+
+    def send_follow_up_prompt() -> None:
+        if pending_follow_up is None:
+            return
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": "Execute Next Step", "callback_data": f"plan_run:{pending_follow_up.plan_id}"},
+                    {"text": "Dismiss", "callback_data": f"plan_skip:{pending_follow_up.plan_id}"},
+                ]
+            ]
+        }
+        message = (
+            "[daemon] suggested next session\n"
+            "The current run is finished. Launch the follow-up objective below?\n\n"
+            f"{pending_follow_up.report_markdown[:3200]}"
+        )
+        notifier.send_message(message, reply_markup=keyboard)
 
     def send_reply(source: str, message: str) -> None:
         if source == "telegram":
@@ -160,10 +197,9 @@ def main() -> None:
         log_event("child.command.forwarded", source=source, kind=kind, text=text[:700])
         return True
 
-    def handle_command(kind: str, text: str, source: str) -> None:
-        nonlocal child, child_control_bus
-        command = TelegramCommand(kind=kind, text=text)
-        log_event("command.received", source=source, kind=kind, text=text[:700])
+    def handle_command(command: TelegramCommand, source: str) -> None:
+        nonlocal child, child_control_bus, pending_follow_up
+        log_event("command.received", source=source, kind=command.kind, text=command.text[:700])
         if command.kind == "help":
             send_reply(source, help_text())
             return
@@ -177,8 +213,31 @@ def main() -> None:
                     child_log_path=child_log_path,
                     child_started_at=child_started_at,
                     last_session_id=last_session_id,
+                    pending_follow_up=pending_follow_up.objective if pending_follow_up else None,
                 ),
             )
+            return
+        if command.kind == "plan-run":
+            if command.callback_query_id:
+                notifier.answer_callback_query(command.callback_query_id)
+            if pending_follow_up is None or pending_follow_up.plan_id != command.text:
+                send_reply(source, "[daemon] suggested next step is stale or unavailable.")
+                return
+            running = child is not None and child.poll() is None
+            if running:
+                send_reply(source, "[daemon] active run exists. Finish or stop it before launching the next step.")
+                return
+            objective = pending_follow_up.objective
+            pending_follow_up = None
+            start_child(objective)
+            return
+        if command.kind == "plan-skip":
+            if command.callback_query_id:
+                notifier.answer_callback_query(command.callback_query_id, text="Dismissed")
+            if pending_follow_up is not None and pending_follow_up.plan_id == command.text:
+                pending_follow_up = None
+                update_status()
+            send_reply(source, "[daemon] follow-up suggestion dismissed.")
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
@@ -215,7 +274,7 @@ def main() -> None:
             raise SystemExit(0)
 
     def on_telegram_command(command: TelegramCommand) -> None:
-        handle_command(command.kind, command.text, "telegram")
+        handle_command(command, "telegram")
 
     poller = TelegramCommandPoller(
         bot_token=args.telegram_bot_token,
@@ -250,7 +309,10 @@ def main() -> None:
         while True:
             time.sleep(1)
             for item in daemon_bus.read_new():
-                handle_command(item.kind, item.text, "terminal")
+                handle_command(
+                    TelegramCommand(kind=item.kind, text=item.text),
+                    "terminal",
+                )
             if child is None:
                 update_status()
                 continue
@@ -270,8 +332,20 @@ def main() -> None:
                 objective=str(child_objective or "")[:700],
                 log_path=str(child_log_path) if child_log_path else None,
             )
+            pending_follow_up = resolve_plan_follow_up(
+                state_file=args.run_state_file,
+                report_path=child_plan_report_path,
+            )
+            if pending_follow_up is not None:
+                log_event(
+                    "child.follow_up.ready",
+                    plan_id=pending_follow_up.plan_id,
+                    objective=pending_follow_up.objective[:700],
+                )
+                send_follow_up_prompt()
             child = None
             child_control_bus = None
+            child_plan_report_path = None
             update_status()
     except KeyboardInterrupt:
         print("Daemon interrupted.", file=sys.stderr)
@@ -301,6 +375,7 @@ def build_child_command(
     chat_id: str,
     control_file: str,
     operator_messages_file: str,
+    plan_report_file: str,
     resume_session_id: str | None,
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
@@ -310,6 +385,8 @@ def build_child_command(
     reviewer_reasoning_effort = (
         preset.reviewer_reasoning_effort if preset is not None else args.run_reviewer_reasoning_effort
     )
+    planner_model = args.run_planner_model
+    planner_reasoning_effort = args.run_planner_reasoning_effort
     cmd = [
         args.codex_autoloop_bin,
         "--max-rounds",
@@ -322,6 +399,8 @@ def build_child_command(
         control_file,
         "--operator-messages-file",
         operator_messages_file,
+        "--plan-report-file",
+        plan_report_file,
         "--telegram-control-whisper-model",
         args.telegram_control_whisper_model,
         "--telegram-control-whisper-base-url",
@@ -337,6 +416,14 @@ def build_child_command(
         cmd.extend(["--reviewer-model", reviewer_model])
     if reviewer_reasoning_effort:
         cmd.extend(["--reviewer-reasoning-effort", reviewer_reasoning_effort])
+    if planner_model:
+        cmd.extend(["--planner-model", planner_model])
+    if planner_reasoning_effort:
+        cmd.extend(["--planner-reasoning-effort", planner_reasoning_effort])
+    if args.run_planner:
+        cmd.append("--planner")
+    else:
+        cmd.append("--no-planner")
     if args.telegram_control_whisper:
         cmd.append("--telegram-control-whisper")
     else:
@@ -357,6 +444,7 @@ def build_child_command(
         cmd.extend(["--stall-soft-idle-seconds", str(args.run_stall_soft_idle_seconds)])
     if args.run_stall_hard_idle_seconds > 0:
         cmd.extend(["--stall-hard-idle-seconds", str(args.run_stall_hard_idle_seconds)])
+    cmd.extend(["--plan-update-interval-seconds", str(args.run_plan_update_interval_seconds)])
     if args.run_state_file:
         cmd.extend(["--state-file", args.run_state_file])
     if args.run_no_dashboard:
@@ -372,11 +460,14 @@ def format_status(
     child_log_path: Path | None,
     child_started_at: dt.datetime | None,
     last_session_id: str | None = None,
+    pending_follow_up: str | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
         base = "[daemon] status=idle"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
+        if pending_follow_up:
+            base += f"\npending_follow_up={pending_follow_up[:700]}"
         return base
     elapsed = "unknown"
     if child_started_at is not None:
@@ -402,6 +493,37 @@ def resolve_saved_session_id(state_file: str | None) -> str | None:
     if isinstance(session_id, str) and session_id.strip():
         return session_id.strip()
     return None
+
+
+def resolve_plan_follow_up(state_file: str | None, report_path: Path | None) -> PlanFollowUp | None:
+    if not state_file:
+        return None
+    payload = read_status(state_file)
+    if payload is None:
+        return None
+    plan = payload.get("plan")
+    if not isinstance(plan, dict):
+        return None
+    if not bool(plan.get("should_propose_follow_up")):
+        return None
+    objective = plan.get("suggested_next_objective")
+    plan_id = plan.get("plan_id")
+    if not isinstance(objective, str) or not objective.strip():
+        return None
+    if not isinstance(plan_id, str) or not plan_id.strip():
+        return None
+    report_markdown = ""
+    if report_path is not None and report_path.exists():
+        report_markdown = report_path.read_text(encoding="utf-8")
+    if not report_markdown:
+        candidate = plan.get("report_markdown")
+        if isinstance(candidate, str):
+            report_markdown = candidate
+    return PlanFollowUp(
+        plan_id=plan_id.strip(),
+        objective=objective.strip(),
+        report_markdown=report_markdown.strip() or objective.strip(),
+    )
 
 
 def help_text() -> str:
@@ -499,6 +621,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=["low", "medium", "high", "xhigh"],
         help="Explicit reviewer agent reasoning effort override for child runs.",
+    )
+    parser.add_argument(
+        "--run-planner-model",
+        default=None,
+        help="Explicit planner agent model override for child runs.",
+    )
+    parser.add_argument(
+        "--run-planner-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Explicit planner agent reasoning effort override for child runs.",
+    )
+    parser.add_argument(
+        "--run-planner",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable planner manager sub-agent for child runs.",
+    )
+    parser.add_argument(
+        "--run-plan-update-interval-seconds",
+        type=int,
+        default=1800,
+        help="Child planner sweep interval in seconds.",
     )
     parser.add_argument(
         "--run-check",

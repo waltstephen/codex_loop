@@ -21,4 +21,4 @@ codex-autoloop-models = "codex_autoloop.model_catalog:main"
 packages = ["codex_autoloop"]
 
 [tool.setuptools.package-data]
-codex_autoloop = ["reviewer_schema.json"]
+codex_autoloop = ["planner_schema.json", "reviewer_schema.json"]

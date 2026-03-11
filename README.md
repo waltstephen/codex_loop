@@ -4,6 +4,7 @@
 
 - Main agent executes the task (`codex exec` or `codex exec resume`)
 - Reviewer sub-agent evaluates completion (`done` / `continue` / `blocked`)
+- Planner sub-agent maintains a live framework view and proposes next-session objectives
 - Loop only stops when reviewer says `done` and all acceptance checks pass
 
 This solves the common "agent stopped early and asked for next instruction" problem.
@@ -17,10 +18,12 @@ Current defaults:
 ## Current Feature Snapshot
 
 - Persistent main-agent loop with reviewer gating (`done/continue/blocked`).
+- Planner/manager agent with live plan snapshots, workstream table, and follow-up objective proposal.
 - Stall watchdog with soft diagnosis and hard restart safety window.
 - Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
+- Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
 - Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
@@ -51,10 +54,13 @@ Common options:
 
 - `--session-id <id>`: continue an existing Codex session
 - `--main-model` / `--reviewer-model`: set model(s)
+- `--planner-model`: override the manager/planner model (defaults to reviewer settings when omitted)
 - `python -m codex_autoloop.model_catalog`: list common models and presets
 - `--yolo`: pass dangerous no-sandbox mode to Codex
 - `--full-auto`: pass full-auto mode to Codex
 - `--state-file <file>`: write round-by-round state JSON
+- `--plan-report-file <file>`: write the latest planner markdown snapshot
+- `--plan-update-interval-seconds 1800`: run background planning sweeps every 30 minutes
 - `--verbose-events`: print raw JSONL stream
 - `--dashboard`: launch a live local web dashboard
 - `--dashboard-host 0.0.0.0 --dashboard-port 8787`: expose dashboard to other devices in LAN
@@ -157,6 +163,7 @@ Daemon commands from Telegram:
 - `/status`: daemon/child status
 - `/stop`: stop active run
 - `/help`
+- After a child run finishes, the daemon can offer a Telegram button to execute the planner's next suggested objective.
 
 For background mode:
 
