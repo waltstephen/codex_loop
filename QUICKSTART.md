@@ -33,6 +33,7 @@ Notes:
 - Live terminal streaming is on by default.
 - Telegram live deltas are sent every 30s only when content changes.
 - Telegram control commands are enabled by default (`/inject`, `/status`, `/stop`).
+- Daemon defaults to the `cheap` model preset unless you override it.
 
 Control examples from Telegram Web:
 
@@ -81,6 +82,7 @@ Defaults:
 - Idle daemon tries to resume from the last saved `session_id`.
 - One Telegram token can only be used by one active daemon.
 - Operator messages are recorded into per-run markdown files in `.codex_daemon/logs/`.
+- Daemon child model preset defaults to `cheap`.
 - Re-running setup/start will stop the previous daemon for the same `.codex_daemon` before starting a new one.
 
 One-click kill:

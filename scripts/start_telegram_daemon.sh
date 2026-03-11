@@ -42,6 +42,15 @@ EXTRA_ARGS=()
 if [[ -n "${CODEX_DAEMON_CHECK:-}" ]]; then
   EXTRA_ARGS+=(--run-check "${CODEX_DAEMON_CHECK}")
 fi
+if [[ -n "${CODEX_DAEMON_MODEL_PRESET:-}" ]]; then
+  EXTRA_ARGS+=(--run-model-preset "${CODEX_DAEMON_MODEL_PRESET}")
+fi
+if [[ -n "${CODEX_DAEMON_MAIN_MODEL:-}" ]]; then
+  EXTRA_ARGS+=(--run-main-model "${CODEX_DAEMON_MAIN_MODEL}")
+fi
+if [[ -n "${CODEX_DAEMON_REVIEWER_MODEL:-}" ]]; then
+  EXTRA_ARGS+=(--run-reviewer-model "${CODEX_DAEMON_REVIEWER_MODEL}")
+fi
 if [[ "${CODEX_DAEMON_YOLO:-1}" == "1" || "${CODEX_DAEMON_YOLO:-1}" == "true" ]]; then
   EXTRA_ARGS+=(--run-yolo)
 else

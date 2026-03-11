@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from .model_catalog import MODEL_PRESETS, get_preset
 from .token_lock import acquire_token_lock
 
 
@@ -41,6 +42,27 @@ def main() -> None:
         "Default check command (optional, leave empty for none): ",
         default="",
     ).strip()
+    preset_names = ", ".join(p.name for p in MODEL_PRESETS)
+    preset_name = args.run_model_preset
+    if preset_name is None and args.run_main_model is None and args.run_reviewer_model is None:
+        preset_name = prompt_input(
+            f"Model preset ({preset_names}, custom, or empty to keep daemon default): ",
+            default="cheap",
+        ).strip()
+    resolved_preset = get_preset(preset_name) if preset_name and preset_name.lower() != "custom" else None
+    if preset_name and preset_name.lower() != "custom" and resolved_preset is None:
+        print(f"Unknown model preset: {preset_name}", file=sys.stderr)
+        raise SystemExit(2)
+    if resolved_preset is not None:
+        main_model = resolved_preset.main_model
+        reviewer_model = resolved_preset.reviewer_model
+    else:
+        if args.run_main_model is not None or args.run_reviewer_model is not None:
+            main_model = args.run_main_model
+            reviewer_model = args.run_reviewer_model
+        else:
+            main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
+            reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
 
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -74,6 +96,9 @@ def main() -> None:
         "run_full_auto": args.run_full_auto,
         "run_yolo": args.run_yolo,
         "run_resume_last_session": args.run_resume_last_session,
+        "run_main_model": main_model,
+        "run_reviewer_model": reviewer_model,
+        "run_model_preset": (resolved_preset.name if resolved_preset else (preset_name or None)),
         "bus_dir": str(bus_dir),
         "logs_dir": str(logs_dir),
     }
@@ -102,6 +127,13 @@ def main() -> None:
     ]
     if check_cmd:
         daemon_cmd.extend(["--run-check", check_cmd])
+    if resolved_preset is not None:
+        daemon_cmd.extend(["--run-model-preset", resolved_preset.name])
+    else:
+        if main_model:
+            daemon_cmd.extend(["--run-main-model", main_model])
+        if reviewer_model:
+            daemon_cmd.extend(["--run-reviewer-model", reviewer_model])
     if args.run_skip_git_repo_check:
         daemon_cmd.append("--run-skip-git-repo-check")
     if args.run_full_auto:
@@ -138,6 +170,11 @@ def main() -> None:
     print(f"Config: {config_path}")
     print(f"Log: {daemon_log}")
     print(f"Bus dir: {bus_dir}")
+    if resolved_preset is not None:
+        print(f"Model preset: {resolved_preset.name} ({resolved_preset.main_model} / {resolved_preset.reviewer_model})")
+    else:
+        print(f"Main model: {main_model or '<daemon default>'}")
+        print(f"Reviewer model: {reviewer_model or '<daemon default>'}")
     print("")
     ctl_hint = resolve_daemon_ctl_hint()
     print("Terminal control examples:")
@@ -307,6 +344,21 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Resume from the last saved session_id when daemon receives a new run while idle.",
+    )
+    parser.add_argument(
+        "--run-model-preset",
+        default=None,
+        help="Optional preset name for daemon-launched models. Interactive setup also prompts for this.",
+    )
+    parser.add_argument(
+        "--run-main-model",
+        default=None,
+        help="Override main agent model for daemon-launched runs.",
+    )
+    parser.add_argument(
+        "--run-reviewer-model",
+        default=None,
+        help="Override reviewer agent model for daemon-launched runs.",
     )
     parser.add_argument(
         "--token-lock-dir",

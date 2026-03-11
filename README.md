@@ -11,6 +11,7 @@ This solves the common "agent stopped early and asked for next instruction" prob
 Current defaults:
 
 - `max_rounds` defaults to `50`.
+- Daemon child model preset defaults to `cheap` unless overridden.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
 ## Current Feature Snapshot
@@ -50,6 +51,7 @@ Common options:
 
 - `--session-id <id>`: continue an existing Codex session
 - `--main-model` / `--reviewer-model`: set model(s)
+- `python -m codex_autoloop.model_catalog`: list common models and presets
 - `--yolo`: pass dangerous no-sandbox mode to Codex
 - `--full-auto`: pass full-auto mode to Codex
 - `--state-file <file>`: write round-by-round state JSON
@@ -189,6 +191,7 @@ Default behavior for daemon-launched runs:
 
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
+- Daemon defaults to the `cheap` model preset unless you override it.
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - Operator messages (initial objective + terminal/Telegram injects) are written to per-run markdown files in the daemon logs directory.
@@ -226,6 +229,32 @@ If `codex-autoloop-daemon-ctl` is not found, replace it with:
 ```bash
 python -m codex_autoloop.daemon_ctl
 ```
+
+## Model presets
+
+Show local model presets and common names:
+
+```bash
+python -m codex_autoloop.model_catalog
+```
+
+Current presets:
+
+- `cheap`: `main=gpt-5-mini`, `reviewer=gpt-5-nano`
+- `balanced`: `main=gpt-5.1-codex`, `reviewer=gpt-5-mini`
+- `strong`: `main=gpt-5.2-codex`, `reviewer=gpt-5-mini`
+- `max`: `main=gpt-5.1-codex-max`, `reviewer=gpt-5-mini`
+
+Daemon overrides:
+
+```bash
+python -m codex_autoloop.setup_wizard --run-cd .
+```
+
+The wizard now lets you choose either:
+
+- a preset for both agents, or
+- separate `main` / `reviewer` model names
 
 ## Example: Use in another project (`newproject`) with sanitized paths
 

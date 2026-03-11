@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
+from .model_catalog import get_preset
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -302,6 +303,9 @@ def build_child_command(
     operator_messages_file: str,
     resume_session_id: str | None,
 ) -> list[str]:
+    preset = get_preset(args.run_model_preset) if args.run_model_preset else None
+    main_model = preset.main_model if preset is not None else args.run_main_model
+    reviewer_model = preset.reviewer_model if preset is not None else args.run_reviewer_model
     cmd = [
         args.codex_autoloop_bin,
         "--max-rounds",
@@ -321,6 +325,10 @@ def build_child_command(
         "--telegram-control-whisper-timeout-seconds",
         str(args.telegram_control_whisper_timeout_seconds),
     ]
+    if main_model:
+        cmd.extend(["--main-model", main_model])
+    if reviewer_model:
+        cmd.extend(["--reviewer-model", reviewer_model])
     if args.telegram_control_whisper:
         cmd.append("--telegram-control-whisper")
     else:
@@ -457,6 +465,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Working directory for child codex-autoloop runs.",
     )
     parser.add_argument("--run-max-rounds", type=int, default=50, help="Child codex-autoloop max rounds.")
+    parser.add_argument(
+        "--run-model-preset",
+        default="cheap",
+        help="Model preset name for child runs (cheap, balanced, strong, max).",
+    )
+    parser.add_argument(
+        "--run-main-model",
+        default=None,
+        help="Explicit main agent model override for child runs.",
+    )
+    parser.add_argument(
+        "--run-reviewer-model",
+        default=None,
+        help="Explicit reviewer agent model override for child runs.",
+    )
     parser.add_argument(
         "--run-check",
         action="append",

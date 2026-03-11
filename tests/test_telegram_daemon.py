@@ -9,6 +9,9 @@ def test_build_child_command_includes_core_args() -> None:
     args = Namespace(
         codex_autoloop_bin="codex-autoloop",
         run_max_rounds=8,
+        run_model_preset="cheap",
+        run_main_model=None,
+        run_reviewer_model=None,
         telegram_bot_token="123:abc",
         telegram_control_whisper=True,
         telegram_control_whisper_api_key=None,
@@ -38,6 +41,8 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--telegram-chat-id" in cmd
     assert "--control-file" in cmd
     assert "--operator-messages-file" in cmd
+    assert "--main-model" in cmd
+    assert "--reviewer-model" in cmd
     assert "--session-id" in cmd
     assert "--check" in cmd
     assert "--yolo" in cmd

@@ -15,6 +15,7 @@ codex-autoloop = "codex_autoloop.cli:main"
 codex-autoloop-telegram-daemon = "codex_autoloop.telegram_daemon:main"
 codex-autoloop-daemon-ctl = "codex_autoloop.daemon_ctl:main"
 codex-autoloop-setup = "codex_autoloop.setup_wizard:main"
+codex-autoloop-models = "codex_autoloop.model_catalog:main"
 
 [tool.setuptools]
 packages = ["codex_autoloop"]
