@@ -25,6 +25,7 @@ Current defaults:
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
 - Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
+- Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
 - Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
@@ -166,7 +167,7 @@ Daemon commands from Telegram:
 - `/stop`: stop active run
 - `/help`
 - After a child run finishes, the daemon can offer a Telegram button to execute the planner's next suggested objective.
-- If the user does nothing, daemon auto-executes the planned next session after the follow-up countdown (default: 1 hour).
+- If the user does nothing, daemon auto-executes the planned next session after the follow-up countdown (default: 10 minutes).
 - Before executing that follow-up, daemon creates a git checkpoint commit when the workspace is dirty.
 - Telegram follow-up options are: direct execute, reject plan, or modify then execute while inheriting the planner objective. That follow-up starts as a fresh session.
 
@@ -197,7 +198,8 @@ The wizard will:
 1. Check `codex` CLI availability and basic auth probe.
 2. Prompt for Telegram bot token/chat id.
 3. Prompt optional default check command (empty means no forced check command).
-4. Start daemon in background and save config under `.codex_daemon/`.
+4. Prompt for planner mode after model selection.
+5. Start daemon in background and save config under `.codex_daemon/`.
 
 Default behavior for daemon-launched runs:
 

@@ -67,6 +67,14 @@ If the command is missing, use:
 python -m codex_autoloop.setup_wizard --run-cd .
 ```
 
+Setup now asks for planner mode after model selection:
+
+- `1` No Planner
+- `2` Auto Planner (default)
+- `3` Record-Only Planner
+
+Auto Planner follow-up countdown defaults to 10 minutes.
+
 Then terminal control (same daemon, no restart needed):
 
 ```bash

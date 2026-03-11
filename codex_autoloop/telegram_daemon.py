@@ -12,6 +12,12 @@ from pathlib import Path
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .model_catalog import get_preset
+from .planner_modes import (
+    PLANNER_MODE_AUTO,
+    PLANNER_MODE_CHOICES,
+    planner_mode_allows_follow_up,
+    resolve_planner_mode,
+)
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -40,6 +46,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.follow_up_auto_execute_seconds < 0:
         parser.error("--follow-up-auto-execute-seconds must be >= 0")
+    run_planner_mode = resolve_planner_mode(planner_enabled_flag=args.run_planner, planner_mode=args.run_planner_mode)
 
     chat_id = (args.telegram_chat_id or "").strip()
     if chat_id.lower() in {"", "auto", "none", "null"}:
@@ -466,7 +473,7 @@ def main() -> None:
                 state_file=args.run_state_file,
                 report_path=child_plan_report_path,
                 auto_execute_after_seconds=args.follow_up_auto_execute_seconds,
-            )
+            ) if planner_mode_allows_follow_up(run_planner_mode) else None
             if pending_follow_up is not None:
                 log_event(
                     "child.follow_up.ready",
@@ -511,6 +518,7 @@ def build_child_command(
     plan_todo_file: str,
     resume_session_id: str | None,
 ) -> list[str]:
+    planner_mode = resolve_planner_mode(planner_enabled_flag=args.run_planner, planner_mode=args.run_planner_mode)
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
     main_model = preset.main_model if preset is not None else args.run_main_model
     main_reasoning_effort = preset.main_reasoning_effort if preset is not None else args.run_main_reasoning_effort
@@ -555,7 +563,8 @@ def build_child_command(
         cmd.extend(["--planner-model", planner_model])
     if planner_reasoning_effort:
         cmd.extend(["--planner-reasoning-effort", planner_reasoning_effort])
-    if args.run_planner:
+    cmd.extend(["--planner-mode", planner_mode])
+    if planner_mode != "off":
         cmd.append("--planner")
     else:
         cmd.append("--no-planner")
@@ -842,7 +851,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--follow-up-auto-execute-seconds",
         type=int,
-        default=3600,
+        default=600,
         help="Seconds to wait before automatically executing the planner's proposed next session.",
     )
     parser.add_argument(
@@ -892,6 +901,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=["low", "medium", "high", "xhigh"],
         help="Explicit reviewer agent reasoning effort override for child runs.",
+    )
+    parser.add_argument(
+        "--run-planner-mode",
+        default=PLANNER_MODE_AUTO,
+        choices=PLANNER_MODE_CHOICES,
+        help="Planner mode for child runs: off, auto, or record.",
     )
     parser.add_argument(
         "--run-planner-model",

@@ -17,6 +17,7 @@ from .live_updates import (
 from .local_control import LocalControlCommand, LocalControlPoller
 from .orchestrator import AutoLoopConfig, AutoLoopOrchestrator
 from .planner import Planner
+from .planner_modes import PLANNER_MODE_AUTO, PLANNER_MODE_CHOICES, resolve_planner_mode
 from .reviewer import Reviewer
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
@@ -229,7 +230,8 @@ def main() -> None:
 
     runner = CodexRunner(codex_bin=args.codex_bin, event_callback=on_event)
     reviewer = Reviewer(runner=runner)
-    planner = Planner(runner=runner) if args.planner else None
+    planner_mode = resolve_planner_mode(planner_enabled_flag=args.planner, planner_mode=args.planner_mode)
+    planner = Planner(runner=runner) if planner_mode != "off" else None
 
     def on_loop_event(event: dict[str, Any]) -> None:
         update_runtime_state(control_runtime_state, event)
@@ -254,6 +256,7 @@ def main() -> None:
             reviewer_reasoning_effort=args.reviewer_reasoning_effort,
             planner_model=args.planner_model,
             planner_reasoning_effort=args.planner_reasoning_effort,
+            planner_mode=planner_mode,
             main_extra_args=args.main_extra_arg or [],
             reviewer_extra_args=args.reviewer_extra_arg or [],
             planner_extra_args=args.planner_extra_arg or [],
@@ -268,7 +271,7 @@ def main() -> None:
             stall_soft_idle_seconds=args.stall_soft_idle_seconds,
             stall_hard_idle_seconds=args.stall_hard_idle_seconds,
             plan_update_interval_seconds=args.plan_update_interval_seconds,
-            planner_enabled=args.planner,
+            planner_enabled=(planner_mode != "off"),
             external_interrupt_reason_provider=control_state.consume_interrupt_reason,
             pending_instruction_consumer=control_state.consume_pending_instruction,
             stop_requested_checker=control_state.is_stop_requested,
@@ -285,6 +288,7 @@ def main() -> None:
             if result.plan is None
             else {
                 "plan_id": result.plan.plan_id,
+                "planner_mode": planner_mode,
                 "summary": result.plan.summary,
                 "exploration_items": result.plan.exploration_items,
                 "suggested_next_objective": result.plan.suggested_next_objective,
@@ -354,6 +358,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--main-model", default=None, help="Primary agent model override.")
     parser.add_argument("--reviewer-model", default=None, help="Reviewer sub-agent model override.")
     parser.add_argument("--planner-model", default=None, help="Planner/manager sub-agent model override.")
+    parser.add_argument(
+        "--planner-mode",
+        default=PLANNER_MODE_AUTO,
+        choices=PLANNER_MODE_CHOICES,
+        help="Planner mode: off, auto, or record.",
+    )
     parser.add_argument(
         "--main-reasoning-effort",
         default=None,

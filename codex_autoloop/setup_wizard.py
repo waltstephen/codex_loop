@@ -10,12 +10,20 @@ import time
 from pathlib import Path
 
 from .model_catalog import MODEL_PRESETS, get_preset
+from .planner_modes import (
+    PLANNER_MODE_AUTO,
+    PLANNER_MODE_CHOICES,
+    planner_mode_description,
+    planner_mode_label,
+)
 from .token_lock import acquire_token_lock
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.follow_up_auto_execute_seconds < 0:
+        parser.error("--follow-up-auto-execute-seconds must be >= 0")
 
     codex_bin = shutil.which("codex")
     if not codex_bin:
@@ -75,6 +83,9 @@ def main() -> None:
                 ).strip()
                 or None
             )
+    planner_mode = args.run_planner_mode
+    if planner_mode is None:
+        planner_mode = prompt_planner_mode_choice()
 
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -113,6 +124,8 @@ def main() -> None:
         "run_main_model": main_model,
         "run_reviewer_model": reviewer_model,
         "run_model_preset": (resolved_preset.name if resolved_preset else (preset_name or None)),
+        "run_planner_mode": planner_mode,
+        "follow_up_auto_execute_seconds": args.follow_up_auto_execute_seconds,
         "bus_dir": str(bus_dir),
         "logs_dir": str(logs_dir),
     }
@@ -138,6 +151,10 @@ def main() -> None:
         str(logs_dir),
         "--token-lock-dir",
         args.token_lock_dir,
+        "--run-planner-mode",
+        planner_mode,
+        "--follow-up-auto-execute-seconds",
+        str(args.follow_up_auto_execute_seconds),
     ]
     if check_cmd:
         daemon_cmd.extend(["--run-check", check_cmd])
@@ -188,6 +205,9 @@ def main() -> None:
     print(f"Config: {config_path}")
     print(f"Log: {daemon_log}")
     print(f"Bus dir: {bus_dir}")
+    print(f"Planner mode: {planner_mode} ({planner_mode_label(planner_mode)})")
+    if planner_mode == PLANNER_MODE_AUTO:
+        print(f"Follow-up auto execute: {args.follow_up_auto_execute_seconds}s")
     if resolved_preset is not None:
         print(
             "Model preset: "
@@ -356,6 +376,20 @@ def prompt_model_choice() -> str:
     return "custom"
 
 
+def prompt_planner_mode_choice() -> str:
+    print("Choose a planner mode:")
+    for idx, mode in enumerate(PLANNER_MODE_CHOICES, start=1):
+        print(f"  {idx}. {planner_mode_label(mode)} - {planner_mode_description(mode)}")
+    raw = prompt_input("Planner mode number [2]: ", default="2").strip()
+    try:
+        index = int(raw)
+    except ValueError:
+        return PLANNER_MODE_AUTO
+    if 1 <= index <= len(PLANNER_MODE_CHOICES):
+        return PLANNER_MODE_CHOICES[index - 1]
+    return PLANNER_MODE_AUTO
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-setup",
@@ -396,6 +430,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional preset name for daemon-launched models. Interactive setup also prompts for this.",
     )
     parser.add_argument(
+        "--run-planner-mode",
+        default=None,
+        choices=PLANNER_MODE_CHOICES,
+        help="Planner mode for daemon-launched runs. Interactive setup prompts when omitted.",
+    )
+    parser.add_argument(
         "--run-main-model",
         default=None,
         help="Override main agent model for daemon-launched runs.",
@@ -427,6 +467,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Stop an existing daemon under the same home-dir before starting a new one.",
+    )
+    parser.add_argument(
+        "--follow-up-auto-execute-seconds",
+        type=int,
+        default=600,
+        help="Auto execute planner follow-up after this many seconds in auto mode.",
     )
     return parser
 

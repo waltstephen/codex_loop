@@ -20,6 +20,7 @@ def test_build_child_command_includes_core_args() -> None:
         run_main_reasoning_effort=None,
         run_reviewer_model=None,
         run_reviewer_reasoning_effort=None,
+        run_planner_mode="auto",
         run_planner_model="gpt-5.4",
         run_planner_reasoning_effort="high",
         run_planner=True,
@@ -63,6 +64,7 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--planner-model" in cmd
     assert "--planner-reasoning-effort" in cmd
     assert "--planner" in cmd
+    assert "--planner-mode" in cmd
     assert "--plan-report-file" in cmd
     assert "--plan-todo-file" in cmd
     assert "--plan-update-interval-seconds" in cmd

@@ -9,6 +9,7 @@ from uuid import uuid4
 from .checks import summarize_checks
 from .codex_runner import CodexRunner, RunnerOptions
 from .models import CheckResult, PlanSnapshot, PlanWorkstream, RoundSummary, ReviewDecision
+from .planner_modes import PLANNER_MODE_AUTO, PLANNER_MODE_RECORD
 
 
 @dataclass
@@ -19,6 +20,7 @@ class PlannerConfig:
     skip_git_repo_check: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
+    mode: str = PLANNER_MODE_AUTO
 
 
 class Planner:
@@ -52,6 +54,7 @@ class Planner:
             trigger=trigger,
             terminal=terminal,
             stop_reason=stop_reason,
+            mode=config.mode,
         )
         result = self.runner.run_exec(
             prompt=prompt,
@@ -78,6 +81,9 @@ class Planner:
                 error=result.last_agent_message or f"Planner returned empty output. exit={result.exit_code}",
             )
 
+        if config.mode == PLANNER_MODE_RECORD:
+            parsed.should_propose_follow_up = False
+            parsed.suggested_next_objective = ""
         parsed.plan_id = uuid4().hex[:12]
         parsed.generated_at = datetime.now(timezone.utc).isoformat()
         parsed.trigger = trigger
@@ -104,6 +110,7 @@ class Planner:
         trigger: str,
         terminal: bool,
         stop_reason: str | None,
+        mode: str,
     ) -> str:
         operator_text = "\n".join(f"- {line}" for line in operator_messages) if operator_messages else "- none"
         review_text = "none"
@@ -127,11 +134,24 @@ class Planner:
         rounds_text = "\n".join(round_lines) if round_lines else "No completed rounds yet."
         stop_text = stop_reason or "none"
         check_text = summarize_checks(latest_checks)
+        if mode == PLANNER_MODE_RECORD:
+            mode_guidance = (
+                "Planner mode: record-only.\n"
+                "Do not propose automatic follow-up execution.\n"
+                "Always set should_propose_follow_up=false and leave suggested_next_objective empty.\n"
+                "Focus on architecture notes, workstream tracking, TODO maintenance, and explorer backlog.\n\n"
+            )
+        else:
+            mode_guidance = (
+                "Planner mode: auto.\n"
+                "You may propose one concrete follow-up objective when it should run as a new session.\n\n"
+            )
         return (
             "You are the planning manager sub-agent for a Codex autoloop run.\n"
             "Your job is to maintain the implementation framework, identify what is complete, "
             "what remains, what should be explored next, and what the next executable objective should be.\n"
             "Use the local $planner-manager-explorer skill if it exists.\n\n"
+            f"{mode_guidance}"
             "Strict rules:\n"
             "1) Work in read-only mode. Inspect the repository if useful, but do not modify files.\n"
             "2) Maintain a concrete workstream table. Do not output vague goals.\n"

@@ -10,6 +10,7 @@ from typing import Any, Callable
 from .checks import all_checks_passed, run_checks
 from .codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
 from .models import PlanSnapshot, ReviewDecision, RoundSummary
+from .planner_modes import planner_mode_enabled
 from .planner import Planner, PlannerConfig, format_plan_todo_markdown
 from .reviewer import Reviewer, ReviewerConfig
 from .stall_subagent import analyze_stall
@@ -30,6 +31,7 @@ class AutoLoopConfig:
     reviewer_reasoning_effort: str | None = None
     planner_model: str | None = None
     planner_reasoning_effort: str | None = None
+    planner_mode: str = "auto"
     main_extra_args: list[str] | None = None
     reviewer_extra_args: list[str] | None = None
     planner_extra_args: list[str] | None = None
@@ -567,6 +569,7 @@ class AutoLoopOrchestrator:
                     skip_git_repo_check=self.config.skip_git_repo_check,
                     full_auto=self.config.full_auto,
                     dangerous_yolo=self.config.dangerous_yolo,
+                    mode=self.config.planner_mode,
                 ),
             )
             self._latest_plan = plan
@@ -624,7 +627,7 @@ class AutoLoopOrchestrator:
             self._planner_thread = None
 
     def _planner_enabled(self) -> bool:
-        return self.config.planner_enabled and self.planner is not None
+        return self.config.planner_enabled and planner_mode_enabled(self.config.planner_mode) and self.planner is not None
 
     def _write_plan_artifacts(self) -> None:
         if self._latest_plan is None:

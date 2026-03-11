@@ -24,3 +24,13 @@ def test_stop_existing_daemon_no_pid_file(tmp_path: Path) -> None:
 def test_prompt_model_choice_default(monkeypatch) -> None:
     monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "")
     assert setup_wizard.prompt_model_choice() == "quality"
+
+
+def test_prompt_planner_mode_choice_default(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "")
+    assert setup_wizard.prompt_planner_mode_choice() == "auto"
+
+
+def test_prompt_planner_mode_choice_select_record(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "3")
+    assert setup_wizard.prompt_planner_mode_choice() == "record"
