@@ -874,7 +874,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Working directory for child codex-autoloop runs.",
     )
-    parser.add_argument("--run-max-rounds", type=int, default=50, help="Child codex-autoloop max rounds.")
+    parser.add_argument("--run-max-rounds", type=int, default=100, help="Child codex-autoloop max rounds.")
     parser.add_argument(
         "--run-model-preset",
         default="cheap",
@@ -952,7 +952,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-stall-soft-idle-seconds",
         type=int,
-        default=1200,
+        default=3600,
         help="Child soft idle watchdog threshold.",
     )
     parser.add_argument(

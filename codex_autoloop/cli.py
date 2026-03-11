@@ -337,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("objective", nargs="+", help="Task objective passed to the primary agent.")
     parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary path.")
     parser.add_argument("--session-id", default=None, help="Resume an existing Codex exec session id.")
-    parser.add_argument("--max-rounds", type=int, default=50, help="Maximum primary-agent rounds.")
+    parser.add_argument("--max-rounds", type=int, default=100, help="Maximum primary-agent rounds.")
     parser.add_argument(
         "--max-no-progress-rounds",
         type=int,
@@ -446,7 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stall-soft-idle-seconds",
         type=int,
-        default=1200,
+        default=3600,
         help=(
             "Soft idle threshold in seconds. When exceeded without new output, "
             "stall sub-agent inspects recent messages and decides whether to restart."

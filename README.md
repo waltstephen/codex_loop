@@ -11,7 +11,7 @@ This solves the common "agent stopped early and asked for next instruction" prob
 
 Current defaults:
 
-- `max_rounds` defaults to `50`.
+- `max_rounds` defaults to `100`.
 - Daemon child model preset defaults to `quality` (`gpt-5.4` + `high`) unless overridden.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
@@ -94,7 +94,7 @@ Common options:
 - `--telegram-events`: choose which events are pushed (comma-separated)
 - `--telegram-live-interval-seconds 30`: push live agent message deltas every 30s (only when changed)
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
-- `--stall-soft-idle-seconds 1200`: after 20m no new output, run stall sub-agent diagnosis (do not force kill)
+- `--stall-soft-idle-seconds 3600`: after 1h no new output, run stall sub-agent diagnosis (do not force kill)
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
 - `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
 - `--telegram-control-whisper`: enable Telegram voice/audio transcription for control messages (default on)
@@ -223,7 +223,7 @@ Whisper-related options:
 
 Stall watchdog defaults:
 
-- If no new output for 20 minutes, sub-agent inspects the latest message/tails and decides whether restart is needed.
+- If no new output for 1 hour, sub-agent inspects the latest message/tails and decides whether restart is needed.
 - If no new output reaches 3 hours, process is force-restarted regardless.
 
 Typing heartbeat is enabled by default during execution. Disable with:

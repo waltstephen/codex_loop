@@ -21,7 +21,7 @@ LoopEventCallback = Callable[[dict[str, Any]], None]
 @dataclass
 class AutoLoopConfig:
     objective: str
-    max_rounds: int = 50
+    max_rounds: int = 100
     max_no_progress_rounds: int = 3
     check_commands: list[str] | None = None
     check_timeout_seconds: int = 1200
@@ -43,7 +43,7 @@ class AutoLoopConfig:
     plan_todo_file: str | None = None
     initial_session_id: str | None = None
     loop_event_callback: LoopEventCallback | None = None
-    stall_soft_idle_seconds: int = 1200
+    stall_soft_idle_seconds: int = 3600
     stall_hard_idle_seconds: int = 10800
     plan_update_interval_seconds: int = 1800
     planner_enabled: bool = True
