@@ -128,7 +128,8 @@ def main() -> None:
             f.write(json.dumps(payload, ensure_ascii=True) + "\n")
 
     def update_status() -> None:
-        running = child is not None and child.poll() is None
+        current_child = child
+        running = current_child is not None and current_child.poll() is None
         last_session_id = resolve_saved_session_id(args.run_state_file)
         write_status(
             status_path,
@@ -136,7 +137,7 @@ def main() -> None:
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
                 "daemon_running": True,
                 "running": running,
-                "child_pid": child.pid if running else None,
+                "child_pid": current_child.pid if running else None,
                 "child_objective": child_objective,
                 "child_log_path": str(child_log_path) if child_log_path else None,
                 "child_plan_report_path": str(child_plan_report_path) if child_plan_report_path else None,
