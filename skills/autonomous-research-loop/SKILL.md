@@ -22,6 +22,7 @@ Apply these rules for every run:
 6. Push when remote is configured and credentials allow push.
 7. Treat tests as hard completion gates, not optional checks.
 8. In YOLO mode (`--dangerously-bypass-approvals-and-sandbox`), assume full execution power and apply extra caution before any destructive command.
+9. Maintain project-local execution memory under `codexloop/` for session continuity.
 
 ## Step 0: Bootstrap Git Safely
 
@@ -45,6 +46,38 @@ git pull --rebase --autostash
 ```
 
 If pull fails, continue local work and record reason in status updates.
+
+## Step 0.5: Create Local Execution Memory
+
+At project root, create and maintain a `codexloop/` directory.
+
+Required files:
+
+1. `codexloop/current-session.md`
+2. `codexloop/todo.md`
+
+Update them at start and after every meaningful loop iteration.
+
+`codexloop/current-session.md` must contain:
+
+1. Current objective
+2. What was completed in this session
+3. Latest commands run
+4. Latest validation result
+5. Latest commit hash
+6. Current blockers or risks
+
+`codexloop/todo.md` must contain:
+
+1. Remaining work items
+2. Next highest-priority action
+3. Any deferred investigation
+
+Purpose:
+
+1. Preserve rough working memory across long sessions
+2. Make resume/re-entry easier even if model context changes
+3. Leave a human-readable trail inside the project itself
 
 ## Step 1: Define Completion Gates Up Front
 
