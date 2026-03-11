@@ -43,6 +43,29 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+## Build and Launch
+
+For a local development setup:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+python -m codex_autoloop.setup_wizard --run-cd .
+```
+
+This gives you:
+
+- the CLI entrypoints
+- an interactive daemon setup
+- a Telegram-controlled long-running loop
+
+If you do not want the daemon yet, run the loop directly:
+
+```bash
+codex-autoloop --max-rounds 10 "Implement feature X and keep iterating until tests pass"
+```
+
 ## Run
 
 ```bash
@@ -75,6 +98,78 @@ Common options:
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
 - `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
 - `--telegram-control-whisper`: enable Telegram voice/audio transcription for control messages (default on)
+
+## How to Instruct the System
+
+The most important field is the final goal. Put it first.
+
+A good objective usually has this shape:
+
+```text
+Final Goal:
+<the end state you actually want>
+
+Current Task:
+<what should be done in this session>
+
+Acceptance Criteria:
+<how the system knows it is done>
+
+Constraints:
+<repo, time, safety, cost, model, dataset, or style constraints>
+
+Notes:
+<optional hints, references, known risks, or preferred approach>
+```
+
+Practical guidance:
+
+- Put `Final Goal` first, even if the immediate task is small.
+- Say what “done” means in concrete terms.
+- If you want planner behavior, say whether it should explore, only record, or stay off.
+- If your wording is messy, you can ask any AI tool to rewrite your request into the template above before sending it here. This repo does not need to provide that rewrite step itself.
+
+### Example 1: Reproduce a Paper
+
+Use this only when the paper has usable open-source code or a strong public implementation.
+
+```text
+Final Goal:
+Reproduce the paper's core result well enough to run inference, complete one smoke training run, and generate a structured reproduction report in this repository.
+
+Current Task:
+Set up the repo, inspect the available code path, create the reproduction plan, wire the experiment directories, and run the minimum smoke path needed to prove the project is alive.
+
+Acceptance Criteria:
+1. The repository has a clear plan_report.md and plan_todo.md.
+2. The selected implementation path is documented.
+3. At least one runnable inference or smoke-training command succeeds.
+4. The next highest-priority follow-up experiment is recorded.
+
+Constraints:
+1. Prefer official or high-quality open-source implementations.
+2. Do not aim for full SOTA reproduction in the first session.
+3. Keep the work resumable from Telegram and daemon state files.
+```
+
+### Example 2: Extend an Existing Project
+
+```text
+Final Goal:
+Turn this repository into a maintainable, planner-driven project where completed work, remaining work, and next-step execution suggestions are always visible.
+
+Current Task:
+Map the architecture, identify the missing module boundaries, implement the highest-leverage missing feature, and update the project reports.
+
+Acceptance Criteria:
+1. The new feature is implemented and validated.
+2. Planner outputs reflect what is done and what remains.
+3. The next follow-up objective is concrete enough to run as a new session.
+
+Constraints:
+1. Preserve the existing coding style.
+2. Prefer small verifiable steps over large speculative rewrites.
+```
 
 Example with live dashboard:
 
