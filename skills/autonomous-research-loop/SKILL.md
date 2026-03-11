@@ -55,6 +55,7 @@ Required files:
 
 1. `codexloop/current-session.md`
 2. `codexloop/todo.md`
+3. `codexloop/todo_session.md`
 
 Update them at start and after every meaningful loop iteration.
 
@@ -73,11 +74,25 @@ Update them at start and after every meaningful loop iteration.
 2. Next highest-priority action
 3. Any deferred investigation
 
+`codexloop/todo_session.md` must contain:
+
+1. Session-specific objective interpretation
+2. Completed items in this session
+3. Remaining items for this session
+4. Latest operator injects that materially changed scope
+5. What should be checked first in the next session
+
 Purpose:
 
 1. Preserve rough working memory across long sessions
 2. Make resume/re-entry easier even if model context changes
 3. Leave a human-readable trail inside the project itself
+
+Inject handling rule:
+
+1. If an inject changes core scope, replaces a requirement, adds a major subtask, or changes completion criteria, treat it as a primary-task inject and update `codexloop/todo_session.md` immediately.
+2. If an inject is only a reminder, small preference, or tactical nudge that does not materially change scope, record it in `codexloop/current-session.md` but do not rewrite `codexloop/todo_session.md`.
+3. When uncertain, prefer treating the inject as primary-task relevant and update `codexloop/todo_session.md`.
 
 ## Step 1: Define Completion Gates Up Front
 
@@ -160,6 +175,11 @@ git push
 
 If push fails (permission/network/protection), keep local commits and report exact reason.
 Never delete commits to hide push failures.
+
+Default expectation:
+
+1. If changes are valid and commit is complete, push immediately.
+2. Treat timely push as the normal good path, not an optional extra.
 
 ## Step 6: Long-Running Monitoring Mode (24h style)
 
