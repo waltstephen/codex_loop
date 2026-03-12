@@ -18,7 +18,7 @@ LoopEventCallback = Callable[[dict[str, Any]], None]
 @dataclass
 class AutoLoopConfig:
     objective: str
-    max_rounds: int = 50
+    max_rounds: int = 500
     max_no_progress_rounds: int = 3
     check_commands: list[str] | None = None
     check_timeout_seconds: int = 1200

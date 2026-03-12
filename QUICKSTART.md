@@ -12,7 +12,7 @@ pip install -e .
 
 ```bash
 codex-autoloop \
-  --max-rounds 50 \
+  --max-rounds 500 \
   "帮我在这个文件夹写一下pipeline"
 ```
 
@@ -22,7 +22,7 @@ codex-autoloop \
 export TELEGRAM_BOT_TOKEN='123456789:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
 codex-autoloop \
-  --max-rounds 50 \
+  --max-rounds 500 \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
   --telegram-events "loop.started,round.review.completed,loop.completed" \
   "帮我在这个文件夹写一下pipeline"
@@ -110,7 +110,7 @@ codex-autoloop \
   --dashboard \
   --dashboard-host 127.0.0.1 \
   --dashboard-port 8787 \
-  --max-rounds 50 \
+  --max-rounds 500 \
   "your objective"
 ```
 

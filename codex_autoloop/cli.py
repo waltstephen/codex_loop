@@ -301,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("objective", nargs="+", help="Task objective passed to the primary agent.")
     parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary path.")
     parser.add_argument("--session-id", default=None, help="Resume an existing Codex exec session id.")
-    parser.add_argument("--max-rounds", type=int, default=50, help="Maximum primary-agent rounds.")
+    parser.add_argument("--max-rounds", type=int, default=500, help="Maximum primary-agent rounds.")
     parser.add_argument(
         "--max-no-progress-rounds",
         type=int,
