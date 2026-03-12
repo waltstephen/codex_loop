@@ -25,6 +25,19 @@ def _wrap_voice(file_id: str = "voice-file", chat_id: int = 100) -> dict:
     }
 
 
+def _wrap_callback(data: str, chat_id: int = 100) -> dict:
+    return {
+        "update_id": 3,
+        "callback_query": {
+            "id": "cb-1",
+            "data": data,
+            "message": {
+                "chat": {"id": chat_id},
+            },
+        },
+    }
+
+
 def test_parse_inject_command() -> None:
     command = parse_command_from_update(
         update=_wrap("/inject fix the parser"),
@@ -90,6 +103,33 @@ def test_parse_run_command() -> None:
     assert run is not None
     assert run.kind == "run"
     assert run.text == "build training pipeline"
+
+
+def test_parse_plan_callback_command() -> None:
+    command = parse_command_from_update(
+        update=_wrap_callback("plan_run:plan-123"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert command is not None
+    assert command.kind == "plan-run"
+    assert command.text == "plan-123"
+    assert command.callback_query_id == "cb-1"
+
+
+def test_parse_plan_modify_and_reject_callback_command() -> None:
+    modify = parse_command_from_update(
+        update=_wrap_callback("plan_modify:plan-123"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    reject = parse_command_from_update(
+        update=_wrap_callback("plan_reject:plan-123"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert modify is not None and modify.kind == "plan-modify"
+    assert reject is not None and reject.kind == "plan-reject"
 
 
 def test_ignore_other_chat() -> None:

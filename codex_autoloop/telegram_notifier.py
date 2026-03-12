@@ -31,6 +31,7 @@ class TelegramNotifier:
         base = f"https://api.telegram.org/bot{config.bot_token}"
         self.send_message_url = f"{base}/sendMessage"
         self.send_chat_action_url = f"{base}/sendChatAction"
+        self.answer_callback_query_url = f"{base}/answerCallbackQuery"
         self._typing_stop = threading.Event()
         self._typing_thread: threading.Thread | None = None
 
@@ -48,12 +49,14 @@ class TelegramNotifier:
             return
         self.send_message(message)
 
-    def send_message(self, message: str) -> None:
+    def send_message(self, message: str, reply_markup: dict[str, Any] | None = None) -> None:
         payload = {
             "chat_id": self.config.chat_id,
             "text": message[:3900],
             "disable_web_page_preview": True,
         }
+        if reply_markup is not None:
+            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=True)
         self._post_form(self.send_message_url, payload)
 
     def send_typing(self) -> None:
@@ -62,6 +65,14 @@ class TelegramNotifier:
             "action": "typing",
         }
         self._post_form(self.send_chat_action_url, payload)
+
+    def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
+        payload = {
+            "callback_query_id": callback_query_id,
+        }
+        if text:
+            payload["text"] = text[:180]
+        self._post_form(self.answer_callback_query_url, payload)
 
     def close(self) -> None:
         self._stop_typing()
@@ -256,5 +267,15 @@ def format_event_message(event: dict[str, Any]) -> str:
             f"[autoloop] completed {now}\n"
             f"success={event.get('success')}\n"
             f"stop_reason={str(event.get('stop_reason', ''))[:500]}"
+        )
+    if event_type in {"plan.updated", "plan.finalized"}:
+        label = "planner final" if event_type == "plan.finalized" else "planner update"
+        summary = str(event.get("summary", "")).strip().replace("\n", " ")
+        next_objective = str(event.get("suggested_next_objective", "")).strip().replace("\n", " ")
+        return (
+            f"[autoloop] {label} {now}\n"
+            f"trigger={event.get('trigger')} terminal={event.get('terminal')}\n"
+            f"summary={summary[:320]}\n"
+            f"next_objective={next_objective[:320]}"
         )
     return ""

@@ -17,9 +17,13 @@ def test_get_preset_unknown() -> None:
 def test_get_preset_xhigh_variants() -> None:
     quality = get_preset("quality-xhigh")
     codex = get_preset("codex-xhigh")
+    codex52 = get_preset("codex52-xhigh")
     assert quality is not None
     assert quality.main_model == "gpt-5.4"
     assert quality.main_reasoning_effort == "xhigh"
     assert codex is not None
     assert codex.main_model == "gpt-5.3-codex"
     assert codex.main_reasoning_effort == "xhigh"
+    assert codex52 is not None
+    assert codex52.main_model == "gpt-5.2-codex"
+    assert codex52.main_reasoning_effort == "xhigh"

@@ -4,6 +4,7 @@
 
 - Main agent executes the task (`codex exec` or `codex exec resume`)
 - Reviewer sub-agent evaluates completion (`done` / `continue` / `blocked`)
+- Planner sub-agent maintains a live framework view and proposes next-session objectives
 - Loop only stops when reviewer says `done` and all acceptance checks pass
 
 This solves the common "agent stopped early and asked for next instruction" problem.
@@ -17,10 +18,14 @@ Current defaults:
 ## Current Feature Snapshot
 
 - Persistent main-agent loop with reviewer gating (`done/continue/blocked`).
+- Planner/manager agent with live plan snapshots, workstream table, and follow-up objective proposal.
+- Planner TODO board (`plan_todo.md`) and explorer backlog maintained across planning sweeps.
 - Stall watchdog with soft diagnosis and hard restart safety window.
 - Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
+- Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
+- Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
 - Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
 - Single-word operator entrypoint: `codexloop` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
@@ -102,10 +107,14 @@ Common options:
 
 - `--session-id <id>`: continue an existing Codex session
 - `--main-model` / `--reviewer-model`: set model(s)
+- `--planner-model`: override the manager/planner model (defaults to reviewer settings when omitted)
 - `python -m codex_autoloop.model_catalog`: list common models and presets
 - `--yolo`: pass dangerous no-sandbox mode to Codex
 - `--full-auto`: pass full-auto mode to Codex
 - `--state-file <file>`: write round-by-round state JSON
+- `--plan-report-file <file>`: write the latest planner markdown snapshot
+- `--plan-todo-file <file>`: write the latest planner TODO board markdown
+- `--plan-update-interval-seconds 1800`: run background planning sweeps every 30 minutes
 - `--verbose-events`: print raw JSONL stream
 - `--dashboard`: launch a live local web dashboard
 - `--dashboard-host 0.0.0.0 --dashboard-port 8787`: expose dashboard to other devices in LAN
@@ -113,10 +122,82 @@ Common options:
 - `--telegram-events`: choose which events are pushed (comma-separated)
 - `--telegram-live-interval-seconds 30`: push live agent message deltas every 30s (only when changed)
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
-- `--stall-soft-idle-seconds 1200`: after 20m no new output, run stall sub-agent diagnosis (do not force kill)
+- `--stall-soft-idle-seconds 3600`: after 1h no new output, run stall sub-agent diagnosis (do not force kill)
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
 - `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
 - `--telegram-control-whisper`: enable Telegram voice/audio transcription for control messages (default on)
+
+## How to Instruct the System
+
+The most important field is the final goal. Put it first.
+
+A good objective usually has this shape:
+
+```text
+Final Goal:
+<the end state you actually want>
+
+Current Task:
+<what should be done in this session>
+
+Acceptance Criteria:
+<how the system knows it is done>
+
+Constraints:
+<repo, time, safety, cost, model, dataset, or style constraints>
+
+Notes:
+<optional hints, references, known risks, or preferred approach>
+```
+
+Practical guidance:
+
+- Put `Final Goal` first, even if the immediate task is small.
+- Say what “done” means in concrete terms.
+- If you want planner behavior, say whether it should explore, only record, or stay off.
+- If your wording is messy, you can ask any AI tool to rewrite your request into the template above before sending it here. This repo does not need to provide that rewrite step itself.
+
+### Example 1: Reproduce a Paper
+
+Use this only when the paper has usable open-source code or a strong public implementation.
+
+```text
+Final Goal:
+Reproduce the paper's core result well enough to run inference, complete one smoke training run, and generate a structured reproduction report in this repository.
+
+Current Task:
+Set up the repo, inspect the available code path, create the reproduction plan, wire the experiment directories, and run the minimum smoke path needed to prove the project is alive.
+
+Acceptance Criteria:
+1. The repository has a clear plan_report.md and plan_todo.md.
+2. The selected implementation path is documented.
+3. At least one runnable inference or smoke-training command succeeds.
+4. The next highest-priority follow-up experiment is recorded.
+
+Constraints:
+1. Prefer official or high-quality open-source implementations.
+2. Do not aim for full SOTA reproduction in the first session.
+3. Keep the work resumable from Telegram and daemon state files.
+```
+
+### Example 2: Extend an Existing Project
+
+```text
+Final Goal:
+Turn this repository into a maintainable, planner-driven project where completed work, remaining work, and next-step execution suggestions are always visible.
+
+Current Task:
+Map the architecture, identify the missing module boundaries, implement the highest-leverage missing feature, and update the project reports.
+
+Acceptance Criteria:
+1. The new feature is implemented and validated.
+2. Planner outputs reflect what is done and what remains.
+3. The next follow-up objective is concrete enough to run as a new session.
+
+Constraints:
+1. Preserve the existing coding style.
+2. Prefer small verifiable steps over large speculative rewrites.
+```
 
 Example with live dashboard:
 
@@ -170,7 +251,7 @@ Whisper-related options:
 
 Stall watchdog defaults:
 
-- If no new output for 20 minutes, sub-agent inspects the latest message/tails and decides whether restart is needed.
+- If no new output for 1 hour, sub-agent inspects the latest message/tails and decides whether restart is needed.
 - If no new output reaches 3 hours, process is force-restarted regardless.
 
 Typing heartbeat is enabled by default during execution. Disable with:
@@ -208,6 +289,10 @@ Daemon commands from Telegram:
 - `/status`: daemon/child status
 - `/stop`: stop active run
 - `/help`
+- After a child run finishes, the daemon can offer a Telegram button to execute the planner's next suggested objective.
+- If the user does nothing, daemon auto-executes the planned next session after the follow-up countdown (default: 10 minutes).
+- Before executing that follow-up, daemon creates a git checkpoint commit when the workspace is dirty.
+- Telegram follow-up options are: direct execute, reject plan, or modify then execute while inheriting the planner objective. That follow-up starts as a fresh session.
 
 For background mode:
 
@@ -236,7 +321,8 @@ The wizard will:
 1. Check `codex` CLI availability and basic auth probe.
 2. Prompt for Telegram bot token/chat id.
 3. Prompt optional default check command (empty means no forced check command).
-4. Start daemon in background and save config under `.codex_daemon/`.
+4. Prompt for planner mode after model selection.
+5. Start daemon in background and save config under `.codex_daemon/`.
 
 Default behavior for daemon-launched runs:
 
@@ -296,6 +382,7 @@ python -m codex_autoloop.model_catalog
 Current presets:
 
 - `quality`: `main=gpt-5.4/high`, `reviewer=gpt-5.4/high`
+- `codex52-xhigh`: `main=gpt-5.2-codex/xhigh`, `reviewer=gpt-5.2-codex/xhigh`
 - `quality-xhigh`: `main=gpt-5.4/xhigh`, `reviewer=gpt-5.4/xhigh`
 - `balanced`: `main=gpt-5.3-codex/high`, `reviewer=gpt-5.1-codex/medium`
 - `codex-xhigh`: `main=gpt-5.3-codex/xhigh`, `reviewer=gpt-5.3-codex/xhigh`

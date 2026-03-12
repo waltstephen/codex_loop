@@ -1,0 +1,4 @@
+interface:
+  display_name: "Planner Manager Explorer"
+  short_description: "Architecture-first planning with repo and web exploration"
+  default_prompt: "Use $planner-manager-explorer to maintain the framework, update the TODO board, explore missing APIs or comparable projects, and produce the next executable objective."

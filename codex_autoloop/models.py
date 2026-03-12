@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 
 ReviewStatus = Literal["done", "continue", "blocked"]
+PlanWorkstreamStatus = Literal["done", "in_progress", "todo", "blocked"]
 
 
 @dataclass
@@ -41,6 +42,32 @@ class ReviewDecision:
     confidence: float
     reason: str
     next_action: str
+
+
+@dataclass
+class PlanWorkstream:
+    area: str
+    status: PlanWorkstreamStatus
+    evidence: str
+    next_step: str
+
+
+@dataclass
+class PlanSnapshot:
+    plan_id: str
+    generated_at: str
+    trigger: str
+    terminal: bool
+    summary: str
+    workstreams: list[PlanWorkstream]
+    done_items: list[str]
+    remaining_items: list[str]
+    risks: list[str]
+    next_steps: list[str]
+    exploration_items: list[str]
+    suggested_next_objective: str
+    should_propose_follow_up: bool
+    report_markdown: str = ""
 
 
 @dataclass

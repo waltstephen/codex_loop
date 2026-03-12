@@ -31,6 +31,9 @@ class DashboardStore:
             "current_round": 0,
             "stop_reason": None,
             "success": None,
+            "plan_summary": None,
+            "plan_next_objective": None,
+            "plan_report_markdown": None,
             "updated_at": self._now(),
         }
 
@@ -53,6 +56,10 @@ class DashboardStore:
             elif event_type == "round.main.completed":
                 if event.get("session_id"):
                     self._state["session_id"] = event.get("session_id")
+            elif event_type in {"plan.updated", "plan.finalized"}:
+                self._state["plan_summary"] = event.get("summary")
+                self._state["plan_next_objective"] = event.get("suggested_next_objective")
+                self._state["plan_report_markdown"] = event.get("report_markdown")
             elif event_type == "loop.completed":
                 self._state["status"] = "completed"
                 self._state["success"] = bool(event.get("success"))
@@ -258,6 +265,20 @@ _INDEX_HTML = """<!doctype html>
     .type { color: #fda4af; }
     .muted { color: var(--muted); }
     .line { white-space: pre-wrap; }
+    .plan {
+      margin-bottom: 12px;
+      background: rgba(15,23,42,0.7);
+      border: 1px solid rgba(148,163,184,0.3);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .plan pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.45;
+    }
   </style>
 </head>
 <body>
@@ -270,6 +291,14 @@ _INDEX_HTML = """<!doctype html>
       <div class="card"><div class="label">Updated At (UTC)</div><div id="updated_at" class="value">-</div></div>
       <div class="card"><div class="label">Stop Reason</div><div id="stop_reason" class="value">-</div></div>
       <div class="card" style="grid-column: 1 / -1;"><div class="label">Objective</div><div id="objective" class="value">-</div></div>
+    </div>
+    <div class="plan">
+      <div class="label">Planning Snapshot</div>
+      <div id="plan_summary" class="value">-</div>
+      <div class="label" style="margin-top: 10px;">Suggested Next Objective</div>
+      <div id="plan_next_objective" class="value">-</div>
+      <div class="label" style="margin-top: 10px;">Planner Report</div>
+      <pre id="plan_report_markdown">-</pre>
     </div>
     <div class="events" id="events"></div>
   </div>
@@ -293,6 +322,9 @@ _INDEX_HTML = """<!doctype html>
       document.getElementById('updated_at').textContent = s.updated_at ?? '-';
       document.getElementById('stop_reason').textContent = s.stop_reason ?? '-';
       document.getElementById('objective').textContent = s.objective ?? '-';
+      document.getElementById('plan_summary').textContent = s.plan_summary ?? '-';
+      document.getElementById('plan_next_objective').textContent = s.plan_next_objective ?? '-';
+      document.getElementById('plan_report_markdown').textContent = s.plan_report_markdown ?? '-';
     }
     function renderEvent(evt) {
       const data = evt.data || {};
