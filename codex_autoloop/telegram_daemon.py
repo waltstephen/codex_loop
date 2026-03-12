@@ -14,6 +14,12 @@ from typing import Any
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .model_catalog import MODEL_PRESETS, get_preset
+from .planner_modes import (
+    PLANNER_MODE_AUTO,
+    PLANNER_MODE_CHOICES,
+    planner_mode_allows_follow_up,
+    resolve_planner_mode,
+)
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock

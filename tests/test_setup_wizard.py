@@ -29,7 +29,7 @@ def test_prompt_model_choice_default(monkeypatch) -> None:
 def test_prompt_model_choice_retries(monkeypatch) -> None:
     answers = iter(["abc", "99", "2"])
     monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: next(answers))
-    assert setup_wizard.prompt_model_choice() == "quality-xhigh"
+    assert setup_wizard.prompt_model_choice() == setup_wizard.MODEL_PRESETS[1].name
 
 
 def test_prompt_reasoning_effort_retries(monkeypatch) -> None:
