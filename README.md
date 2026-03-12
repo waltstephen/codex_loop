@@ -25,6 +25,7 @@ Current defaults:
 - Single-word operator entrypoint: `codexloop` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
+- Run archive persisted as JSONL with date/workspace/session metadata for resume continuity.
 - Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
 
 ## Why this is a plugin, not a native flag
@@ -244,7 +245,8 @@ Default behavior for daemon-launched runs:
 - Daemon defaults to the `codex-xhigh` model preset unless you override it.
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
-- Operator messages (initial objective + terminal/Telegram injects) are written to per-run markdown files in the daemon logs directory.
+- Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.codex_daemon/logs/operator_messages.md` so reviewer can see global inject history across runs.
+- Each run also appends start/finish records into `.codex_daemon/logs/codexloop-run-archive.jsonl` (includes date + workspace + session metadata) for continuity and auditing.
 - Re-running setup or start script will stop the previous daemon under the same `home-dir` before launching the new one.
 
 After setup, use terminal control:

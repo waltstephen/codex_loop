@@ -4,6 +4,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 
 @dataclass
@@ -20,8 +21,8 @@ class LoopControlState:
         self._interrupt_reason: str | None = None
         self._pending_instruction: str | None = None
         self._stop_requested = False
-        self._messages: list[OperatorMessage] = []
         self._operator_messages_file = operator_messages_file
+        self._messages: list[OperatorMessage] = self._load_messages_from_file(operator_messages_file)
 
     def request_inject(self, instruction: str, source: str = "operator") -> None:
         text = instruction.strip()
@@ -107,3 +108,31 @@ class LoopControlState:
         for item in self._messages:
             lines.append(f"- `{item.ts}` `{item.source}` `{item.kind}`: {item.text}")
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _load_messages_from_file(path: str | None) -> list[OperatorMessage]:
+        if not path:
+            return []
+        p = Path(path)
+        if not p.exists():
+            return []
+        try:
+            content = p.read_text(encoding="utf-8")
+        except Exception:
+            return []
+        out: list[OperatorMessage] = []
+        pattern = re.compile(r"^- `([^`]+)` `([^`]+)` `([^`]+)`: (.*)$")
+        for line in content.splitlines():
+            match = pattern.match(line.strip())
+            if not match:
+                continue
+            ts, source, kind, text = match.groups()
+            out.append(
+                OperatorMessage(
+                    ts=ts.strip(),
+                    source=source.strip(),
+                    kind=kind.strip(),
+                    text=text.strip(),
+                )
+            )
+        return out

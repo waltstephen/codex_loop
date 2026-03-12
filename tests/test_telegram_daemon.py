@@ -10,6 +10,8 @@ from codex_autoloop.telegram_daemon import (
     build_plan_request,
     format_status,
     normalize_plan_mode,
+    resolve_last_session_id_from_archive,
+    resolve_resume_session_id,
     resolve_saved_session_id,
 )
 
@@ -70,6 +72,32 @@ def test_resolve_saved_session_id(tmp_path: Path) -> None:
     state_file = tmp_path / "last_state.json"
     state_file.write_text(json.dumps({"session_id": "thread-abc"}), encoding="utf-8")
     assert resolve_saved_session_id(str(state_file)) == "thread-abc"
+
+
+def test_resolve_last_session_id_from_archive_prefers_latest_finished_row(tmp_path: Path) -> None:
+    archive_file = tmp_path / "codexloop-run-archive.jsonl"
+    rows = [
+        {"event": "run.started", "resume_session_id": "thread-old"},
+        {"event": "run.finished", "session_id": "thread-new"},
+    ]
+    with archive_file.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=True) + "\n")
+    assert resolve_last_session_id_from_archive(archive_file) == "thread-new"
+
+
+def test_resolve_resume_session_id_falls_back_to_archive(tmp_path: Path) -> None:
+    archive_file = tmp_path / "codexloop-run-archive.jsonl"
+    archive_file.write_text(json.dumps({"session_id": "thread-archive"}) + "\n", encoding="utf-8")
+    assert resolve_resume_session_id(str(tmp_path / "missing-state.json"), archive_file) == "thread-archive"
+
+
+def test_resolve_resume_session_id_prefers_state_over_archive(tmp_path: Path) -> None:
+    state_file = tmp_path / "last_state.json"
+    archive_file = tmp_path / "codexloop-run-archive.jsonl"
+    state_file.write_text(json.dumps({"session_id": "thread-state"}), encoding="utf-8")
+    archive_file.write_text(json.dumps({"session_id": "thread-archive"}) + "\n", encoding="utf-8")
+    assert resolve_resume_session_id(str(state_file), archive_file) == "thread-state"
 
 
 def test_normalize_plan_mode_defaults_to_fully_plan() -> None:

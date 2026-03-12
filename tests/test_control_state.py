@@ -39,3 +39,31 @@ def test_control_state_writes_markdown_doc(tmp_path) -> None:
     assert "Operator Messages" in content
     assert "initial goal" in content
     assert "fix test" in content
+
+
+def test_control_state_loads_existing_messages_and_appends(tmp_path) -> None:
+    doc_path = tmp_path / "operator_messages.md"
+    doc_path.write_text(
+        "\n".join(
+            [
+                "# Operator Messages",
+                "",
+                "Messages entered by user/operator channels (Telegram/terminal/initial objective).",
+                "",
+                "- `2026-03-12T00:00:00Z` `telegram` `inject`: keep prior context",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    state = LoopControlState(operator_messages_file=str(doc_path))
+    before = state.list_messages()
+    assert len(before) == 1
+    assert "keep prior context" in before[0]
+    state.request_inject("new instruction", source="terminal")
+    after = state.list_messages()
+    assert len(after) == 2
+    assert "new instruction" in after[-1]
+    content = doc_path.read_text(encoding="utf-8")
+    assert "keep prior context" in content
+    assert "new instruction" in content

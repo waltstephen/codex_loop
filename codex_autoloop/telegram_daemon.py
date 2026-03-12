@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS, get_preset
@@ -45,6 +46,8 @@ def main() -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     bus_dir.mkdir(parents=True, exist_ok=True)
     events_log = logs_dir / "daemon-events.jsonl"
+    run_archive_log = logs_dir / "codexloop-run-archive.jsonl"
+    operator_messages_path = logs_dir / "operator_messages.md"
 
     token_lock: TokenLock | None = None
     try:
@@ -80,6 +83,9 @@ def main() -> None:
     child_log_path: Path | None = None
     child_started_at: dt.datetime | None = None
     child_control_bus: JsonlCommandBus | None = None
+    child_run_id: str | None = None
+    child_control_path: Path | None = None
+    child_resume_session_id: str | None = None
     plan_mode = normalize_plan_mode(args.run_plan_mode)
     plan_request_delay_seconds = max(0, int(args.run_plan_request_delay_seconds))
     plan_auto_execute_delay_seconds = max(0, int(args.run_plan_auto_execute_delay_seconds))
@@ -96,6 +102,18 @@ def main() -> None:
             **kwargs,
         }
         with events_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+    def append_run_archive_record(*, event: str, **kwargs: Any) -> None:
+        now = dt.datetime.utcnow()
+        payload = {
+            "ts": now.isoformat() + "Z",
+            "date": now.date().isoformat(),
+            "event": event,
+            "workspace": str(run_cwd),
+            **kwargs,
+        }
+        with run_archive_log.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=True) + "\n")
 
     def clear_planner_state(*, reason: str | None = None) -> None:
@@ -117,7 +135,7 @@ def main() -> None:
 
     def update_status() -> None:
         running = child is not None and child.poll() is None
-        last_session_id = resolve_saved_session_id(args.run_state_file)
+        last_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
         write_status(
             status_path,
             {
@@ -133,6 +151,8 @@ def main() -> None:
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
                 "events_log": str(events_log),
+                "run_archive_log": str(run_archive_log),
+                "operator_messages_file": str(operator_messages_path),
                 "plan_mode": plan_mode,
                 "pending_plan_request": pending_plan_request,
                 "pending_plan_generated_at": (
@@ -149,12 +169,15 @@ def main() -> None:
 
     def start_child(objective: str) -> None:
         nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
+        nonlocal child_run_id, child_control_path, child_resume_session_id
         clear_planner_state(reason="child_started")
-        timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
-        messages_path = logs_dir / f"run-{timestamp}-operator_messages.md"
-        resume_session_id = resolve_saved_session_id(args.run_state_file) if args.run_resume_last_session else None
+        messages_path = operator_messages_path
+        resume_session_id = (
+            resolve_resume_session_id(args.run_state_file, run_archive_log) if args.run_resume_last_session else None
+        )
         child_control_bus = JsonlCommandBus(control_path)
         cmd = build_child_command(
             args=args,
@@ -169,6 +192,9 @@ def main() -> None:
         child_objective = objective
         child_log_path = log_path
         child_started_at = dt.datetime.utcnow()
+        child_run_id = timestamp
+        child_control_path = control_path
+        child_resume_session_id = resume_session_id
         notifier.send_message(
             "[daemon] launched run\n"
             f"pid={child.pid}\n"
@@ -183,6 +209,19 @@ def main() -> None:
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
             resume_session_id=resume_session_id,
+            run_id=timestamp,
+        )
+        append_run_archive_record(
+            event="run.started",
+            run_id=timestamp,
+            pid=child.pid,
+            objective=objective[:700],
+            log_path=str(log_path),
+            control_path=str(control_path),
+            operator_messages_file=str(messages_path),
+            resume_session_id=resume_session_id,
+            plan_mode=plan_mode,
+            started_at=child_started_at.isoformat() + "Z",
         )
         update_status()
 
@@ -210,7 +249,7 @@ def main() -> None:
             send_reply(source, help_text())
             return
         if command.kind == "status":
-            last_session_id = resolve_saved_session_id(args.run_state_file)
+            last_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
             send_reply(
                 source,
                 format_status(
@@ -437,6 +476,22 @@ def main() -> None:
                 exit_code=rc,
                 objective=str(child_objective or "")[:700],
                 log_path=str(child_log_path) if child_log_path else None,
+                run_id=child_run_id,
+            )
+            finished_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
+            append_run_archive_record(
+                event="run.finished",
+                run_id=child_run_id,
+                objective=str(child_objective or "")[:700],
+                plan_mode=plan_mode,
+                exit_code=rc,
+                log_path=str(child_log_path) if child_log_path else None,
+                control_path=str(child_control_path) if child_control_path else None,
+                operator_messages_file=str(operator_messages_path),
+                resume_session_id=child_resume_session_id,
+                session_id=finished_session_id,
+                started_at=child_started_at.isoformat() + "Z" if child_started_at else None,
+                finished_at=dt.datetime.utcnow().isoformat() + "Z",
             )
             schedule_plan_after_child_finish(
                 objective=str(child_objective or ""),
@@ -445,6 +500,9 @@ def main() -> None:
             )
             child = None
             child_control_bus = None
+            child_run_id = None
+            child_control_path = None
+            child_resume_session_id = None
             update_status()
     except KeyboardInterrupt:
         print("Daemon interrupted.", file=sys.stderr)
@@ -587,6 +645,42 @@ def resolve_saved_session_id(state_file: str | None) -> str | None:
     if isinstance(session_id, str) and session_id.strip():
         return session_id.strip()
     return None
+
+
+def resolve_last_session_id_from_archive(archive_file: str | Path | None) -> str | None:
+    if archive_file is None:
+        return None
+    archive_path = Path(archive_file)
+    if not archive_path.exists():
+        return None
+    try:
+        lines = archive_path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return None
+    for line in reversed(lines):
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        session_id = payload.get("session_id")
+        if isinstance(session_id, str) and session_id.strip():
+            return session_id.strip()
+        resume_session_id = payload.get("resume_session_id")
+        if isinstance(resume_session_id, str) and resume_session_id.strip():
+            return resume_session_id.strip()
+    return None
+
+
+def resolve_resume_session_id(state_file: str | None, archive_file: str | Path | None) -> str | None:
+    from_state = resolve_saved_session_id(state_file)
+    if from_state:
+        return from_state
+    return resolve_last_session_id_from_archive(archive_file)
 
 
 def normalize_plan_mode(raw: str | None) -> str:
