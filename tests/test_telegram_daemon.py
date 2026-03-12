@@ -6,6 +6,7 @@ from pathlib import Path
 from codex_autoloop.telegram_daemon import (
     PLAN_MODE_FULLY_PLAN,
     append_plan_record_row,
+    build_parser,
     build_child_command,
     build_plan_request,
     format_status,
@@ -156,3 +157,8 @@ def test_format_status_includes_plan_fields_when_idle() -> None:
     assert "plan_mode=fully-plan" in rendered
     assert "pending_plan_request=继续推进目标" in rendered
     assert "plan_auto_execute_at=" in rendered
+
+
+def test_build_parser_default_run_model_preset_is_none() -> None:
+    args = build_parser().parse_args(["--telegram-bot-token", "123:abc"])
+    assert args.run_model_preset is None

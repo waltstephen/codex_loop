@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -103,6 +104,12 @@ class TelegramNotifier:
         except urllib.error.URLError as exc:
             self._emit_error(f"Telegram network error: {exc}")
             return False
+        except (TimeoutError, socket.timeout) as exc:
+            self._emit_error(f"Telegram network timeout: {exc}")
+            return False
+        except OSError as exc:
+            self._emit_error(f"Telegram network os error: {exc}")
+            return False
 
         try:
             parsed = json.loads(raw)
@@ -147,6 +154,14 @@ def resolve_chat_id(
         except urllib.error.URLError as exc:
             if on_error:
                 on_error(f"getUpdates network error: {exc}")
+            return None
+        except (TimeoutError, socket.timeout) as exc:
+            if on_error:
+                on_error(f"getUpdates timeout: {exc}")
+            return None
+        except OSError as exc:
+            if on_error:
+                on_error(f"getUpdates os error: {exc}")
             return None
 
         try:

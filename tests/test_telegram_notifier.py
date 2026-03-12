@@ -1,3 +1,5 @@
+import urllib.error
+
 from codex_autoloop.cli import looks_like_bot_token
 from codex_autoloop.telegram_notifier import (
     TelegramConfig,
@@ -60,3 +62,43 @@ def test_typing_disabled_does_not_start_thread() -> None:
 def test_extract_chat_id_from_message_update() -> None:
     update = {"message": {"chat": {"id": 12345}}}
     assert extract_chat_id_from_update(update) == "12345"
+
+
+def test_send_message_timeout_does_not_raise(monkeypatch) -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    errors: list[str] = []
+    notifier.on_error = errors.append
+
+    def fake_urlopen(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise TimeoutError("read timed out")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    notifier.send_message("hello")
+    assert errors
+    assert "timeout" in errors[-1].lower()
+
+
+def test_send_message_urlerror_does_not_raise(monkeypatch) -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    errors: list[str] = []
+    notifier.on_error = errors.append
+
+    def fake_urlopen(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise urllib.error.URLError("network down")
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    notifier.send_message("hello")
+    assert errors
+    assert "network" in errors[-1].lower()

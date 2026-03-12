@@ -11,7 +11,7 @@ This solves the common "agent stopped early and asked for next instruction" prob
 Current defaults:
 
 - `max_rounds` defaults to `500`.
-- Daemon child model preset defaults to `codex-xhigh` (`gpt-5.3-codex` + `xhigh`) unless overridden.
+- Daemon child model defaults now inherit Codex CLI global settings unless you explicitly set a preset/override.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
 ## Current Feature Snapshot
@@ -58,7 +58,7 @@ Behavior:
 
 - First run: asks for Telegram token/chat id, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
-- `codexloop init`: stops all current codexloop daemons, prompts token/chat id/model preset/play mode, starts daemon in background, then exits.
+- `codexloop init`: stops all current codexloop daemons, prompts token/chat id/model selection/play mode, starts daemon in background, then exits.
 - After `init`, run `codexloop` to attach monitor to that background daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
@@ -242,7 +242,7 @@ Default behavior for daemon-launched runs:
 
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
-- Daemon defaults to the `codex-xhigh` model preset unless you override it.
+- Daemon-launched runs inherit Codex CLI default model settings unless you explicitly set preset/overrides.
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.codex_daemon/logs/operator_messages.md` so reviewer can see global inject history across runs.

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
-from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS, get_preset
+from .model_catalog import MODEL_PRESETS, get_preset
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -839,8 +839,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-max-rounds", type=int, default=500, help="Child codex-autoloop max rounds.")
     parser.add_argument(
         "--run-model-preset",
-        default=DEFAULT_MODEL_PRESET,
-        help=f"Model preset name for child runs (default: {DEFAULT_MODEL_PRESET}; available: {preset_names}).",
+        default=None,
+        help=(
+            "Optional model preset name for child runs. "
+            f"If unset, child inherits Codex default model settings (available presets: {preset_names})."
+        ),
     )
     parser.add_argument(
         "--run-main-model",

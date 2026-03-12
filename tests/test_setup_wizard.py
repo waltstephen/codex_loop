@@ -23,7 +23,7 @@ def test_stop_existing_daemon_no_pid_file(tmp_path: Path) -> None:
 
 def test_prompt_model_choice_default(monkeypatch) -> None:
     monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
-    assert setup_wizard.prompt_model_choice() == "codex-xhigh"
+    assert setup_wizard.prompt_model_choice() is None
 
 
 def test_prompt_model_choice_retries(monkeypatch) -> None:

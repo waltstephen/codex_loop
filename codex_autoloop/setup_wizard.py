@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS, get_preset
+from .model_catalog import MODEL_PRESETS, get_preset
 from .token_lock import acquire_token_lock
 
 
@@ -39,10 +39,12 @@ def main() -> None:
         "Default check command (optional, leave empty for none): ",
         default="",
     ).strip()
-    preset_names = ", ".join(p.name for p in MODEL_PRESETS)
     preset_name = args.run_model_preset
+    inherit_codex_defaults = False
     if preset_name is None and args.run_main_model is None and args.run_reviewer_model is None:
         preset_name = prompt_model_choice()
+        if preset_name is None:
+            inherit_codex_defaults = True
     resolved_preset = get_preset(preset_name) if preset_name and preset_name.lower() != "custom" else None
     if preset_name and preset_name.lower() != "custom" and resolved_preset is None:
         print(f"Unknown model preset: {preset_name}", file=sys.stderr)
@@ -53,7 +55,12 @@ def main() -> None:
         reviewer_model = resolved_preset.reviewer_model
         reviewer_reasoning_effort = resolved_preset.reviewer_reasoning_effort
     else:
-        if args.run_main_model is not None or args.run_reviewer_model is not None:
+        if inherit_codex_defaults:
+            main_model = None
+            main_reasoning_effort = None
+            reviewer_model = None
+            reviewer_reasoning_effort = None
+        elif args.run_main_model is not None or args.run_reviewer_model is not None:
             main_model = args.run_main_model
             main_reasoning_effort = args.run_main_reasoning_effort
             reviewer_model = args.run_reviewer_model
@@ -188,9 +195,9 @@ def main() -> None:
             f"/ {resolved_preset.reviewer_model}/{resolved_preset.reviewer_reasoning_effort})"
         )
     else:
-        print(f"Main model: {main_model or '<daemon default>'} effort={main_reasoning_effort or '<default>'}")
+        print(f"Main model: {main_model or '<codex default>'} effort={main_reasoning_effort or '<default>'}")
         print(
-            f"Reviewer model: {reviewer_model or '<daemon default>'} "
+            f"Reviewer model: {reviewer_model or '<codex default>'} "
             f"effort={reviewer_reasoning_effort or '<default>'}"
         )
     print("")
@@ -345,8 +352,9 @@ def prompt_chat_id() -> str:
         print("Invalid chat id. Use 'auto' or a numeric chat id like 123456 or -100123456.", file=sys.stderr)
 
 
-def prompt_model_choice() -> str:
+def prompt_model_choice() -> str | None:
     print("Choose a model preset:")
+    print("  0. inherit codex default (recommended)")
     for idx, preset in enumerate(MODEL_PRESETS, start=1):
         print(
             f"  {idx}. {preset.name}: "
@@ -354,14 +362,15 @@ def prompt_model_choice() -> str:
             f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort}"
         )
     print(f"  {len(MODEL_PRESETS) + 1}. custom")
-    default_index = next((idx for idx, preset in enumerate(MODEL_PRESETS, start=1) if preset.name == DEFAULT_MODEL_PRESET), 1)
     while True:
-        raw = prompt_input("Preset number: ", default=str(default_index)).strip()
+        raw = prompt_input("Preset number: ", default="0").strip()
         try:
             index = int(raw)
         except ValueError:
             print("Invalid selection. Enter a number from the list.", file=sys.stderr)
             continue
+        if index == 0:
+            return None
         if 1 <= index <= len(MODEL_PRESETS):
             return MODEL_PRESETS[index - 1].name
         if index == len(MODEL_PRESETS) + 1:

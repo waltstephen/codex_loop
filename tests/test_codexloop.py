@@ -80,11 +80,11 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
     monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
-    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: "codex-xhigh")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".codex_daemon", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
-    assert config["run_model_preset"] == "codex-xhigh"
+    assert config["run_model_preset"] is None
     assert config["run_plan_mode"] == "fully-plan"
     assert config["run_plan_request_delay_seconds"] == 600
     assert config["run_plan_auto_execute_delay_seconds"] == 600
@@ -105,6 +105,11 @@ def test_prompt_model_choice_selection(monkeypatch) -> None:
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
     model = codexloop.prompt_model_choice()
     assert model == codexloop.MODEL_PRESETS[0].name
+
+
+def test_prompt_model_choice_default_inherits_codex(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: default)
+    assert codexloop.prompt_model_choice() is None
 
 
 def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path, capsys) -> None:

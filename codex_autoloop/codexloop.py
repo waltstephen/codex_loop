@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
-from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS
+from .model_catalog import MODEL_PRESETS
 
 DEFAULT_HOME_DIR = ".codex_daemon"
 DEFAULT_TOKEN_LOCK_DIR = "/tmp/codex-autoloop-token-locks"
@@ -292,25 +292,24 @@ def prompt_chat_id() -> str:
         print("Invalid chat id. Use 'auto' or numeric id like 123456 or -100123456.", file=sys.stderr)
 
 
-def prompt_model_choice() -> str:
+def prompt_model_choice() -> str | None:
     print("Choose model preset:")
+    print("  0. inherit codex default (recommended)")
     for idx, preset in enumerate(MODEL_PRESETS, start=1):
         print(
             f"  {idx}. {preset.name}: "
             f"main={preset.main_model}/{preset.main_reasoning_effort}, "
             f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort}"
         )
-    default_index = next(
-        (idx for idx, preset in enumerate(MODEL_PRESETS, start=1) if preset.name == DEFAULT_MODEL_PRESET),
-        1,
-    )
     while True:
-        raw = prompt_input("Preset number: ", default=str(default_index)).strip()
+        raw = prompt_input("Preset number: ", default="0").strip()
         try:
             index = int(raw)
         except ValueError:
             print("Invalid selection. Enter a number from the list.", file=sys.stderr)
             continue
+        if index == 0:
+            return None
         if 1 <= index <= len(MODEL_PRESETS):
             return MODEL_PRESETS[index - 1].name
         print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
