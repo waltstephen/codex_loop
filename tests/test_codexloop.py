@@ -80,8 +80,65 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
     monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: "codex-xhigh")
+    monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".codex_daemon", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
+    assert config["run_model_preset"] == "codex-xhigh"
+    assert config["run_yolo"] is True
+    assert config["run_full_auto"] is False
+
+
+def test_prompt_play_mode_selection(monkeypatch) -> None:
+    answers = iter(["3"])
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
+    mode = codexloop.prompt_play_mode()
+    assert mode.name == "full-auto"
+    assert mode.run_full_auto is True
+    assert mode.run_yolo is True
+
+
+def test_prompt_model_choice_selection(monkeypatch) -> None:
+    answers = iter(["1"])
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
+    model = codexloop.prompt_model_choice()
+    assert model == codexloop.MODEL_PRESETS[0].name
+
+
+def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path, capsys) -> None:
+    home_dir = tmp_path / ".codex_daemon"
+    config = {
+        "telegram_bot_token": "123:abc",
+        "telegram_chat_id": "auto",
+        "run_cd": str(tmp_path),
+        "run_check": None,
+        "run_max_rounds": 500,
+        "run_skip_git_repo_check": False,
+        "run_full_auto": False,
+        "run_yolo": True,
+        "run_resume_last_session": True,
+        "run_main_reasoning_effort": None,
+        "run_reviewer_reasoning_effort": None,
+        "run_main_model": None,
+        "run_reviewer_model": None,
+        "run_model_preset": "codex-xhigh",
+        "bus_dir": str(home_dir / "bus"),
+        "logs_dir": str(home_dir / "logs"),
+    }
+
+    monkeypatch.setattr(sys, "argv", ["codexloop", "--home-dir", str(home_dir), "init"])
+    monkeypatch.setattr(codexloop.shutil, "which", lambda name: "/usr/bin/codex")
+    monkeypatch.setattr(codexloop, "load_config", lambda path: None)
+    monkeypatch.setattr(codexloop, "run_interactive_config", lambda **kwargs: config)
+    monkeypatch.setattr(codexloop, "stop_all_codexloop_loops", lambda **kwargs: None)
+    monkeypatch.setattr(codexloop, "ensure_daemon_running", lambda **kwargs: 4321)
+    monkeypatch.setattr(codexloop, "run_monitor_console", lambda **kwargs: (_ for _ in ()).throw(AssertionError("attach should not run")))
+    monkeypatch.setattr(codexloop, "save_config", lambda path, payload: None)
+
+    codexloop.main()
+    captured = capsys.readouterr()
+    assert "Daemon running in background. pid=4321" in captured.out
+    assert "Use `codexloop` to attach monitor" in captured.out
 
 
 def test_parse_pid_supports_int_and_digit_string() -> None:

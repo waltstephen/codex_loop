@@ -23,7 +23,8 @@ codexloop help
 Behavior:
 - First run: prompts for Telegram token/chat id, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
 - Later runs: auto-reuse previous config, auto-start daemon if needed, and attach to live logs.
-- `codexloop init`: stop all current codexloop daemons, reconfigure, and start a fresh daemon.
+- `codexloop init`: stop all current codexloop daemons, prompt token/chat id/model preset/play mode, start a fresh daemon in background, and exit.
+- After `init`, run `codexloop` to attach monitor.
 - In attach console, terminal control works directly:
   - `/run <objective>`
   - `/inject <instruction>`

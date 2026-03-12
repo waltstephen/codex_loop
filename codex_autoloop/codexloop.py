@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
-from .model_catalog import DEFAULT_MODEL_PRESET
+from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS
 
 DEFAULT_HOME_DIR = ".codex_daemon"
 DEFAULT_TOKEN_LOCK_DIR = "/tmp/codex-autoloop-token-locks"
@@ -26,6 +26,36 @@ DEFAULT_MAX_ROUNDS = 500
 class TerminalCommand:
     kind: str
     text: str = ""
+
+
+@dataclass(frozen=True)
+class PlayMode:
+    name: str
+    run_full_auto: bool
+    run_yolo: bool
+    note: str
+
+
+PLAY_MODES: list[PlayMode] = [
+    PlayMode(
+        name="safe",
+        run_full_auto=False,
+        run_yolo=False,
+        note="No yolo, no full-auto.",
+    ),
+    PlayMode(
+        name="standard",
+        run_full_auto=False,
+        run_yolo=True,
+        note="Recommended: yolo enabled, full-auto disabled.",
+    ),
+    PlayMode(
+        name="full-auto",
+        run_full_auto=True,
+        run_yolo=True,
+        note="Yolo + full-auto enabled.",
+    ),
+]
 
 
 def main() -> None:
@@ -52,13 +82,9 @@ def main() -> None:
         config = run_interactive_config(home_dir=home_dir, run_cd=current_run_cwd)
         save_config(config_path, config)
         print(f"Saved config: {config_path}")
-        ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=args.token_lock_dir)
-        run_monitor_console(
-            config=config,
-            home_dir=home_dir,
-            token_lock_dir=args.token_lock_dir,
-            tail_lines=max(1, int(args.tail_lines)),
-        )
+        pid = ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=args.token_lock_dir)
+        print(f"Daemon running in background. pid={pid}")
+        print("Use `codexloop` to attach monitor and terminal control.")
         return
     if args.reconfigure or config is None or not is_config_usable(config):
         if args.reconfigure:
@@ -159,7 +185,7 @@ def supported_features_text() -> str:
             "  codexloop help",
             "      Show this feature list.",
             "  codexloop init",
-            "      Stop all current codexloop loops, collect new config, and restart daemon.",
+            "      Stop all current codexloop loops, collect new config, and restart daemon in background.",
             "  codexloop status",
             "      Print daemon status JSON.",
             "  codexloop run <objective>",
@@ -207,6 +233,8 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     token = prompt_token()
     chat_id = prompt_chat_id()
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
+    model_preset = prompt_model_choice()
+    play_mode = prompt_play_mode()
     print(f"Run working directory: {run_cd}")
     return {
         "telegram_bot_token": token,
@@ -215,14 +243,14 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": DEFAULT_MAX_ROUNDS,
         "run_skip_git_repo_check": False,
-        "run_full_auto": False,
-        "run_yolo": True,
+        "run_full_auto": play_mode.run_full_auto,
+        "run_yolo": play_mode.run_yolo,
         "run_resume_last_session": True,
         "run_main_reasoning_effort": None,
         "run_reviewer_reasoning_effort": None,
         "run_main_model": None,
         "run_reviewer_model": None,
-        "run_model_preset": DEFAULT_MODEL_PRESET,
+        "run_model_preset": model_preset,
         "bus_dir": str((home_dir / "bus").resolve()),
         "logs_dir": str((home_dir / "logs").resolve()),
     }
@@ -259,6 +287,47 @@ def prompt_chat_id() -> str:
         if value.lower() == "auto" or looks_like_chat_id(value):
             return value
         print("Invalid chat id. Use 'auto' or numeric id like 123456 or -100123456.", file=sys.stderr)
+
+
+def prompt_model_choice() -> str:
+    print("Choose model preset:")
+    for idx, preset in enumerate(MODEL_PRESETS, start=1):
+        print(
+            f"  {idx}. {preset.name}: "
+            f"main={preset.main_model}/{preset.main_reasoning_effort}, "
+            f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort}"
+        )
+    default_index = next(
+        (idx for idx, preset in enumerate(MODEL_PRESETS, start=1) if preset.name == DEFAULT_MODEL_PRESET),
+        1,
+    )
+    while True:
+        raw = prompt_input("Preset number: ", default=str(default_index)).strip()
+        try:
+            index = int(raw)
+        except ValueError:
+            print("Invalid selection. Enter a number from the list.", file=sys.stderr)
+            continue
+        if 1 <= index <= len(MODEL_PRESETS):
+            return MODEL_PRESETS[index - 1].name
+        print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
+
+
+def prompt_play_mode() -> PlayMode:
+    print("Choose Play Mode:")
+    for idx, mode in enumerate(PLAY_MODES, start=1):
+        print(f"  {idx}. {mode.name}: {mode.note}")
+    default_index = next((idx for idx, mode in enumerate(PLAY_MODES, start=1) if mode.name == "standard"), 1)
+    while True:
+        raw = prompt_input("Play Mode number: ", default=str(default_index)).strip()
+        try:
+            index = int(raw)
+        except ValueError:
+            print("Invalid selection. Enter a number from the list.", file=sys.stderr)
+            continue
+        if 1 <= index <= len(PLAY_MODES):
+            return PLAY_MODES[index - 1]
+        print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
 
 
 def looks_like_token(token: str) -> bool:
