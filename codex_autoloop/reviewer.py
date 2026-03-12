@@ -31,6 +31,10 @@ class Reviewer:
         operator_messages: list[str],
         round_index: int,
         session_id: str | None,
+        main_exit_code: int,
+        main_turn_completed: bool,
+        main_turn_failed: bool,
+        main_agent_message_count: int,
         main_summary: str,
         main_error: str | None,
         checks: list[CheckResult],
@@ -41,6 +45,10 @@ class Reviewer:
             operator_messages=operator_messages,
             round_index=round_index,
             session_id=session_id,
+            main_exit_code=main_exit_code,
+            main_turn_completed=main_turn_completed,
+            main_turn_failed=main_turn_failed,
+            main_agent_message_count=main_agent_message_count,
             main_summary=main_summary,
             main_error=main_error,
             checks=checks,
@@ -84,6 +92,10 @@ class Reviewer:
         operator_messages: list[str],
         round_index: int,
         session_id: str | None,
+        main_exit_code: int,
+        main_turn_completed: bool,
+        main_turn_failed: bool,
+        main_agent_message_count: int,
         main_summary: str,
         main_error: str | None,
         checks: list[CheckResult],
@@ -98,12 +110,19 @@ class Reviewer:
             "1) `done` only when objective is fully satisfied, no blocker remains, and acceptance checks pass.\n"
             "2) If uncertain, choose `continue`.\n"
             "3) Use `blocked` only if additional user input is strictly required.\n"
-            "4) `next_action` must be a concrete instruction for the primary agent.\n\n"
+            "4) `next_action` must be a concrete instruction for the primary agent.\n"
+            "5) Do not speculate about crashes or missing replies; use the structured main-agent facts below.\n"
+            "6) Only describe the main agent as crashed/failed if the exit code is non-zero or fatal error is not `none`.\n"
+            "7) If the main agent emitted one or more agent messages, do not claim there was no user-facing reply.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"
             f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
+            f"Main agent exit code: {main_exit_code}\n"
+            f"Main agent turn completed: {str(main_turn_completed).lower()}\n"
+            f"Main agent turn failed: {str(main_turn_failed).lower()}\n"
+            f"Main agent emitted agent messages: {main_agent_message_count}\n"
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"

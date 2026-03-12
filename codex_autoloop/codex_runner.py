@@ -224,6 +224,9 @@ class CodexRunner:
                 fatal_error = watchdog_reason
         elif turn_completed and not turn_failed:
             fatal_error = None
+        elif process.returncode != 0 and fatal_error is None:
+            turn_failed = True
+            fatal_error = f"Process exited with code {process.returncode} before turn completion."
 
         return CodexRunResult(
             command=command,

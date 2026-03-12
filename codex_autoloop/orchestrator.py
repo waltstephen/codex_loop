@@ -110,6 +110,10 @@ class AutoLoopOrchestrator:
                 run_label="main",
             )
             session_id = main_result.thread_id or session_id
+            interrupted = (
+                main_result.fatal_error is not None
+                and main_result.fatal_error.startswith("External interrupt:")
+            )
             self._emit(
                 {
                     "type": "round.main.completed",
@@ -117,14 +121,11 @@ class AutoLoopOrchestrator:
                     "session_id": session_id,
                     "exit_code": main_result.exit_code,
                     "turn_completed": main_result.turn_completed,
-                    "turn_failed": main_result.turn_failed,
+                    "turn_failed": False if interrupted else main_result.turn_failed,
+                    "interrupted": interrupted,
                     "fatal_error": main_result.fatal_error,
                     "last_message": main_result.last_agent_message,
                 }
-            )
-            interrupted = (
-                main_result.fatal_error is not None
-                and main_result.fatal_error.startswith("External interrupt:")
             )
             if interrupted:
                 injected_instruction = self._consume_pending_instruction()
@@ -153,7 +154,7 @@ class AutoLoopOrchestrator:
                     thread_id=session_id,
                     main_exit_code=main_result.exit_code,
                     main_turn_completed=main_result.turn_completed,
-                    main_turn_failed=True,
+                    main_turn_failed=False,
                     checks=[],
                     review=review,
                     main_last_message=main_result.last_agent_message,
@@ -206,6 +207,10 @@ class AutoLoopOrchestrator:
                 operator_messages=self._get_operator_messages(),
                 round_index=round_index,
                 session_id=session_id,
+                main_exit_code=main_result.exit_code,
+                main_turn_completed=main_result.turn_completed,
+                main_turn_failed=main_result.turn_failed,
+                main_agent_message_count=len(main_result.agent_messages),
                 main_summary=main_result.last_agent_message,
                 main_error=main_result.fatal_error,
                 checks=checks,
@@ -328,6 +333,17 @@ class AutoLoopOrchestrator:
 
     @staticmethod
     def _initial_main_prompt(objective: str) -> str:
+        if AutoLoopOrchestrator._request_style(objective) == "response":
+            return (
+                "You are the primary agent.\n"
+                "The user may be greeting you, asking a question, or requesting analysis instead of code edits.\n"
+                "Reply directly in the user's language.\n"
+                "Inspect the repository, logs, or local context yourself if that helps answer.\n"
+                "Do not force code changes unless they are actually needed to solve the request.\n"
+                "Do not refuse unless the request is genuinely disallowed.\n"
+                "If the user is simply greeting you or checking whether you are still here, reply briefly and ask what they want next.\n\n"
+                f"User request:\n{objective}\n"
+            )
         return (
             "You are the primary implementation agent.\n"
             "Complete the objective end-to-end by executing required edits and commands directly.\n"
@@ -341,6 +357,17 @@ class AutoLoopOrchestrator:
 
     @staticmethod
     def _build_continue_prompt(*, objective: str, review: ReviewDecision, checks_ok: bool) -> str:
+        if AutoLoopOrchestrator._request_style(objective) == "response":
+            return (
+                "Continue the same user request in this session.\n"
+                f"User request:\n{objective}\n\n"
+                f"Reviewer reason:\n{review.reason}\n\n"
+                f"Reviewer next action:\n{review.next_action}\n\n"
+                "Respond directly.\n"
+                "Inspect the repository or logs yourself if needed.\n"
+                "Do not force code edits unless they are actually needed.\n"
+                "For greetings or short questions, answer naturally without DONE/REMAINING/BLOCKERS."
+            )
         check_instruction = (
             "Acceptance checks passed in previous round."
             if checks_ok
@@ -406,6 +433,15 @@ class AutoLoopOrchestrator:
 
     @staticmethod
     def _build_operator_override_prompt(*, objective: str, instruction: str) -> str:
+        if AutoLoopOrchestrator._request_style(instruction) == "response":
+            return (
+                "Operator override received from control channel.\n"
+                "Treat it as a direct user request and answer it in the user's language.\n"
+                "Inspect local repository context if useful.\n"
+                "Do not force code edits unless they are actually needed.\n\n"
+                f"Original objective:\n{objective}\n\n"
+                f"New operator instruction:\n{instruction}\n"
+            )
         return (
             "Operator override received from control channel.\n"
             "Immediately switch to the following instruction while preserving repository safety.\n\n"
@@ -414,3 +450,86 @@ class AutoLoopOrchestrator:
             "Execute concrete work now and continue until completion gates are met.\n"
             "End with DONE/REMAINING/BLOCKERS."
         )
+
+    @staticmethod
+    def _request_style(text: str) -> str:
+        normalized = " ".join((text or "").strip().lower().split())
+        if not normalized:
+            return "implementation"
+
+        implementation_markers = (
+            "fix",
+            "implement",
+            "add ",
+            "write ",
+            "edit ",
+            "modify",
+            "refactor",
+            "commit",
+            "push",
+            "train",
+            "experiment",
+            "run ",
+            "rerun",
+            "修改",
+            "修复",
+            "实现",
+            "新增",
+            "添加",
+            "重构",
+            "提交",
+            "推送",
+            "训练",
+            "实验",
+            "继续改",
+            "继续修",
+            "直接改",
+            "帮我改",
+            "帮我修",
+        )
+        if any(marker in normalized for marker in implementation_markers):
+            return "implementation"
+
+        greeting_phrases = {
+            "hi",
+            "hello",
+            "hey",
+            "ping",
+            "你好",
+            "您好",
+            "在吗",
+            "还在吗",
+            "还活着吗",
+            "兄弟在吗",
+        }
+        if normalized in greeting_phrases:
+            return "response"
+
+        response_markers = (
+            "?",
+            "？",
+            "why",
+            "what",
+            "how",
+            "explain",
+            "analyze",
+            "analysis",
+            "question",
+            "为什么",
+            "为啥",
+            "怎么",
+            "啥原因",
+            "是什么",
+            "是不是",
+            "分析",
+            "解释",
+            "看看问题",
+            "bug问题",
+            "错误在哪",
+            "问题在哪",
+            "问题所在",
+        )
+        if any(marker in normalized for marker in response_markers):
+            return "response"
+
+        return "implementation"

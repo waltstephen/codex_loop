@@ -236,7 +236,8 @@ def format_event_message(event: dict[str, Any]) -> str:
         return (
             f"[autoloop] main completed {now}\n"
             f"round={event.get('round_index')} exit={event.get('exit_code')} "
-            f"turn_completed={event.get('turn_completed')} turn_failed={event.get('turn_failed')}\n"
+            f"turn_completed={event.get('turn_completed')} turn_failed={event.get('turn_failed')} "
+            f"interrupted={event.get('interrupted')}\n"
             f"session_id={event.get('session_id')}\n"
             f"summary={last_message}"
         )
