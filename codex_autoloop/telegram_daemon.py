@@ -550,6 +550,7 @@ def build_child_command(
         args.telegram_bot_token,
         "--telegram-chat-id",
         chat_id,
+        "--no-telegram-control",
         "--control-file",
         control_file,
         "--operator-messages-file",

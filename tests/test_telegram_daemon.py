@@ -53,6 +53,7 @@ def test_build_child_command_includes_core_args() -> None:
     assert cmd[0] == "codex-autoloop"
     assert "--telegram-bot-token" in cmd
     assert "--telegram-chat-id" in cmd
+    assert "--no-telegram-control" in cmd
     assert "--control-file" in cmd
     assert "--operator-messages-file" in cmd
     assert "--main-model" in cmd

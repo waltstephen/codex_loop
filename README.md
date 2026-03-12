@@ -245,6 +245,7 @@ Default behavior for daemon-launched runs:
 - Daemon-launched runs inherit Codex CLI default model settings unless you explicitly set preset/overrides.
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
+- In daemon mode, only daemon polls Telegram updates; child runs receive control via daemon bus (avoids getUpdates 409 conflicts).
 - Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.codex_daemon/logs/operator_messages.md` so reviewer can see global inject history across runs.
 - Each run also appends start/finish records into `.codex_daemon/logs/codexloop-run-archive.jsonl` (includes date + workspace + session metadata) for continuity and auditing.
 - Re-running setup or start script will stop the previous daemon under the same `home-dir` before launching the new one.
