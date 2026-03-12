@@ -20,6 +20,9 @@ PLAN_MODE_EXECUTE_ONLY = "execute-only"
 PLAN_MODE_FULLY_PLAN = "fully-plan"
 PLAN_MODE_RECORD_ONLY = "record-only"
 PLAN_MODES = {PLAN_MODE_EXECUTE_ONLY, PLAN_MODE_FULLY_PLAN, PLAN_MODE_RECORD_ONLY}
+FORCE_FRESH_SESSION_KEY = "force_fresh_session"
+FORCE_FRESH_REASON_KEY = "force_fresh_reason"
+INVALID_ENCRYPTED_CONTENT_MARKER = "invalid encrypted content"
 
 
 def main() -> None:
@@ -136,6 +139,7 @@ def main() -> None:
     def update_status() -> None:
         running = child is not None and child.poll() is None
         last_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
+        force_fresh_session = is_force_fresh_session_requested(args.run_state_file)
         write_status(
             status_path,
             {
@@ -147,6 +151,7 @@ def main() -> None:
                 "child_log_path": str(child_log_path) if child_log_path else None,
                 "child_started_at": child_started_at.isoformat() + "Z" if child_started_at else None,
                 "last_session_id": last_session_id,
+                "force_fresh_session": force_fresh_session,
                 "run_cwd": str(run_cwd),
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
@@ -175,8 +180,11 @@ def main() -> None:
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
         messages_path = operator_messages_path
+        force_fresh = is_force_fresh_session_requested(args.run_state_file)
         resume_session_id = (
-            resolve_resume_session_id(args.run_state_file, run_archive_log) if args.run_resume_last_session else None
+            (None if force_fresh else resolve_resume_session_id(args.run_state_file, run_archive_log))
+            if args.run_resume_last_session
+            else None
         )
         child_control_bus = JsonlCommandBus(control_path)
         cmd = build_child_command(
@@ -220,9 +228,12 @@ def main() -> None:
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
             resume_session_id=resume_session_id,
+            force_fresh_session=force_fresh,
             plan_mode=plan_mode,
             started_at=child_started_at.isoformat() + "Z",
         )
+        if force_fresh:
+            log_event("session.fresh.applied", run_id=timestamp)
         update_status()
 
     def send_reply(source: str, message: str) -> None:
@@ -258,12 +269,37 @@ def main() -> None:
                     child_log_path=child_log_path,
                     child_started_at=child_started_at,
                     last_session_id=last_session_id,
+                    force_fresh_session=is_force_fresh_session_requested(args.run_state_file),
                     plan_mode=plan_mode,
                     pending_plan_request=pending_plan_request,
                     pending_plan_auto_execute_at=pending_plan_auto_execute_at,
                     scheduled_plan_request_at=scheduled_plan_request_at,
                 ),
             )
+            return
+        if command.kind == "fresh-session":
+            set_force_fresh_session_marker(
+                args.run_state_file,
+                enabled=True,
+                reason=f"operator_requested_from_{source}",
+            )
+            running = child is not None and child.poll() is None
+            append_run_archive_record(
+                event="session.fresh.requested",
+                source=source,
+                running=running,
+                active_run_id=child_run_id,
+                active_objective=str(child_objective or "")[:700],
+            )
+            if running:
+                send_reply(
+                    source,
+                    "[daemon] fresh session is armed for the next run. "
+                    "Current run keeps its existing session.",
+                )
+            else:
+                send_reply(source, "[daemon] fresh session armed. Next /run will not resume previous session_id.")
+            update_status()
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
@@ -441,7 +477,7 @@ def main() -> None:
     notifier.send_message(
         "[daemon] online\n"
         "Send /run <objective> to start a new run.\n"
-        "Commands: /status /stop /help"
+        "Commands: /status /stop /fresh /help"
     )
     log_event(
         "daemon.started",
@@ -478,6 +514,40 @@ def main() -> None:
                 log_path=str(child_log_path) if child_log_path else None,
                 run_id=child_run_id,
             )
+            if rc != 0 and log_contains_invalid_encrypted_content(child_log_path):
+                set_force_fresh_session_marker(
+                    args.run_state_file,
+                    enabled=True,
+                    reason="detected_invalid_encrypted_content",
+                )
+                warning = (
+                    "[daemon][warning] detected 'invalid encrypted content' in child log. "
+                    "Next run will start with a fresh session (no resume)."
+                )
+                notifier.send_message(warning)
+                print(warning, file=sys.stdout)
+                log_event(
+                    "session.fresh.flagged",
+                    run_id=child_run_id,
+                    reason="invalid_encrypted_content",
+                    log_path=str(child_log_path) if child_log_path else None,
+                )
+                append_run_archive_record(
+                    event="session.fresh.flagged",
+                    run_id=child_run_id,
+                    reason="invalid_encrypted_content",
+                    log_path=str(child_log_path) if child_log_path else None,
+                )
+            if is_force_fresh_session_requested(args.run_state_file):
+                fresh_session_id = resolve_saved_session_id_raw(args.run_state_file)
+                if fresh_session_id:
+                    set_force_fresh_session_marker(args.run_state_file, enabled=False)
+                    log_event("session.fresh.cleared", run_id=child_run_id, session_id=fresh_session_id)
+                    append_run_archive_record(
+                        event="session.fresh.cleared",
+                        run_id=child_run_id,
+                        session_id=fresh_session_id,
+                    )
             finished_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
             append_run_archive_record(
                 event="run.finished",
@@ -605,6 +675,7 @@ def format_status(
     child_log_path: Path | None,
     child_started_at: dt.datetime | None,
     last_session_id: str | None = None,
+    force_fresh_session: bool = False,
     plan_mode: str = PLAN_MODE_FULLY_PLAN,
     pending_plan_request: str | None = None,
     pending_plan_auto_execute_at: dt.datetime | None = None,
@@ -614,6 +685,8 @@ def format_status(
         base = f"[daemon] status=idle\nplan_mode={plan_mode}"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
+        if force_fresh_session:
+            base += "\nforce_fresh_session=true"
         if scheduled_plan_request_at is not None:
             base += f"\nplan_request_at={scheduled_plan_request_at.isoformat()}Z"
         if pending_plan_request:
@@ -631,12 +704,13 @@ def format_status(
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
         f"last_session_id={last_session_id}\n"
+        f"force_fresh_session={str(force_fresh_session).lower()}\n"
         f"objective={str(child_objective or '')[:700]}\n"
         f"log={child_log_path}"
     )
 
 
-def resolve_saved_session_id(state_file: str | None) -> str | None:
+def resolve_saved_session_id_raw(state_file: str | None) -> str | None:
     if not state_file:
         return None
     payload = read_status(state_file)
@@ -646,6 +720,41 @@ def resolve_saved_session_id(state_file: str | None) -> str | None:
     if isinstance(session_id, str) and session_id.strip():
         return session_id.strip()
     return None
+
+
+def resolve_saved_session_id(state_file: str | None) -> str | None:
+    if is_force_fresh_session_requested(state_file):
+        return None
+    return resolve_saved_session_id_raw(state_file)
+
+
+def is_force_fresh_session_requested(state_file: str | None) -> bool:
+    if not state_file:
+        return False
+    payload = read_status(state_file)
+    if not isinstance(payload, dict):
+        return False
+    return payload.get(FORCE_FRESH_SESSION_KEY) is True
+
+
+def set_force_fresh_session_marker(state_file: str | None, *, enabled: bool, reason: str | None = None) -> bool:
+    if not state_file:
+        return False
+    state_path = Path(state_file).expanduser().resolve()
+    payload = read_status(str(state_path))
+    if not isinstance(payload, dict):
+        payload = {}
+    payload[FORCE_FRESH_SESSION_KEY] = bool(enabled)
+    if enabled:
+        payload["session_id"] = None
+        payload["force_fresh_updated_at"] = dt.datetime.utcnow().isoformat() + "Z"
+        if reason:
+            payload[FORCE_FRESH_REASON_KEY] = reason
+    else:
+        payload.pop(FORCE_FRESH_REASON_KEY, None)
+        payload.pop("force_fresh_updated_at", None)
+    write_status(state_path, payload)
+    return True
 
 
 def resolve_last_session_id_from_archive(archive_file: str | Path | None) -> str | None:
@@ -678,10 +787,28 @@ def resolve_last_session_id_from_archive(archive_file: str | Path | None) -> str
 
 
 def resolve_resume_session_id(state_file: str | None, archive_file: str | Path | None) -> str | None:
+    if is_force_fresh_session_requested(state_file):
+        return None
     from_state = resolve_saved_session_id(state_file)
     if from_state:
         return from_state
     return resolve_last_session_id_from_archive(archive_file)
+
+
+def log_contains_invalid_encrypted_content(log_path: Path | None, *, tail_bytes: int = 256_000) -> bool:
+    if log_path is None or not log_path.exists():
+        return False
+    try:
+        with log_path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            start = max(0, size - max(1, int(tail_bytes)))
+            f.seek(start)
+            raw = f.read()
+    except Exception:
+        return False
+    text = raw.decode("utf-8", errors="ignore").lower()
+    return INVALID_ENCRYPTED_CONTENT_MARKER in text
 
 
 def normalize_plan_mode(raw: str | None) -> str:
@@ -774,6 +901,7 @@ def help_text() -> str:
         "/inject <instruction> - inject instruction to active run (or run if idle)\n"
         "/status - daemon + child status\n"
         "/stop - stop active run\n"
+        "/fresh - force next run to use a fresh session (ignore saved session_id)\n"
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
         "Plain text message is treated as /run when idle.\n"

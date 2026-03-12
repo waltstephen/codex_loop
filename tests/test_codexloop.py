@@ -22,11 +22,13 @@ def test_parse_terminal_command_explicit_commands() -> None:
     run = codexloop.parse_terminal_command("/run build dashboard", running=True)
     inject = codexloop.parse_terminal_command("/inject tweak prompt", running=False)
     stop = codexloop.parse_terminal_command("/stop", running=False)
+    fresh = codexloop.parse_terminal_command("/fresh", running=False)
     disable = codexloop.parse_terminal_command("/disable", running=False)
     status = codexloop.parse_terminal_command("/status", running=False)
     assert run is not None and run.kind == "run" and run.text == "build dashboard"
     assert inject is not None and inject.kind == "inject" and inject.text == "tweak prompt"
     assert stop is not None and stop.kind == "stop"
+    assert fresh is not None and fresh.kind == "fresh-session"
     assert disable is not None and disable.kind == "daemon-stop"
     assert status is not None and status.kind == "status"
 
@@ -40,6 +42,12 @@ def test_build_parser_supports_disable_subcommand() -> None:
     parser = codexloop.build_parser()
     args = parser.parse_args(["disable"])
     assert args.subcommand == "disable"
+
+
+def test_build_parser_supports_fresh_subcommand() -> None:
+    parser = codexloop.build_parser()
+    args = parser.parse_args(["fresh"])
+    assert args.subcommand == "fresh"
 
 
 def test_build_parser_supports_help_subcommand() -> None:
@@ -58,8 +66,10 @@ def test_supported_features_text_contains_core_commands() -> None:
     text = codexloop.supported_features_text()
     assert "codexloop help" in text
     assert "codexloop disable" in text
+    assert "codexloop fresh" in text
     assert "codexloop init" in text
     assert "/disable" in text
+    assert "/fresh" in text
 
 
 def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:

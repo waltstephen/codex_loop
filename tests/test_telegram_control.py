@@ -61,6 +61,16 @@ def test_parse_stop_and_status() -> None:
     assert status is not None and status.kind == "status"
 
 
+def test_parse_fresh_session_command() -> None:
+    cmd = parse_command_from_update(
+        update=_wrap("/fresh"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert cmd is not None
+    assert cmd.kind == "fresh-session"
+
+
 def test_parse_daemon_stop() -> None:
     cmd = parse_command_from_update(
         update=_wrap("/daemon-stop"),

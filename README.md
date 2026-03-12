@@ -63,7 +63,7 @@ Behavior:
 - Same terminal can control daemon/run:
   - `/run <objective>`
   - `/inject <instruction>`
-  - `/status`, `/stop`, `/disable` (alias of `/daemon-stop`), `/daemon-stop`
+  - `/status`, `/stop`, `/fresh`, `/disable` (alias of `/daemon-stop`), `/daemon-stop`
   - plain text auto-routes: running => inject, idle => run
 
 Play Mode semantics:
@@ -246,6 +246,7 @@ Default behavior for daemon-launched runs:
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - In daemon mode, only daemon polls Telegram updates; child runs receive control via daemon bus (avoids getUpdates 409 conflicts).
+- If daemon detects `invalid encrypted content` from a resumed run, it raises a warning and auto-arms fresh session for the next run.
 - Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.codex_daemon/logs/operator_messages.md` so reviewer can see global inject history across runs.
 - Each run also appends start/finish records into `.codex_daemon/logs/codexloop-run-archive.jsonl` (includes date + workspace + session metadata) for continuity and auditing.
 - Re-running setup or start script will stop the previous daemon under the same `home-dir` before launching the new one.

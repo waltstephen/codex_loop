@@ -112,10 +112,15 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return
 
-    if args.subcommand in {"run", "inject"}:
+    if args.subcommand in {"run", "inject", "fresh"}:
         ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=args.token_lock_dir)
 
-    kind = "daemon-stop" if args.subcommand == "disable" else str(args.subcommand)
+    if args.subcommand == "disable":
+        kind = "daemon-stop"
+    elif args.subcommand == "fresh":
+        kind = "fresh-session"
+    else:
+        kind = str(args.subcommand)
     text = " ".join(args.text).strip() if hasattr(args, "text") else ""
     publish_command(bus_dir=bus_dir, kind=kind, text=text, source="terminal")
     print(f"Sent: {args.subcommand}")
@@ -165,6 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     inject = sub.add_parser("inject", help="Inject instruction into active run.")
     inject.add_argument("text", nargs="+", help="Instruction text.")
     sub.add_parser("stop", help="Stop active run.")
+    sub.add_parser("fresh", help="Force next run to start with a fresh session (no resume).")
     sub.add_parser("disable", help="Disable codexloop daemon (alias of daemon-stop).")
     sub.add_parser("daemon-stop", help="Stop daemon process.")
     return parser
@@ -190,13 +196,15 @@ def supported_features_text() -> str:
             "      Inject instruction into active run.",
             "  codexloop stop",
             "      Stop active run only.",
+            "  codexloop fresh",
+            "      Mark next run as fresh session (ignore saved session_id).",
             "  codexloop disable",
             "      Stop daemon process (alias of codexloop daemon-stop).",
             "  codexloop daemon-stop",
             "      Stop daemon process.",
             "",
             "Attached monitor console commands:",
-            "  /status /run <objective> /inject <instruction> /stop /disable /daemon-stop /help /exit",
+            "  /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /help /exit",
             "  Plain text routes to /inject when running, else to /run.",
             "",
             "Play Mode:",
@@ -618,7 +626,7 @@ def run_monitor_console(
 
     print("Attached to codexloop daemon.")
     print(
-        "Commands: /status /run <objective> /inject <instruction> /stop /disable /daemon-stop /exit"
+        "Commands: /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /exit"
     )
     print("Plain text: running -> inject, idle -> run")
     print("")
@@ -673,7 +681,7 @@ def run_monitor_console(
             return
         if parsed.kind == "help":
             print(
-                "Commands: /status /run <objective> /inject <instruction> /stop /disable /daemon-stop /exit\n"
+                "Commands: /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /exit\n"
                 "Plain text routes to inject when running, else run."
             )
             continue
@@ -748,6 +756,8 @@ def parse_terminal_command(raw: str, *, running: bool) -> TerminalCommand | None
         return TerminalCommand(kind="status")
     if text in {"/stop", "stop"}:
         return TerminalCommand(kind="stop")
+    if text in {"/fresh", "fresh", "/fresh-session", "fresh-session", "/new-session", "new-session"}:
+        return TerminalCommand(kind="fresh-session")
     if text in {"/disable", "disable", "/daemon-stop", "daemon-stop"}:
         return TerminalCommand(kind="daemon-stop")
     if text.startswith("/run "):

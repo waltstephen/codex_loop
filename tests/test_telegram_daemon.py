@@ -10,10 +10,13 @@ from codex_autoloop.telegram_daemon import (
     build_child_command,
     build_plan_request,
     format_status,
+    is_force_fresh_session_requested,
+    log_contains_invalid_encrypted_content,
     normalize_plan_mode,
     resolve_last_session_id_from_archive,
     resolve_resume_session_id,
     resolve_saved_session_id,
+    set_force_fresh_session_marker,
 )
 
 
@@ -100,6 +103,30 @@ def test_resolve_resume_session_id_prefers_state_over_archive(tmp_path: Path) ->
     state_file.write_text(json.dumps({"session_id": "thread-state"}), encoding="utf-8")
     archive_file.write_text(json.dumps({"session_id": "thread-archive"}) + "\n", encoding="utf-8")
     assert resolve_resume_session_id(str(state_file), archive_file) == "thread-state"
+
+
+def test_set_force_fresh_session_marker_blocks_resume(tmp_path: Path) -> None:
+    state_file = tmp_path / "last_state.json"
+    archive_file = tmp_path / "archive.jsonl"
+    state_file.write_text(json.dumps({"session_id": "thread-state"}), encoding="utf-8")
+    archive_file.write_text(json.dumps({"session_id": "thread-archive"}) + "\n", encoding="utf-8")
+    assert resolve_resume_session_id(str(state_file), archive_file) == "thread-state"
+    changed = set_force_fresh_session_marker(str(state_file), enabled=True, reason="test")
+    assert changed is True
+    assert is_force_fresh_session_requested(str(state_file)) is True
+    assert resolve_resume_session_id(str(state_file), archive_file) is None
+    set_force_fresh_session_marker(str(state_file), enabled=False)
+    assert is_force_fresh_session_requested(str(state_file)) is False
+    assert resolve_resume_session_id(str(state_file), archive_file) == "thread-archive"
+
+
+def test_log_contains_invalid_encrypted_content(tmp_path: Path) -> None:
+    log_file = tmp_path / "run.log"
+    log_file.write_text("some error: Invalid Encrypted Content happened\n", encoding="utf-8")
+    assert log_contains_invalid_encrypted_content(log_file) is True
+    other_log = tmp_path / "ok.log"
+    other_log.write_text("normal output\n", encoding="utf-8")
+    assert log_contains_invalid_encrypted_content(other_log) is False
 
 
 def test_normalize_plan_mode_defaults_to_fully_plan() -> None:

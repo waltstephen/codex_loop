@@ -360,6 +360,8 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return TelegramCommand(kind="daemon-stop", text="")
     if content in {"/status", "/stat"}:
         return TelegramCommand(kind="status", text="")
+    if content in {"/fresh", "/fresh-session", "/new-session"}:
+        return TelegramCommand(kind="fresh-session", text="")
     if content in {"/help", "/commands"}:
         return TelegramCommand(kind="help", text="")
     if content.startswith("/"):
