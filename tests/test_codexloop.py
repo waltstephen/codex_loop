@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 from codex_autoloop import codexloop
@@ -39,6 +40,27 @@ def test_build_parser_supports_disable_subcommand() -> None:
     parser = codexloop.build_parser()
     args = parser.parse_args(["disable"])
     assert args.subcommand == "disable"
+
+
+def test_build_parser_supports_help_subcommand() -> None:
+    parser = codexloop.build_parser()
+    args = parser.parse_args(["help"])
+    assert args.subcommand == "help"
+
+
+def test_supported_features_text_contains_core_commands() -> None:
+    text = codexloop.supported_features_text()
+    assert "codexloop help" in text
+    assert "codexloop disable" in text
+    assert "/disable" in text
+
+
+def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["codexloop", "help"])
+    monkeypatch.setattr(codexloop.shutil, "which", lambda name: None)
+    codexloop.main()
+    captured = capsys.readouterr()
+    assert "codexloop supported features" in captured.out
 
 
 def test_is_config_usable_requires_token_and_run_cd() -> None:

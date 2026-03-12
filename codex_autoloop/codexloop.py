@@ -30,6 +30,9 @@ class TerminalCommand:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.subcommand == "help":
+        print(supported_features_text())
+        return
     home_dir = Path(args.home_dir).resolve()
     home_dir.mkdir(parents=True, exist_ok=True)
 
@@ -107,6 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="subcommand")
+    sub.add_parser("help", help="Show supported codexloop features and commands.")
     sub.add_parser("status", help="Show daemon status JSON.")
     run = sub.add_parser("run", help="Start a run objective.")
     run.add_argument("text", nargs="+", help="Objective text.")
@@ -116,6 +120,36 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("disable", help="Disable codexloop daemon (alias of daemon-stop).")
     sub.add_parser("daemon-stop", help="Stop daemon process.")
     return parser
+
+
+def supported_features_text() -> str:
+    return "\n".join(
+        [
+            "codexloop supported features",
+            "",
+            "Top-level commands:",
+            "  codexloop",
+            "      Attach monitor; auto-start daemon if needed.",
+            "  codexloop help",
+            "      Show this feature list.",
+            "  codexloop status",
+            "      Print daemon status JSON.",
+            "  codexloop run <objective>",
+            "      Start a new run objective.",
+            "  codexloop inject <instruction>",
+            "      Inject instruction into active run.",
+            "  codexloop stop",
+            "      Stop active run only.",
+            "  codexloop disable",
+            "      Stop daemon process (alias of codexloop daemon-stop).",
+            "  codexloop daemon-stop",
+            "      Stop daemon process.",
+            "",
+            "Attached monitor console commands:",
+            "  /status /run <objective> /inject <instruction> /stop /disable /daemon-stop /help /exit",
+            "  Plain text routes to /inject when running, else to /run.",
+        ]
+    )
 
 
 def load_config(path: Path) -> dict[str, Any] | None:

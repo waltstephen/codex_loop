@@ -47,6 +47,12 @@ Run:
 codexloop
 ```
 
+List supported features/commands:
+
+```bash
+codexloop help
+```
+
 Behavior:
 
 - First run: asks for Telegram token/chat id, writes `.codex_daemon/daemon_config.json`, starts daemon.

@@ -14,6 +14,12 @@ pip install -e .
 codexloop
 ```
 
+Show supported features/commands:
+
+```bash
+codexloop help
+```
+
 Behavior:
 - First run: prompts for Telegram token/chat id, writes `.codex_daemon/daemon_config.json`, starts daemon.
 - Later runs: auto-reuse previous config, auto-start daemon if needed, and attach to live logs.
