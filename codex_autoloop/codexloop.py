@@ -5,6 +5,7 @@ import getpass
 import json
 import os
 import select
+import signal
 import shutil
 import subprocess
 import sys
@@ -41,8 +42,32 @@ def main() -> None:
 
     config_path = home_dir / "daemon_config.json"
     config = load_config(config_path)
+    current_run_cwd = Path(args.run_cd).resolve() if args.run_cd else Path.cwd().resolve()
+    if args.subcommand == "init":
+        stop_all_codexloop_loops(
+            home_dir=home_dir,
+            config=config,
+            token_lock_dir=args.token_lock_dir,
+        )
+        config = run_interactive_config(home_dir=home_dir, run_cd=current_run_cwd)
+        save_config(config_path, config)
+        print(f"Saved config: {config_path}")
+        ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=args.token_lock_dir)
+        run_monitor_console(
+            config=config,
+            home_dir=home_dir,
+            token_lock_dir=args.token_lock_dir,
+            tail_lines=max(1, int(args.tail_lines)),
+        )
+        return
     if args.reconfigure or config is None or not is_config_usable(config):
-        config = run_interactive_config(home_dir=home_dir, run_cd=Path(args.run_cd))
+        if args.reconfigure:
+            stop_all_codexloop_loops(
+                home_dir=home_dir,
+                config=config,
+                token_lock_dir=args.token_lock_dir,
+            )
+        config = run_interactive_config(home_dir=home_dir, run_cd=current_run_cwd)
         save_config(config_path, config)
         print(f"Saved config: {config_path}")
 
@@ -89,8 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-cd",
-        default=".",
-        help="Default working directory for daemon-launched runs (first-time setup).",
+        default=None,
+        help="Run working directory for daemon-launched runs. Defaults to current shell directory.",
     )
     parser.add_argument(
         "--token-lock-dir",
@@ -111,6 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="subcommand")
     sub.add_parser("help", help="Show supported codexloop features and commands.")
+    sub.add_parser("init", help="Stop current codexloop loops, reconfigure, and restart fresh daemon.")
     sub.add_parser("status", help="Show daemon status JSON.")
     run = sub.add_parser("run", help="Start a run objective.")
     run.add_argument("text", nargs="+", help="Objective text.")
@@ -132,6 +158,8 @@ def supported_features_text() -> str:
             "      Attach monitor; auto-start daemon if needed.",
             "  codexloop help",
             "      Show this feature list.",
+            "  codexloop init",
+            "      Stop all current codexloop loops, collect new config, and restart daemon.",
             "  codexloop status",
             "      Print daemon status JSON.",
             "  codexloop run <objective>",
@@ -148,6 +176,9 @@ def supported_features_text() -> str:
             "Attached monitor console commands:",
             "  /status /run <objective> /inject <instruction> /stop /disable /daemon-stop /help /exit",
             "  Plain text routes to /inject when running, else to /run.",
+            "",
+            "Run working directory:",
+            "  By default, uses the shell current working directory when config is created.",
         ]
     )
 
@@ -175,12 +206,12 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     print("codexloop first-time setup")
     token = prompt_token()
     chat_id = prompt_chat_id()
-    run_cd_value = prompt_run_cd(default=run_cd)
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
+    print(f"Run working directory: {run_cd}")
     return {
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
-        "run_cd": str(run_cd_value),
+        "run_cd": str(run_cd),
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": DEFAULT_MAX_ROUNDS,
         "run_skip_git_repo_check": False,
@@ -201,15 +232,6 @@ def is_config_usable(config: dict[str, Any]) -> bool:
     token = str(config.get("telegram_bot_token") or "").strip()
     run_cd = str(config.get("run_cd") or "").strip()
     return looks_like_token(token) and bool(run_cd)
-
-
-def prompt_run_cd(*, default: Path) -> Path:
-    while True:
-        raw = prompt_input(f"Run working directory [{default}]: ", default=str(default)).strip()
-        candidate = Path(raw).expanduser().resolve()
-        if candidate.exists() and candidate.is_dir():
-            return candidate
-        print("Directory not found. Please input an existing directory.", file=sys.stderr)
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -326,6 +348,99 @@ def ensure_daemon_running(*, config: dict[str, Any], home_dir: Path, token_lock_
     pid_path.chmod(0o600)
     print(f"Daemon started. pid={proc.pid}")
     return proc.pid
+
+
+def stop_all_codexloop_loops(*, home_dir: Path, config: dict[str, Any] | None, token_lock_dir: str) -> None:
+    stopped = stop_current_home_daemon(home_dir=home_dir, config=config)
+    global_stopped = stop_global_daemons_from_token_locks(token_lock_dir=token_lock_dir)
+    if stopped or global_stopped:
+        total = int(stopped) + len(global_stopped)
+        print(f"Stopped {total} codexloop daemon process(es).")
+
+
+def stop_current_home_daemon(*, home_dir: Path, config: dict[str, Any] | None) -> bool:
+    pid_path = home_dir / "daemon.pid"
+    pid = read_pid(pid_path)
+    bus_dir = resolve_bus_dir(config, home_dir) if config else (home_dir / "bus").resolve()
+    publish_daemon_stop_if_possible(bus_dir=bus_dir)
+    if pid is None:
+        pid_path.unlink(missing_ok=True)
+        return False
+    if wait_process_exit(pid, timeout_seconds=3.0):
+        pid_path.unlink(missing_ok=True)
+        return True
+    terminated = terminate_process_tree(pid)
+    pid_path.unlink(missing_ok=True)
+    return terminated
+
+
+def stop_global_daemons_from_token_locks(*, token_lock_dir: str) -> list[int]:
+    lock_dir = Path(token_lock_dir).resolve()
+    if not lock_dir.exists():
+        return []
+    stopped: list[int] = []
+    for meta_path in lock_dir.glob("*.json"):
+        payload = load_config(meta_path)
+        if payload is None:
+            continue
+        pid_raw = payload.get("pid")
+        bus_dir_raw = payload.get("bus_dir")
+        if isinstance(bus_dir_raw, str) and bus_dir_raw.strip():
+            publish_daemon_stop_if_possible(bus_dir=Path(bus_dir_raw).expanduser().resolve())
+        pid = parse_pid(pid_raw)
+        if pid is None:
+            continue
+        if wait_process_exit(pid, timeout_seconds=2.0):
+            stopped.append(pid)
+            meta_path.unlink(missing_ok=True)
+            continue
+        if terminate_process_tree(pid):
+            stopped.append(pid)
+            meta_path.unlink(missing_ok=True)
+    return stopped
+
+
+def parse_pid(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    return None
+
+
+def publish_daemon_stop_if_possible(*, bus_dir: Path) -> None:
+    try:
+        publish_command(bus_dir=bus_dir, kind="daemon-stop", text="", source="terminal-init")
+    except Exception:
+        return
+
+
+def wait_process_exit(pid: int, *, timeout_seconds: float) -> bool:
+    if not is_process_running(pid):
+        return True
+    deadline = time.time() + max(0.0, timeout_seconds)
+    while time.time() < deadline:
+        if not is_process_running(pid):
+            return True
+        time.sleep(0.2)
+    return not is_process_running(pid)
+
+
+def terminate_process_tree(pid: int) -> bool:
+    if not is_process_running(pid):
+        return True
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return True
+    if wait_process_exit(pid, timeout_seconds=3.0):
+        return True
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return True
+    return wait_process_exit(pid, timeout_seconds=1.0)
 
 
 def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_dir: str) -> list[str]:

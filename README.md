@@ -55,8 +55,9 @@ codexloop help
 
 Behavior:
 
-- First run: asks for Telegram token/chat id, writes `.codex_daemon/daemon_config.json`, starts daemon.
+- First run: asks for Telegram token/chat id, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
+- `codexloop init`: stops all current codexloop daemons, collects new config, and restarts a fresh daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
   - `/inject <instruction>`

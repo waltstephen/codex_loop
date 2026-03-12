@@ -48,10 +48,17 @@ def test_build_parser_supports_help_subcommand() -> None:
     assert args.subcommand == "help"
 
 
+def test_build_parser_supports_init_subcommand() -> None:
+    parser = codexloop.build_parser()
+    args = parser.parse_args(["init"])
+    assert args.subcommand == "init"
+
+
 def test_supported_features_text_contains_core_commands() -> None:
     text = codexloop.supported_features_text()
     assert "codexloop help" in text
     assert "codexloop disable" in text
+    assert "codexloop init" in text
     assert "/disable" in text
 
 
@@ -67,6 +74,21 @@ def test_is_config_usable_requires_token_and_run_cd() -> None:
     assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": "."}) is True
     assert codexloop.is_config_usable({"telegram_bot_token": "bad-token", "run_cd": "."}) is False
     assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": ""}) is False
+
+
+def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
+    monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    config = codexloop.run_interactive_config(home_dir=tmp_path / ".codex_daemon", run_cd=tmp_path)
+    assert config["run_cd"] == str(tmp_path.resolve())
+
+
+def test_parse_pid_supports_int_and_digit_string() -> None:
+    assert codexloop.parse_pid(123) == 123
+    assert codexloop.parse_pid("456") == 456
+    assert codexloop.parse_pid("setup-probe") is None
+    assert codexloop.parse_pid(-1) is None
 
 
 def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
