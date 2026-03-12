@@ -20,8 +20,14 @@ Behavior:
 - In attach console, terminal control works directly:
   - `/run <objective>`
   - `/inject <instruction>`
-  - `/status`, `/stop`, `/daemon-stop`
+  - `/status`, `/stop`, `/disable` (same as `/daemon-stop`), `/daemon-stop`
   - plain text: running => inject, idle => run
+
+Disable daemon quickly:
+
+```bash
+codexloop disable
+```
 
 ## 3) Run (basic)
 

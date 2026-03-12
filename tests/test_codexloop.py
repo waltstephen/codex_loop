@@ -21,16 +21,24 @@ def test_parse_terminal_command_explicit_commands() -> None:
     run = codexloop.parse_terminal_command("/run build dashboard", running=True)
     inject = codexloop.parse_terminal_command("/inject tweak prompt", running=False)
     stop = codexloop.parse_terminal_command("/stop", running=False)
+    disable = codexloop.parse_terminal_command("/disable", running=False)
     status = codexloop.parse_terminal_command("/status", running=False)
     assert run is not None and run.kind == "run" and run.text == "build dashboard"
     assert inject is not None and inject.kind == "inject" and inject.text == "tweak prompt"
     assert stop is not None and stop.kind == "stop"
+    assert disable is not None and disable.kind == "daemon-stop"
     assert status is not None and status.kind == "status"
 
 
 def test_parse_terminal_command_rejects_empty_payload() -> None:
     assert codexloop.parse_terminal_command("/run   ", running=False) is None
     assert codexloop.parse_terminal_command("/inject   ", running=True) is None
+
+
+def test_build_parser_supports_disable_subcommand() -> None:
+    parser = codexloop.build_parser()
+    args = parser.parse_args(["disable"])
+    assert args.subcommand == "disable"
 
 
 def test_is_config_usable_requires_token_and_run_cd() -> None:

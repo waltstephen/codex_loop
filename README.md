@@ -54,8 +54,14 @@ Behavior:
 - Same terminal can control daemon/run:
   - `/run <objective>`
   - `/inject <instruction>`
-  - `/status`, `/stop`, `/daemon-stop`
+  - `/status`, `/stop`, `/disable` (alias of `/daemon-stop`), `/daemon-stop`
   - plain text auto-routes: running => inject, idle => run
+
+Directly disable daemon from terminal:
+
+```bash
+codexloop disable
+```
 
 You can still use low-level commands when needed:
 
