@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
-from .model_catalog import get_preset
+from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS, get_preset
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -419,6 +419,7 @@ def help_text() -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    preset_names = ", ".join(p.name for p in MODEL_PRESETS)
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-telegram-daemon",
         description="Keep a Telegram command daemon online and launch codex-autoloop runs on demand.",
@@ -475,8 +476,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-max-rounds", type=int, default=500, help="Child codex-autoloop max rounds.")
     parser.add_argument(
         "--run-model-preset",
-        default="cheap",
-        help="Model preset name for child runs (cheap, balanced, strong, max).",
+        default=DEFAULT_MODEL_PRESET,
+        help=f"Model preset name for child runs (default: {DEFAULT_MODEL_PRESET}; available: {preset_names}).",
     )
     parser.add_argument(
         "--run-main-model",

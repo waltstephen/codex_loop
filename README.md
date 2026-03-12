@@ -11,7 +11,7 @@ This solves the common "agent stopped early and asked for next instruction" prob
 Current defaults:
 
 - `max_rounds` defaults to `500`.
-- Daemon child model preset defaults to `quality` (`gpt-5.4` + `high`) unless overridden.
+- Daemon child model preset defaults to `codex-xhigh` (`gpt-5.3-codex` + `xhigh`) unless overridden.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
 ## Current Feature Snapshot
@@ -217,7 +217,7 @@ Default behavior for daemon-launched runs:
 
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
-- Daemon defaults to the `cheap` model preset unless you override it.
+- Daemon defaults to the `codex-xhigh` model preset unless you override it.
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - Operator messages (initial objective + terminal/Telegram injects) are written to per-run markdown files in the daemon logs directory.

@@ -14,11 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
+from .model_catalog import DEFAULT_MODEL_PRESET
 
 DEFAULT_HOME_DIR = ".codex_daemon"
 DEFAULT_TOKEN_LOCK_DIR = "/tmp/codex-autoloop-token-locks"
 DEFAULT_MAX_ROUNDS = 500
-DEFAULT_MODEL_PRESET = "quality"
 
 
 @dataclass

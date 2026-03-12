@@ -22,5 +22,29 @@ def test_stop_existing_daemon_no_pid_file(tmp_path: Path) -> None:
 
 
 def test_prompt_model_choice_default(monkeypatch) -> None:
-    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "")
-    assert setup_wizard.prompt_model_choice() == "quality"
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
+    assert setup_wizard.prompt_model_choice() == "codex-xhigh"
+
+
+def test_prompt_model_choice_retries(monkeypatch) -> None:
+    answers = iter(["abc", "99", "2"])
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: next(answers))
+    assert setup_wizard.prompt_model_choice() == "quality-xhigh"
+
+
+def test_prompt_reasoning_effort_retries(monkeypatch) -> None:
+    answers = iter(["wrong", "high"])
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: next(answers))
+    assert setup_wizard.prompt_reasoning_effort("x") == "high"
+
+
+def test_prompt_chat_id_retries(monkeypatch) -> None:
+    answers = iter(["abc", "-100123"])
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: next(answers))
+    assert setup_wizard.prompt_chat_id() == "-100123"
+
+
+def test_prompt_token_retries(monkeypatch) -> None:
+    answers = iter(["invalid", "123:secret"])
+    monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: next(answers))
+    assert setup_wizard.prompt_token() == "123:secret"

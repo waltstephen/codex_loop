@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from .model_catalog import MODEL_PRESETS, get_preset
+from .model_catalog import DEFAULT_MODEL_PRESET, MODEL_PRESETS, get_preset
 from .token_lock import acquire_token_lock
 
 
@@ -33,11 +33,8 @@ def main() -> None:
         if choice not in {"y", "yes"}:
             raise SystemExit(2)
 
-    token = prompt_secret("Telegram bot token: ")
-    if ":" not in token:
-        print("Token format looks invalid. Expected <digits>:<secret>.", file=sys.stderr)
-        raise SystemExit(2)
-    chat_id = prompt_input("Telegram chat id (or 'auto'): ", default="auto").strip() or "auto"
+    token = prompt_token()
+    chat_id = prompt_chat_id()
     check_cmd = prompt_input(
         "Default check command (optional, leave empty for none): ",
         default="",
@@ -63,17 +60,12 @@ def main() -> None:
             reviewer_reasoning_effort = args.run_reviewer_reasoning_effort
         else:
             main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
-            main_reasoning_effort = (
-                prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default="").strip()
-                or None
+            main_reasoning_effort = prompt_reasoning_effort(
+                "Main agent reasoning effort (low/medium/high/xhigh, optional): "
             )
             reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
-            reviewer_reasoning_effort = (
-                prompt_input(
-                    "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
-                    default="",
-                ).strip()
-                or None
+            reviewer_reasoning_effort = prompt_reasoning_effort(
+                "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): "
             )
 
     home_dir = Path(args.home_dir).resolve()
@@ -337,6 +329,22 @@ def prompt_secret(prompt: str) -> str:
     return getpass.getpass(prompt).strip()
 
 
+def prompt_token() -> str:
+    while True:
+        token = prompt_secret("Telegram bot token: ")
+        if looks_like_token(token):
+            return token
+        print("Invalid token format. Expected <digits>:<secret>. Please try again.", file=sys.stderr)
+
+
+def prompt_chat_id() -> str:
+    while True:
+        value = prompt_input("Telegram chat id (or 'auto'): ", default="auto").strip() or "auto"
+        if value.lower() == "auto" or looks_like_chat_id(value):
+            return value
+        print("Invalid chat id. Use 'auto' or a numeric chat id like 123456 or -100123456.", file=sys.stderr)
+
+
 def prompt_model_choice() -> str:
     print("Choose a model preset:")
     for idx, preset in enumerate(MODEL_PRESETS, start=1):
@@ -346,14 +354,44 @@ def prompt_model_choice() -> str:
             f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort}"
         )
     print(f"  {len(MODEL_PRESETS) + 1}. custom")
-    raw = prompt_input("Preset number: ", default="1").strip()
-    try:
-        index = int(raw)
-    except ValueError:
-        return "quality"
-    if 1 <= index <= len(MODEL_PRESETS):
-        return MODEL_PRESETS[index - 1].name
-    return "custom"
+    default_index = next((idx for idx, preset in enumerate(MODEL_PRESETS, start=1) if preset.name == DEFAULT_MODEL_PRESET), 1)
+    while True:
+        raw = prompt_input("Preset number: ", default=str(default_index)).strip()
+        try:
+            index = int(raw)
+        except ValueError:
+            print("Invalid selection. Enter a number from the list.", file=sys.stderr)
+            continue
+        if 1 <= index <= len(MODEL_PRESETS):
+            return MODEL_PRESETS[index - 1].name
+        if index == len(MODEL_PRESETS) + 1:
+            return "custom"
+        print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
+
+
+def prompt_reasoning_effort(prompt: str) -> str | None:
+    while True:
+        value = prompt_input(prompt, default="").strip().lower()
+        if not value:
+            return None
+        if value in {"low", "medium", "high", "xhigh"}:
+            return value
+        print("Invalid reasoning effort. Choose low, medium, high, xhigh, or leave blank.", file=sys.stderr)
+
+
+def looks_like_token(token: str) -> bool:
+    if ":" not in token:
+        return False
+    left, right = token.split(":", 1)
+    return left.isdigit() and bool(right.strip())
+
+
+def looks_like_chat_id(value: str) -> bool:
+    if not value:
+        return False
+    if value.startswith("-"):
+        return value[1:].isdigit()
+    return value.isdigit()
 
 
 def build_parser() -> argparse.ArgumentParser:

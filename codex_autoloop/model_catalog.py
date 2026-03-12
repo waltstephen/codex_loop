@@ -34,6 +34,9 @@ MODEL_ENTRIES: list[ModelEntry] = [
 ]
 
 
+DEFAULT_MODEL_PRESET = "codex-xhigh"
+
+
 MODEL_PRESETS: list[ModelPreset] = [
     ModelPreset(
         name="quality",
