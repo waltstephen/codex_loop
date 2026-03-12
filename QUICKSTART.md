@@ -8,7 +8,22 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## 2) Run (basic)
+## 2) One-word entrypoint (recommended)
+
+```bash
+codexloop
+```
+
+Behavior:
+- First run: prompts for Telegram token/chat id, writes `.codex_daemon/daemon_config.json`, starts daemon.
+- Later runs: auto-reuse previous config, auto-start daemon if needed, and attach to live logs.
+- In attach console, terminal control works directly:
+  - `/run <objective>`
+  - `/inject <instruction>`
+  - `/status`, `/stop`, `/daemon-stop`
+  - plain text: running => inject, idle => run
+
+## 3) Run (basic)
 
 ```bash
 codex-autoloop \
@@ -16,7 +31,7 @@ codex-autoloop \
   "帮我在这个文件夹写一下pipeline"
 ```
 
-## 3) Run with Telegram (secure remote visibility)
+## 4) Run with Telegram (secure remote visibility)
 
 ```bash
 export TELEGRAM_BOT_TOKEN='123456789:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'

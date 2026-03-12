@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
+codexloop = "codex_autoloop.codexloop:main"
 codex-autoloop = "codex_autoloop.cli:main"
 codex-autoloop-telegram-daemon = "codex_autoloop.telegram_daemon:main"
 codex-autoloop-daemon-ctl = "codex_autoloop.daemon_ctl:main"

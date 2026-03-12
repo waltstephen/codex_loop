@@ -22,6 +22,7 @@ Current defaults:
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
 - Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
+- Single-word operator entrypoint: `codexloop` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
 - Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
@@ -36,6 +37,31 @@ Current Codex CLI does not expose a built-in `--autoloop` flag, so this repo add
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
+```
+
+## One-word operator workflow (`codexloop`)
+
+Run:
+
+```bash
+codexloop
+```
+
+Behavior:
+
+- First run: asks for Telegram token/chat id, writes `.codex_daemon/daemon_config.json`, starts daemon.
+- Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
+- Same terminal can control daemon/run:
+  - `/run <objective>`
+  - `/inject <instruction>`
+  - `/status`, `/stop`, `/daemon-stop`
+  - plain text auto-routes: running => inject, idle => run
+
+You can still use low-level commands when needed:
+
+```bash
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
+codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "先修测试再继续"
 ```
 
 ## Run
