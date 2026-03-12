@@ -1,8 +1,17 @@
 import json
+import datetime as dt
 from argparse import Namespace
 from pathlib import Path
 
-from codex_autoloop.telegram_daemon import build_child_command, resolve_saved_session_id
+from codex_autoloop.telegram_daemon import (
+    PLAN_MODE_FULLY_PLAN,
+    append_plan_record_row,
+    build_child_command,
+    build_plan_request,
+    format_status,
+    normalize_plan_mode,
+    resolve_saved_session_id,
+)
 
 
 def test_build_child_command_includes_core_args() -> None:
@@ -61,3 +70,61 @@ def test_resolve_saved_session_id(tmp_path: Path) -> None:
     state_file = tmp_path / "last_state.json"
     state_file.write_text(json.dumps({"session_id": "thread-abc"}), encoding="utf-8")
     assert resolve_saved_session_id(str(state_file)) == "thread-abc"
+
+
+def test_normalize_plan_mode_defaults_to_fully_plan() -> None:
+    assert normalize_plan_mode(None) == PLAN_MODE_FULLY_PLAN
+    assert normalize_plan_mode("unknown") == PLAN_MODE_FULLY_PLAN
+    assert normalize_plan_mode("execute-only") == "execute-only"
+
+
+def test_build_plan_request_uses_review_guidance() -> None:
+    state_payload = {
+        "rounds": [
+            {
+                "review": {
+                    "status": "continue",
+                    "reason": "tests still failing",
+                    "next_action": "fix failing tests and rerun pytest",
+                }
+            }
+        ]
+    }
+    request = build_plan_request(objective="完成接口重构", exit_code=2, state_payload=state_payload)
+    assert "完成接口重构" in request
+    assert "fix failing tests" in request
+    assert "失败原因" in request
+
+
+def test_append_plan_record_row_writes_markdown_table(tmp_path: Path) -> None:
+    record = tmp_path / "plan-records.md"
+    state_payload = {"session_id": "thread-1", "rounds": [{"review": {"status": "continue", "reason": "x"}}]}
+    append_plan_record_row(
+        path=record,
+        finished_at=dt.datetime(2026, 1, 1, 0, 0, 0),
+        objective="do work",
+        exit_code=0,
+        state_payload=state_payload,
+        log_path=tmp_path / "run.log",
+    )
+    text = record.read_text(encoding="utf-8")
+    assert "| finished_at | objective | exit_code |" in text
+    assert "do work" in text
+    assert "thread-1" in text
+
+
+def test_format_status_includes_plan_fields_when_idle() -> None:
+    rendered = format_status(
+        child=None,
+        child_objective=None,
+        child_log_path=None,
+        child_started_at=None,
+        last_session_id="thread-1",
+        plan_mode="fully-plan",
+        pending_plan_request="继续推进目标",
+        pending_plan_auto_execute_at=dt.datetime(2026, 1, 1, 0, 10, 0),
+        scheduled_plan_request_at=dt.datetime(2026, 1, 1, 0, 0, 0),
+    )
+    assert "plan_mode=fully-plan" in rendered
+    assert "pending_plan_request=继续推进目标" in rendered
+    assert "plan_auto_execute_at=" in rendered

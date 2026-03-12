@@ -31,29 +31,25 @@ class TerminalCommand:
 @dataclass(frozen=True)
 class PlayMode:
     name: str
-    run_full_auto: bool
-    run_yolo: bool
+    run_plan_mode: str
     note: str
 
 
 PLAY_MODES: list[PlayMode] = [
     PlayMode(
-        name="safe",
-        run_full_auto=False,
-        run_yolo=False,
-        note="No yolo, no full-auto.",
+        name="execute-only",
+        run_plan_mode="execute-only",
+        note="Only execute user command; no plan agent.",
     ),
     PlayMode(
-        name="standard",
-        run_full_auto=False,
-        run_yolo=True,
-        note="Recommended: yolo enabled, full-auto disabled.",
+        name="fully-plan",
+        run_plan_mode="fully-plan",
+        note="Default: full plan agent; propose in 10m and auto-run in another 10m if unchanged.",
     ),
     PlayMode(
-        name="full-auto",
-        run_full_auto=True,
-        run_yolo=True,
-        note="Yolo + full-auto enabled.",
+        name="record-only",
+        run_plan_mode="record-only",
+        note="Plan agent degrades to table recorder; reviewer remains unchanged.",
     ),
 ]
 
@@ -203,6 +199,9 @@ def supported_features_text() -> str:
             "  /status /run <objective> /inject <instruction> /stop /disable /daemon-stop /help /exit",
             "  Plain text routes to /inject when running, else to /run.",
             "",
+            "Play Mode:",
+            "  1) execute-only  2) fully-plan (default)  3) record-only",
+            "",
             "Run working directory:",
             "  By default, uses the shell current working directory when config is created.",
         ]
@@ -243,8 +242,12 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": DEFAULT_MAX_ROUNDS,
         "run_skip_git_repo_check": False,
-        "run_full_auto": play_mode.run_full_auto,
-        "run_yolo": play_mode.run_yolo,
+        "run_full_auto": False,
+        "run_yolo": True,
+        "run_plan_mode": play_mode.run_plan_mode,
+        "run_plan_request_delay_seconds": 600,
+        "run_plan_auto_execute_delay_seconds": 600,
+        "run_plan_record_file": None,
         "run_resume_last_session": True,
         "run_main_reasoning_effort": None,
         "run_reviewer_reasoning_effort": None,
@@ -317,7 +320,7 @@ def prompt_play_mode() -> PlayMode:
     print("Choose Play Mode:")
     for idx, mode in enumerate(PLAY_MODES, start=1):
         print(f"  {idx}. {mode.name}: {mode.note}")
-    default_index = next((idx for idx, mode in enumerate(PLAY_MODES, start=1) if mode.name == "standard"), 1)
+    default_index = next((idx for idx, mode in enumerate(PLAY_MODES, start=1) if mode.name == "fully-plan"), 1)
     while True:
         raw = prompt_input("Play Mode number: ", default=str(default_index)).strip()
         try:
@@ -538,6 +541,12 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         str((home_dir / "last_state.json").resolve()),
         "--token-lock-dir",
         token_lock_dir,
+        "--run-plan-mode",
+        str(config.get("run_plan_mode") or "fully-plan"),
+        "--run-plan-request-delay-seconds",
+        str(int(config.get("run_plan_request_delay_seconds", 600))),
+        "--run-plan-auto-execute-delay-seconds",
+        str(int(config.get("run_plan_auto_execute_delay_seconds", 600))),
     ]
     run_check = config.get("run_check")
     if isinstance(run_check, str) and run_check.strip():
@@ -550,6 +559,9 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
     run_model_preset = str(config.get("run_model_preset") or "").strip()
     if run_model_preset:
         cmd.extend(["--run-model-preset", run_model_preset])
+    run_plan_record_file = str(config.get("run_plan_record_file") or "").strip()
+    if run_plan_record_file:
+        cmd.extend(["--run-plan-record-file", run_plan_record_file])
     run_main_model = str(config.get("run_main_model") or "").strip()
     if run_main_model:
         cmd.extend(["--run-main-model", run_main_model])
@@ -566,10 +578,7 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         cmd.append("--run-skip-git-repo-check")
     if bool(config.get("run_full_auto")):
         cmd.append("--run-full-auto")
-    if bool(config.get("run_yolo", True)):
-        cmd.append("--run-yolo")
-    else:
-        cmd.append("--no-run-yolo")
+    cmd.append("--run-yolo")
     if bool(config.get("run_resume_last_session", True)):
         cmd.append("--run-resume-last-session")
     else:

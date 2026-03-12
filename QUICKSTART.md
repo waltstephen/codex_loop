@@ -31,6 +31,13 @@ Behavior:
   - `/status`, `/stop`, `/disable` (same as `/daemon-stop`), `/daemon-stop`
   - plain text: running => inject, idle => run
 
+Play Mode:
+- `execute-only`: only execute user commands, no plan agent.
+- `fully-plan` (default): 10 minutes after run completion, daemon proposes next request; if not overridden within another 10 minutes, it auto-runs.
+- `record-only`: plan agent only writes markdown table records; reviewer remains unchanged.
+
+Daemon-launched runs use `--yolo` by default.
+
 Disable daemon quickly:
 
 ```bash

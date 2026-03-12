@@ -15,6 +15,11 @@ from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
 
+PLAN_MODE_EXECUTE_ONLY = "execute-only"
+PLAN_MODE_FULLY_PLAN = "fully-plan"
+PLAN_MODE_RECORD_ONLY = "record-only"
+PLAN_MODES = {PLAN_MODE_EXECUTE_ONLY, PLAN_MODE_FULLY_PLAN, PLAN_MODE_RECORD_ONLY}
+
 
 def main() -> None:
     parser = build_parser()
@@ -75,6 +80,14 @@ def main() -> None:
     child_log_path: Path | None = None
     child_started_at: dt.datetime | None = None
     child_control_bus: JsonlCommandBus | None = None
+    plan_mode = normalize_plan_mode(args.run_plan_mode)
+    plan_request_delay_seconds = max(0, int(args.run_plan_request_delay_seconds))
+    plan_auto_execute_delay_seconds = max(0, int(args.run_plan_auto_execute_delay_seconds))
+    pending_plan_request: str | None = None
+    pending_plan_auto_execute_at: dt.datetime | None = None
+    pending_plan_generated_at: dt.datetime | None = None
+    scheduled_plan_context: dict[str, Any] | None = None
+    scheduled_plan_request_at: dt.datetime | None = None
 
     def log_event(event_type: str, **kwargs) -> None:
         payload = {
@@ -84,6 +97,23 @@ def main() -> None:
         }
         with events_log.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+    def clear_planner_state(*, reason: str | None = None) -> None:
+        nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
+        nonlocal scheduled_plan_context, scheduled_plan_request_at
+        had_state = (
+            pending_plan_request is not None
+            or pending_plan_auto_execute_at is not None
+            or scheduled_plan_request_at is not None
+            or scheduled_plan_context is not None
+        )
+        pending_plan_request = None
+        pending_plan_auto_execute_at = None
+        pending_plan_generated_at = None
+        scheduled_plan_context = None
+        scheduled_plan_request_at = None
+        if had_state and reason:
+            log_event("plan.cleared", reason=reason)
 
     def update_status() -> None:
         running = child is not None and child.poll() is None
@@ -103,11 +133,23 @@ def main() -> None:
                 "logs_dir": str(logs_dir),
                 "bus_dir": str(bus_dir),
                 "events_log": str(events_log),
+                "plan_mode": plan_mode,
+                "pending_plan_request": pending_plan_request,
+                "pending_plan_generated_at": (
+                    pending_plan_generated_at.isoformat() + "Z" if pending_plan_generated_at else None
+                ),
+                "pending_plan_auto_execute_at": (
+                    pending_plan_auto_execute_at.isoformat() + "Z" if pending_plan_auto_execute_at else None
+                ),
+                "scheduled_plan_request_at": (
+                    scheduled_plan_request_at.isoformat() + "Z" if scheduled_plan_request_at else None
+                ),
             },
         )
 
     def start_child(objective: str) -> None:
         nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
+        clear_planner_state(reason="child_started")
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
@@ -177,6 +219,10 @@ def main() -> None:
                     child_log_path=child_log_path,
                     child_started_at=child_started_at,
                     last_session_id=last_session_id,
+                    plan_mode=plan_mode,
+                    pending_plan_request=pending_plan_request,
+                    pending_plan_auto_execute_at=pending_plan_auto_execute_at,
+                    scheduled_plan_request_at=scheduled_plan_request_at,
                 ),
             )
             return
@@ -196,6 +242,9 @@ def main() -> None:
                 else:
                     send_reply(source, "[daemon] active run exists but child control bus unavailable.")
                 return
+            if pending_plan_request or scheduled_plan_request_at is not None:
+                clear_planner_state(reason="manual_override")
+                send_reply(source, "[daemon] pending plan request cleared by manual command.")
             start_child(objective)
             return
         if command.kind == "stop":
@@ -216,6 +265,124 @@ def main() -> None:
 
     def on_telegram_command(command: TelegramCommand) -> None:
         handle_command(command.kind, command.text, "telegram")
+
+    def schedule_plan_after_child_finish(*, objective: str, exit_code: int, log_path: Path | None) -> None:
+        nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
+        nonlocal scheduled_plan_context, scheduled_plan_request_at
+        if plan_mode == PLAN_MODE_EXECUTE_ONLY:
+            clear_planner_state(reason="execute_only")
+            return
+
+        state_payload = read_status(args.run_state_file) if args.run_state_file else None
+        finished_at = dt.datetime.utcnow()
+        if plan_mode == PLAN_MODE_RECORD_ONLY:
+            record_file = (
+                Path(args.run_plan_record_file).expanduser().resolve()
+                if args.run_plan_record_file
+                else (logs_dir / "plan-agent-records.md").resolve()
+            )
+            append_plan_record_row(
+                path=record_file,
+                finished_at=finished_at,
+                objective=objective,
+                exit_code=exit_code,
+                state_payload=state_payload,
+                log_path=log_path,
+            )
+            log_event(
+                "plan.recorded",
+                mode=plan_mode,
+                record_file=str(record_file),
+                objective=objective[:700],
+                exit_code=exit_code,
+            )
+            notifier.send_message(
+                "[daemon] plan mode=record-only\n"
+                f"Recorded run summary to table: {record_file}"
+            )
+            clear_planner_state(reason="record_only")
+            return
+
+        scheduled_plan_context = {
+            "objective": objective,
+            "exit_code": exit_code,
+            "log_path": str(log_path) if log_path else None,
+            "state_payload": state_payload,
+        }
+        scheduled_plan_request_at = finished_at + dt.timedelta(seconds=plan_request_delay_seconds)
+        pending_plan_request = None
+        pending_plan_auto_execute_at = None
+        pending_plan_generated_at = None
+        log_event(
+            "plan.scheduled",
+            mode=plan_mode,
+            scheduled_request_at=scheduled_plan_request_at.isoformat() + "Z",
+            objective=objective[:700],
+            exit_code=exit_code,
+        )
+        notifier.send_message(
+            "[daemon] plan mode=fully-plan\n"
+            f"Will generate next request in {plan_request_delay_seconds}s."
+        )
+
+    def process_planner_timers() -> None:
+        nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
+        nonlocal scheduled_plan_context, scheduled_plan_request_at
+        if plan_mode != PLAN_MODE_FULLY_PLAN:
+            return
+        if child is not None and child.poll() is None:
+            return
+        now = dt.datetime.utcnow()
+
+        if (
+            pending_plan_request is not None
+            and pending_plan_auto_execute_at is not None
+            and now >= pending_plan_auto_execute_at
+        ):
+            request = pending_plan_request
+            auto_at = pending_plan_auto_execute_at
+            clear_planner_state(reason="auto_execute")
+            log_event(
+                "plan.auto_execute",
+                request=request[:700],
+                auto_execute_at=auto_at.isoformat() + "Z",
+            )
+            notifier.send_message(
+                "[daemon] auto executing planned request (no override received in time).\n"
+                f"request={request[:700]}"
+            )
+            start_child(request)
+            return
+
+        if (
+            scheduled_plan_context is not None
+            and scheduled_plan_request_at is not None
+            and now >= scheduled_plan_request_at
+        ):
+            request = build_plan_request(
+                objective=str(scheduled_plan_context.get("objective") or "").strip(),
+                exit_code=int(scheduled_plan_context.get("exit_code") or 0),
+                state_payload=(
+                    scheduled_plan_context.get("state_payload")
+                    if isinstance(scheduled_plan_context.get("state_payload"), dict)
+                    else None
+                ),
+            )
+            pending_plan_request = request
+            pending_plan_generated_at = now
+            pending_plan_auto_execute_at = now + dt.timedelta(seconds=plan_auto_execute_delay_seconds)
+            scheduled_plan_context = None
+            scheduled_plan_request_at = None
+            log_event(
+                "plan.proposed",
+                request=request[:700],
+                auto_execute_at=pending_plan_auto_execute_at.isoformat() + "Z",
+            )
+            notifier.send_message(
+                "[daemon] planner request generated\n"
+                f"request={request[:700]}\n"
+                f"Auto execute in {plan_auto_execute_delay_seconds}s unless you override via /run or /inject."
+            )
 
     poller = TelegramCommandPoller(
         bot_token=args.telegram_bot_token,
@@ -252,6 +419,7 @@ def main() -> None:
             for item in daemon_bus.read_new():
                 handle_command(item.kind, item.text, "terminal")
             if child is None:
+                process_planner_timers()
                 update_status()
                 continue
             rc = child.poll()
@@ -270,6 +438,11 @@ def main() -> None:
                 objective=str(child_objective or "")[:700],
                 log_path=str(child_log_path) if child_log_path else None,
             )
+            schedule_plan_after_child_finish(
+                objective=str(child_objective or ""),
+                exit_code=rc,
+                log_path=child_log_path,
+            )
             child = None
             child_control_bus = None
             update_status()
@@ -280,6 +453,7 @@ def main() -> None:
         poller.stop()
         if child is not None and child.poll() is None:
             child.terminate()
+        clear_planner_state(reason="daemon_stopped")
         write_status(
             status_path,
             {
@@ -372,11 +546,21 @@ def format_status(
     child_log_path: Path | None,
     child_started_at: dt.datetime | None,
     last_session_id: str | None = None,
+    plan_mode: str = PLAN_MODE_FULLY_PLAN,
+    pending_plan_request: str | None = None,
+    pending_plan_auto_execute_at: dt.datetime | None = None,
+    scheduled_plan_request_at: dt.datetime | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
-        base = "[daemon] status=idle"
+        base = f"[daemon] status=idle\nplan_mode={plan_mode}"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
+        if scheduled_plan_request_at is not None:
+            base += f"\nplan_request_at={scheduled_plan_request_at.isoformat()}Z"
+        if pending_plan_request:
+            base += f"\npending_plan_request={pending_plan_request[:700]}"
+        if pending_plan_auto_execute_at is not None:
+            base += f"\nplan_auto_execute_at={pending_plan_auto_execute_at.isoformat()}Z"
         return base
     elapsed = "unknown"
     if child_started_at is not None:
@@ -384,6 +568,7 @@ def format_status(
         elapsed = f"{elapsed_seconds}s"
     return (
         "[daemon] status=running\n"
+        f"plan_mode={plan_mode}\n"
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
         f"last_session_id={last_session_id}\n"
@@ -404,6 +589,89 @@ def resolve_saved_session_id(state_file: str | None) -> str | None:
     return None
 
 
+def normalize_plan_mode(raw: str | None) -> str:
+    value = (raw or PLAN_MODE_FULLY_PLAN).strip().lower()
+    return value if value in PLAN_MODES else PLAN_MODE_FULLY_PLAN
+
+
+def build_plan_request(*, objective: str, exit_code: int, state_payload: dict[str, Any] | None) -> str:
+    objective_text = objective.strip() or "Continue improving the current repository objective."
+    review_status, review_reason, review_next_action = extract_latest_review(state_payload)
+    parts = [f"继续推进目标：{objective_text}"]
+    if exit_code != 0:
+        parts.append("先定位并修复上一轮失败原因。")
+    if review_next_action:
+        parts.append(f"优先动作：{review_next_action}")
+    elif review_reason:
+        parts.append(f"优先关注：{review_reason}")
+    if review_status:
+        parts.append(f"当前审核状态：{review_status}")
+    if not review_next_action and not review_reason:
+        parts.append("补齐剩余实现并运行关键验证命令后再继续。")
+    return " ".join(parts).strip()
+
+
+def extract_latest_review(state_payload: dict[str, Any] | None) -> tuple[str | None, str | None, str | None]:
+    if not isinstance(state_payload, dict):
+        return None, None, None
+    rounds = state_payload.get("rounds")
+    if not isinstance(rounds, list) or not rounds:
+        return None, None, None
+    last_item = rounds[-1]
+    if not isinstance(last_item, dict):
+        return None, None, None
+    review = last_item.get("review")
+    if not isinstance(review, dict):
+        return None, None, None
+    status = review.get("status")
+    reason = review.get("reason")
+    next_action = review.get("next_action")
+    return (
+        str(status).strip() if status else None,
+        str(reason).strip() if reason else None,
+        str(next_action).strip() if next_action else None,
+    )
+
+
+def append_plan_record_row(
+    *,
+    path: Path,
+    finished_at: dt.datetime,
+    objective: str,
+    exit_code: int,
+    state_payload: dict[str, Any] | None,
+    log_path: Path | None,
+) -> None:
+    status, reason, next_action = extract_latest_review(state_payload)
+    session_id = None
+    if isinstance(state_payload, dict):
+        session_id_raw = state_payload.get("session_id")
+        if isinstance(session_id_raw, str) and session_id_raw.strip():
+            session_id = session_id_raw.strip()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        header = (
+            "| finished_at | objective | exit_code | review_status | review_next_action | session_id | log |\n"
+            "|---|---|---:|---|---|---|---|\n"
+        )
+        path.write_text(header, encoding="utf-8")
+    row = (
+        f"| {_table_cell(finished_at.isoformat() + 'Z')} "
+        f"| {_table_cell(objective[:700])} "
+        f"| {exit_code} "
+        f"| {_table_cell(status or '')} "
+        f"| {_table_cell((next_action or reason or '')[:700])} "
+        f"| {_table_cell(session_id or '')} "
+        f"| {_table_cell(str(log_path) if log_path else '')} |\n"
+    )
+    with path.open("a", encoding="utf-8") as f:
+        f.write(row)
+
+
+def _table_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ").strip()
+
+
 def help_text() -> str:
     return (
         "[daemon] commands\n"
@@ -414,7 +682,8 @@ def help_text() -> str:
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
         "Plain text message is treated as /run when idle.\n"
-        "Voice/audio message will be transcribed by Whisper when enabled."
+        "Voice/audio message will be transcribed by Whisper when enabled.\n"
+        "In fully-plan mode, daemon may auto-propose and auto-run next request unless overridden."
     )
 
 
@@ -541,6 +810,29 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Resume from last saved session_id when daemon starts a new idle run.",
+    )
+    parser.add_argument(
+        "--run-plan-mode",
+        default=PLAN_MODE_FULLY_PLAN,
+        choices=sorted(PLAN_MODES),
+        help="Plan mode: execute-only, fully-plan (default), or record-only.",
+    )
+    parser.add_argument(
+        "--run-plan-request-delay-seconds",
+        type=int,
+        default=600,
+        help="In fully-plan mode, delay before generating next planner request after child completion.",
+    )
+    parser.add_argument(
+        "--run-plan-auto-execute-delay-seconds",
+        type=int,
+        default=600,
+        help="In fully-plan mode, auto-execute planner request after this delay unless user overrides it.",
+    )
+    parser.add_argument(
+        "--run-plan-record-file",
+        default=None,
+        help="Optional markdown table file path used by record-only mode. Defaults to logs_dir/plan-agent-records.md.",
     )
     parser.add_argument(
         "--run-no-dashboard",

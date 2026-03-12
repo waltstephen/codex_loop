@@ -85,6 +85,9 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".codex_daemon", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
     assert config["run_model_preset"] == "codex-xhigh"
+    assert config["run_plan_mode"] == "fully-plan"
+    assert config["run_plan_request_delay_seconds"] == 600
+    assert config["run_plan_auto_execute_delay_seconds"] == 600
     assert config["run_yolo"] is True
     assert config["run_full_auto"] is False
 
@@ -93,9 +96,8 @@ def test_prompt_play_mode_selection(monkeypatch) -> None:
     answers = iter(["3"])
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
     mode = codexloop.prompt_play_mode()
-    assert mode.name == "full-auto"
-    assert mode.run_full_auto is True
-    assert mode.run_yolo is True
+    assert mode.name == "record-only"
+    assert mode.run_plan_mode == "record-only"
 
 
 def test_prompt_model_choice_selection(monkeypatch) -> None:
@@ -116,6 +118,9 @@ def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path,
         "run_skip_git_repo_check": False,
         "run_full_auto": False,
         "run_yolo": True,
+        "run_plan_mode": "fully-plan",
+        "run_plan_request_delay_seconds": 600,
+        "run_plan_auto_execute_delay_seconds": 600,
         "run_resume_last_session": True,
         "run_main_reasoning_effort": None,
         "run_reviewer_reasoning_effort": None,
@@ -160,6 +165,9 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "run_skip_git_repo_check": True,
         "run_full_auto": False,
         "run_yolo": True,
+        "run_plan_mode": "fully-plan",
+        "run_plan_request_delay_seconds": 600,
+        "run_plan_auto_execute_delay_seconds": 600,
         "run_resume_last_session": True,
         "run_model_preset": "quality",
         "bus_dir": str(home_dir / "bus"),
@@ -173,8 +181,34 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert cmd[0] == "daemon-bin"
     assert "--telegram-bot-token" in cmd
     assert "--run-max-rounds" in cmd
+    assert "--run-plan-mode" in cmd
+    assert "--run-plan-request-delay-seconds" in cmd
+    assert "--run-plan-auto-execute-delay-seconds" in cmd
     assert "--run-check" in cmd
     assert "--run-model-preset" in cmd
     assert "--run-skip-git-repo-check" in cmd
     assert "--run-yolo" in cmd
     assert "--run-resume-last-session" in cmd
+
+
+def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
+    home_dir = tmp_path / ".codex_daemon"
+    config = {
+        "telegram_bot_token": "123:abc",
+        "telegram_chat_id": "auto",
+        "run_cd": str(tmp_path),
+        "run_check": None,
+        "run_max_rounds": 500,
+        "run_skip_git_repo_check": False,
+        "run_full_auto": False,
+        "run_yolo": False,
+        "run_plan_mode": "execute-only",
+        "run_resume_last_session": True,
+        "run_model_preset": "quality",
+        "bus_dir": str(home_dir / "bus"),
+        "logs_dir": str(home_dir / "logs"),
+    }
+    cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
+    assert "--run-yolo" in cmd
+    assert "--no-run-yolo" not in cmd
