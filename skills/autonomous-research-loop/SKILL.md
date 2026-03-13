@@ -180,7 +180,6 @@ Default expectation:
 
 1. If changes are valid and commit is complete, push immediately.
 2. Treat timely push as the normal good path, not an optional extra.
-3. If no remote is configured, explicitly notify the user to create/configure a remote manually before continuing.
 
 ## Step 6: Long-Running Monitoring Mode (24h style)
 
