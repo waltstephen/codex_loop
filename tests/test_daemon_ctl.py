@@ -118,3 +118,92 @@ def test_status_command_prints_offline_state_without_online_misreport(monkeypatc
     payload = json.loads(capsys.readouterr().out)
     assert payload["daemon_status_state"] == "offline"
     assert payload["daemon_running"] is False
+
+
+def test_show_plan_prints_live_plan_markdown(monkeypatch, tmp_path: Path, capsys) -> None:
+    bus_dir = tmp_path / "bus"
+    bus_dir.mkdir()
+    plan_path = tmp_path / "plan_overview.md"
+    plan_path.write_text("# Plan\n\n- inspect daemon status\n", encoding="utf-8")
+    monkeypatch.setattr(
+        daemon_ctl,
+        "inspect_daemon_status",
+        lambda *args, **kwargs: DaemonStatusInspection(
+            payload={
+                "daemon_running": True,
+                "running": True,
+                "daemon_pid": 123,
+                "updated_at": "2026-03-13T00:00:00Z",
+                "child_plan_overview_path": str(plan_path),
+            },
+            is_live=True,
+            reason=None,
+            daemon_pid=123,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "show-plan"])
+    with pytest.raises(SystemExit) as exc:
+        daemon_ctl.main()
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == "# Plan\n\n- inspect daemon status\n\n"
+
+
+def test_show_main_prompt_prints_live_prompt(monkeypatch, tmp_path: Path, capsys) -> None:
+    bus_dir = tmp_path / "bus"
+    bus_dir.mkdir()
+    prompt_path = tmp_path / "main_prompt.md"
+    prompt_path.write_text("# Main Prompt\n\nfix btw delivery\n", encoding="utf-8")
+    monkeypatch.setattr(
+        daemon_ctl,
+        "inspect_daemon_status",
+        lambda *args, **kwargs: DaemonStatusInspection(
+            payload={
+                "daemon_running": True,
+                "running": True,
+                "daemon_pid": 123,
+                "updated_at": "2026-03-13T00:00:00Z",
+                "child_main_prompt_path": str(prompt_path),
+            },
+            is_live=True,
+            reason=None,
+            daemon_pid=123,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "show-main-prompt"])
+    with pytest.raises(SystemExit) as exc:
+        daemon_ctl.main()
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == "# Main Prompt\n\nfix btw delivery\n\n"
+
+
+def test_show_review_prints_live_review_markdown(monkeypatch, tmp_path: Path, capsys) -> None:
+    bus_dir = tmp_path / "bus"
+    bus_dir.mkdir()
+    review_dir = tmp_path / "reviews"
+    review_dir.mkdir()
+    index_path = review_dir / "index.md"
+    index_path.write_text("# Reviews\n\n- round 1 ok\n", encoding="utf-8")
+    monkeypatch.setattr(
+        daemon_ctl,
+        "inspect_daemon_status",
+        lambda *args, **kwargs: DaemonStatusInspection(
+            payload={
+                "daemon_running": True,
+                "running": True,
+                "daemon_pid": 123,
+                "updated_at": "2026-03-13T00:00:00Z",
+                "child_review_summaries_dir": str(review_dir),
+            },
+            is_live=True,
+            reason=None,
+            daemon_pid=123,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "show-review"])
+    with pytest.raises(SystemExit) as exc:
+        daemon_ctl.main()
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == "# Reviews\n\n- round 1 ok\n\n"

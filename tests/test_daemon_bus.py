@@ -1,7 +1,9 @@
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
+from codex_autoloop import daemon_bus
 from codex_autoloop.daemon_bus import (
     BusCommand,
     JsonlCommandBus,
@@ -62,3 +64,29 @@ def test_inspect_daemon_status_payload_detects_dead_pid(monkeypatch) -> None:
     )
     assert inspection.is_live is False
     assert inspection.reason == "Daemon status points to dead pid 123."
+
+
+def test_is_pid_running_uses_tasklist_on_windows(monkeypatch) -> None:
+    monkeypatch.setattr(daemon_bus, "os", SimpleNamespace(name="nt"))
+
+    def fake_run(args, capture_output, text, timeout):
+        assert args == ["tasklist", "/FI", "PID eq 456"]
+        assert capture_output is True
+        assert text is True
+        assert timeout == 10
+        return SimpleNamespace(returncode=0, stdout="python.exe                 456 Console", stderr="")
+
+    monkeypatch.setattr(daemon_bus.subprocess, "run", fake_run)
+    assert daemon_bus.is_pid_running(456) is True
+
+
+def test_is_pid_running_uses_os_kill_on_non_windows(monkeypatch) -> None:
+    monkeypatch.setattr(daemon_bus.os, "name", "posix", raising=False)
+    seen: list[tuple[int, int]] = []
+
+    def fake_kill(pid: int, sig: int) -> None:
+        seen.append((pid, sig))
+
+    monkeypatch.setattr(daemon_bus.os, "kill", fake_kill)
+    assert daemon_bus.is_pid_running(789) is True
+    assert seen == [(789, 0)]
