@@ -227,3 +227,26 @@ def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
     cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
     assert "--run-yolo" in cmd
     assert "--no-run-yolo" not in cmd
+
+
+def test_stop_all_codexloop_loops_workspace_only_stops_current_home(monkeypatch, tmp_path: Path, capsys) -> None:
+    home_dir = tmp_path / ".codex_daemon"
+    calls: list[str] = []
+
+    def fake_stop_current_home_daemon(*, home_dir: Path, config: dict | None) -> bool:
+        _ = home_dir
+        _ = config
+        calls.append("home")
+        return True
+
+    def fail_stop_global_daemons_from_token_locks(*, token_lock_dir: str) -> list[int]:
+        _ = token_lock_dir
+        raise AssertionError("global stop should not be called for workspace-isolated init")
+
+    monkeypatch.setattr(codexloop, "stop_current_home_daemon", fake_stop_current_home_daemon)
+    monkeypatch.setattr(codexloop, "stop_global_daemons_from_token_locks", fail_stop_global_daemons_from_token_locks)
+
+    codexloop.stop_all_codexloop_loops(home_dir=home_dir, config=None, token_lock_dir="/tmp/token-locks")
+    captured = capsys.readouterr()
+    assert calls == ["home"]
+    assert "Stopped 1 codexloop daemon process." in captured.out

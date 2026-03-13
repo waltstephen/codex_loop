@@ -163,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="subcommand")
     sub.add_parser("help", help="Show supported codexloop features and commands.")
-    sub.add_parser("init", help="Stop current codexloop loops, reconfigure, and restart fresh daemon.")
+    sub.add_parser("init", help="Stop current workspace daemon, reconfigure, and restart fresh daemon.")
     sub.add_parser("status", help="Show daemon status JSON.")
     run = sub.add_parser("run", help="Start a run objective.")
     run.add_argument("text", nargs="+", help="Objective text.")
@@ -187,7 +187,7 @@ def supported_features_text() -> str:
             "  codexloop help",
             "      Show this feature list.",
             "  codexloop init",
-            "      Stop all current codexloop loops, collect new config, and restart daemon in background.",
+            "      Stop current workspace daemon, collect new config, and restart daemon in background.",
             "  codexloop status",
             "      Print daemon status JSON.",
             "  codexloop run <objective>",
@@ -430,11 +430,10 @@ def ensure_daemon_running(*, config: dict[str, Any], home_dir: Path, token_lock_
 
 
 def stop_all_codexloop_loops(*, home_dir: Path, config: dict[str, Any] | None, token_lock_dir: str) -> None:
+    _ = token_lock_dir
     stopped = stop_current_home_daemon(home_dir=home_dir, config=config)
-    global_stopped = stop_global_daemons_from_token_locks(token_lock_dir=token_lock_dir)
-    if stopped or global_stopped:
-        total = int(stopped) + len(global_stopped)
-        print(f"Stopped {total} codexloop daemon process(es).")
+    if stopped:
+        print("Stopped 1 codexloop daemon process.")
 
 
 def stop_current_home_daemon(*, home_dir: Path, config: dict[str, Any] | None) -> bool:
