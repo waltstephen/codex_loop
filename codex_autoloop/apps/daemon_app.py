@@ -521,17 +521,17 @@ def build_child_command(
     force_new_session: bool = False,
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
-    main_model = preset.main_model if preset is not None else args.run_main_model
-    main_reasoning_effort = preset.main_reasoning_effort if preset is not None else args.run_main_reasoning_effort
-    reviewer_model = preset.reviewer_model if preset is not None else args.run_reviewer_model
-    reviewer_reasoning_effort = (
-        preset.reviewer_reasoning_effort if preset is not None else args.run_reviewer_reasoning_effort
+    main_model = args.run_main_model or (preset.main_model if preset is not None else None)
+    main_reasoning_effort = args.run_main_reasoning_effort or (
+        preset.main_reasoning_effort if preset is not None else None
     )
-    plan_model = preset.plan_model if preset is not None else getattr(args, "run_plan_model", None)
-    plan_reasoning_effort = (
-        preset.plan_reasoning_effort
-        if preset is not None
-        else getattr(args, "run_plan_reasoning_effort", None)
+    reviewer_model = args.run_reviewer_model or (preset.reviewer_model if preset is not None else None)
+    reviewer_reasoning_effort = args.run_reviewer_reasoning_effort or (
+        preset.reviewer_reasoning_effort if preset is not None else None
+    )
+    plan_model = getattr(args, "run_plan_model", None) or (preset.plan_model if preset is not None else None)
+    plan_reasoning_effort = getattr(args, "run_plan_reasoning_effort", None) or (
+        preset.plan_reasoning_effort if preset is not None else None
     )
     plan_mode = getattr(args, "run_plan_mode", "auto")
     cmd = [

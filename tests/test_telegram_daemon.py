@@ -105,3 +105,113 @@ def test_send_reply_logs_failure_when_telegram_send_fails() -> None:
     app._log_event = lambda event_type, **kwargs: events.append((event_type, kwargs))
     app._send_reply("telegram", "[btw] answer")
     assert events == [("reply.failed", {"source": "telegram", "message": "[btw] answer"})]
+
+
+def test_build_child_command_explicit_model_overrides_preset() -> None:
+    args = Namespace(
+        codex_autoloop_bin="codex-autoloop",
+        run_max_rounds=8,
+        run_model_preset="cheap",
+        run_plan_mode="auto",
+        run_main_model="gpt-5.4",
+        run_main_reasoning_effort="xhigh",
+        run_reviewer_model="gpt-5.3-codex",
+        run_reviewer_reasoning_effort="high",
+        run_plan_model="gpt-5.1-codex",
+        run_plan_reasoning_effort="medium",
+        telegram_bot_token="123:abc",
+        telegram_control_whisper=True,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=".codex_daemon/last_state.json",
+        run_telegram_events="loop.started",
+        run_telegram_live_updates=True,
+        run_telegram_live_interval_seconds=5,
+        run_resume_last_session=True,
+        run_no_dashboard=True,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        main_prompt_file="/tmp/main_prompt.md",
+        plan_overview_file="/tmp/plan_overview.md",
+        review_summaries_dir="/tmp/reviews",
+        resume_session_id=None,
+    )
+
+    def option_value(flag: str) -> str:
+        index = cmd.index(flag)
+        return cmd[index + 1]
+
+    assert option_value("--main-model") == "gpt-5.4"
+    assert option_value("--main-reasoning-effort") == "xhigh"
+    assert option_value("--reviewer-model") == "gpt-5.3-codex"
+    assert option_value("--reviewer-reasoning-effort") == "high"
+    assert option_value("--plan-model") == "gpt-5.1-codex"
+    assert option_value("--plan-reasoning-effort") == "medium"
+
+
+def test_build_child_command_falls_back_to_preset_for_unset_fields() -> None:
+    args = Namespace(
+        codex_autoloop_bin="codex-autoloop",
+        run_max_rounds=8,
+        run_model_preset="cheap",
+        run_plan_mode="auto",
+        run_main_model="gpt-5.4",
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort="high",
+        run_plan_model=None,
+        run_plan_reasoning_effort=None,
+        telegram_bot_token="123:abc",
+        telegram_control_whisper=True,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=".codex_daemon/last_state.json",
+        run_telegram_events="loop.started",
+        run_telegram_live_updates=True,
+        run_telegram_live_interval_seconds=5,
+        run_resume_last_session=True,
+        run_no_dashboard=True,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        main_prompt_file="/tmp/main_prompt.md",
+        plan_overview_file="/tmp/plan_overview.md",
+        review_summaries_dir="/tmp/reviews",
+        resume_session_id=None,
+    )
+
+    def option_value(flag: str) -> str:
+        index = cmd.index(flag)
+        return cmd[index + 1]
+
+    assert option_value("--main-model") == "gpt-5.4"
+    assert option_value("--main-reasoning-effort") == "medium"
+    assert option_value("--reviewer-model") == "gpt-5-codex-mini"
+    assert option_value("--reviewer-reasoning-effort") == "high"
+    assert option_value("--plan-model") == "gpt-5-codex-mini"
+    assert option_value("--plan-reasoning-effort") == "low"
