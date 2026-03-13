@@ -534,6 +534,26 @@ def main() -> None:
             clear_planner_state(reason="record_only")
             return
 
+        should_schedule, skip_reason = should_schedule_plan_follow_up(
+            exit_code=exit_code,
+            state_payload=state_payload,
+        )
+        if not should_schedule:
+            clear_planner_state(reason=skip_reason or "skip")
+            log_event(
+                "plan.skipped",
+                mode=plan_mode,
+                reason=skip_reason or "unknown",
+                objective=objective[:700],
+                exit_code=exit_code,
+            )
+            notifier.send_message(
+                "[daemon] plan mode=fully-plan\n"
+                f"Skip auto-plan ({skip_reason or 'unknown'}). "
+                "Please fix blockers and run again via /run or terminal."
+            )
+            return
+
         scheduled_plan_context = {
             "objective": objective,
             "exit_code": exit_code,
@@ -1055,6 +1075,27 @@ def normalize_plan_mode(raw: str | None) -> str:
     return value if value in PLAN_MODES else PLAN_MODE_FULLY_PLAN
 
 
+def should_schedule_plan_follow_up(*, exit_code: int, state_payload: dict[str, Any] | None) -> tuple[bool, str | None]:
+    if exit_code != 0:
+        return False, "last_run_failed"
+    review_status = extract_latest_review_status(state_payload)
+    if review_status == "blocked":
+        return False, "review_blocked"
+    return True, None
+
+
+def extract_latest_review_status(state_payload: dict[str, Any] | None) -> str | None:
+    if not isinstance(state_payload, dict):
+        return None
+    raw = state_payload.get("latest_review_status")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    status, _, _ = extract_latest_review(state_payload)
+    if not status:
+        return None
+    return status.strip().lower()
+
+
 def build_plan_request(*, objective: str, exit_code: int, state_payload: dict[str, Any] | None) -> str:
     objective_text = objective.strip() or "Continue improving the current repository objective."
     review_status, review_reason, review_next_action = extract_latest_review(state_payload)
@@ -1082,11 +1123,14 @@ def extract_latest_review(state_payload: dict[str, Any] | None) -> tuple[str | N
     if not isinstance(last_item, dict):
         return None, None, None
     review = last_item.get("review")
-    if not isinstance(review, dict):
-        return None, None, None
-    status = review.get("status")
-    reason = review.get("reason")
-    next_action = review.get("next_action")
+    if isinstance(review, dict):
+        status = review.get("status")
+        reason = review.get("reason")
+        next_action = review.get("next_action")
+    else:
+        status = last_item.get("review_status")
+        reason = last_item.get("review_reason")
+        next_action = last_item.get("review_next_action")
     return (
         str(status).strip() if status else None,
         str(reason).strip() if reason else None,

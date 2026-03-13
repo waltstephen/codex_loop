@@ -9,6 +9,8 @@ from codex_autoloop.telegram_daemon import (
     build_parser,
     build_child_command,
     build_plan_request,
+    extract_latest_review,
+    extract_latest_review_status,
     format_status,
     is_force_fresh_session_requested,
     log_contains_invalid_encrypted_content,
@@ -17,6 +19,7 @@ from codex_autoloop.telegram_daemon import (
     resolve_resume_session_id,
     resolve_saved_session_id,
     set_force_fresh_session_marker,
+    should_schedule_plan_follow_up,
 )
 
 
@@ -166,6 +169,43 @@ def test_build_plan_request_uses_review_guidance() -> None:
     assert "完成接口重构" in request
     assert "fix failing tests" in request
     assert "失败原因" in request
+
+
+def test_extract_latest_review_supports_legacy_flat_fields() -> None:
+    state_payload = {
+        "rounds": [
+            {
+                "review_status": "blocked",
+                "review_reason": "missing data",
+                "review_next_action": "restore /blob assets",
+            }
+        ]
+    }
+    status, reason, next_action = extract_latest_review(state_payload)
+    assert status == "blocked"
+    assert reason == "missing data"
+    assert next_action == "restore /blob assets"
+
+
+def test_extract_latest_review_status_prefers_top_level_field() -> None:
+    state_payload = {
+        "latest_review_status": "BLOCKED",
+        "rounds": [{"review": {"status": "continue"}}],
+    }
+    assert extract_latest_review_status(state_payload) == "blocked"
+
+
+def test_should_schedule_plan_follow_up_skips_on_failed_exit() -> None:
+    should_schedule, reason = should_schedule_plan_follow_up(exit_code=2, state_payload=None)
+    assert should_schedule is False
+    assert reason == "last_run_failed"
+
+
+def test_should_schedule_plan_follow_up_skips_on_blocked_review() -> None:
+    state_payload = {"latest_review_status": "blocked"}
+    should_schedule, reason = should_schedule_plan_follow_up(exit_code=0, state_payload=state_payload)
+    assert should_schedule is False
+    assert reason == "review_blocked"
 
 
 def test_append_plan_record_row_writes_markdown_table(tmp_path: Path) -> None:
