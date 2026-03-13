@@ -497,7 +497,13 @@ def main() -> None:
     def on_telegram_command(command: TelegramCommand) -> None:
         handle_command(command, "telegram")
 
-    def schedule_plan_after_child_finish(*, objective: str, exit_code: int, log_path: Path | None) -> None:
+    def schedule_plan_after_child_finish(
+        *,
+        objective: str,
+        exit_code: int,
+        log_path: Path | None,
+        plan_report_path: Path | None,
+    ) -> None:
         nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
         nonlocal scheduled_plan_context, scheduled_plan_request_at
         if plan_mode == PLAN_MODE_EXECUTE_ONLY:
@@ -559,6 +565,7 @@ def main() -> None:
             "exit_code": exit_code,
             "log_path": str(log_path) if log_path else None,
             "state_payload": state_payload,
+            "plan_report_path": str(plan_report_path) if plan_report_path else None,
         }
         scheduled_plan_request_at = finished_at + dt.timedelta(seconds=plan_request_delay_seconds)
         pending_plan_request = None
@@ -616,6 +623,11 @@ def main() -> None:
                 state_payload=(
                     scheduled_plan_context.get("state_payload")
                     if isinstance(scheduled_plan_context.get("state_payload"), dict)
+                    else None
+                ),
+                planner_report_path=(
+                    Path(str(scheduled_plan_context.get("plan_report_path")))
+                    if scheduled_plan_context.get("plan_report_path")
                     else None
                 ),
             )
@@ -746,6 +758,7 @@ def main() -> None:
                 objective=str(child_objective or ""),
                 exit_code=rc,
                 log_path=child_log_path,
+                plan_report_path=child_plan_report_path,
             )
             pending_follow_up = resolve_plan_follow_up(
                 state_file=args.run_state_file,
@@ -1096,21 +1109,88 @@ def extract_latest_review_status(state_payload: dict[str, Any] | None) -> str | 
     return status.strip().lower()
 
 
-def build_plan_request(*, objective: str, exit_code: int, state_payload: dict[str, Any] | None) -> str:
-    objective_text = objective.strip() or "Continue improving the current repository objective."
+def build_plan_request(
+    *,
+    objective: str,
+    exit_code: int,
+    state_payload: dict[str, Any] | None,
+    planner_report_path: Path | None = None,
+) -> str:
+    objective_text = sanitize_follow_up_objective(objective)
+    if not objective_text:
+        objective_text = "Continue improving the current repository objective."
+
     review_status, review_reason, review_next_action = extract_latest_review(state_payload)
+    planner_next_objective = extract_suggested_next_objective_from_plan_report(planner_report_path)
+
+    # Priority: reviewer next_action > planner report objective > objective fallback.
+    if review_next_action:
+        return f"{review_next_action.strip()}（目标上下文：{objective_text}）".strip()
+    if planner_next_objective:
+        return planner_next_objective
+
     parts = [f"继续推进目标：{objective_text}"]
     if exit_code != 0:
         parts.append("先定位并修复上一轮失败原因。")
-    if review_next_action:
-        parts.append(f"优先动作：{review_next_action}")
-    elif review_reason:
+    if review_reason:
         parts.append(f"优先关注：{review_reason}")
     if review_status:
         parts.append(f"当前审核状态：{review_status}")
-    if not review_next_action and not review_reason:
+    if not review_reason:
         parts.append("补齐剩余实现并运行关键验证命令后再继续。")
     return " ".join(parts).strip()
+
+
+def sanitize_follow_up_objective(text: str) -> str:
+    value = (text or "").strip()
+    if not value:
+        return ""
+    while True:
+        lowered = value.lower()
+        if lowered.startswith("/run "):
+            value = value[5:].strip()
+            continue
+        if lowered.startswith("run /run "):
+            value = value[9:].strip()
+            continue
+        if lowered.startswith("run "):
+            value = value[4:].strip()
+            continue
+        break
+    return value
+
+
+def extract_suggested_next_objective_from_plan_report(report_path: Path | None) -> str | None:
+    if report_path is None:
+        return None
+    try:
+        text = report_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    return extract_suggested_next_objective_from_markdown(text)
+
+
+def extract_suggested_next_objective_from_markdown(markdown_text: str) -> str | None:
+    marker = "## Suggested Next Objective"
+    if marker not in markdown_text:
+        return None
+    section = markdown_text.split(marker, 1)[1]
+    lines: list[str] = []
+    for raw in section.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("## "):
+            break
+        lines.append(line)
+    if not lines:
+        return None
+    candidate = " ".join(lines).strip()
+    if not candidate:
+        return None
+    if candidate.lower() == "no follow-up objective proposed yet.":
+        return None
+    return candidate[:2000]
 
 
 def extract_latest_review(state_payload: dict[str, Any] | None) -> tuple[str | None, str | None, str | None]:

@@ -9,6 +9,7 @@ from codex_autoloop.telegram_daemon import (
     build_parser,
     build_child_command,
     build_plan_request,
+    extract_suggested_next_objective_from_markdown,
     extract_latest_review,
     extract_latest_review_status,
     format_status,
@@ -18,6 +19,7 @@ from codex_autoloop.telegram_daemon import (
     resolve_last_session_id_from_archive,
     resolve_resume_session_id,
     resolve_saved_session_id,
+    sanitize_follow_up_objective,
     set_force_fresh_session_marker,
     should_schedule_plan_follow_up,
 )
@@ -166,9 +168,8 @@ def test_build_plan_request_uses_review_guidance() -> None:
         ]
     }
     request = build_plan_request(objective="完成接口重构", exit_code=2, state_payload=state_payload)
-    assert "完成接口重构" in request
+    assert "目标上下文：完成接口重构" in request
     assert "fix failing tests" in request
-    assert "失败原因" in request
 
 
 def test_extract_latest_review_supports_legacy_flat_fields() -> None:
@@ -206,6 +207,51 @@ def test_should_schedule_plan_follow_up_skips_on_blocked_review() -> None:
     should_schedule, reason = should_schedule_plan_follow_up(exit_code=0, state_payload=state_payload)
     assert should_schedule is False
     assert reason == "review_blocked"
+
+
+def test_build_plan_request_prefers_planner_report_when_no_next_action(tmp_path: Path) -> None:
+    report = tmp_path / "plan-report.md"
+    report.write_text(
+        "# Planning Snapshot\n\n"
+        "## Suggested Next Objective\n"
+        "实现 GUI 高层 planner 与 computer-use 执行层的联动验证。\n\n"
+        "## Reviewer\n"
+        "- Status: continue\n",
+        encoding="utf-8",
+    )
+    state_payload = {
+        "rounds": [
+            {
+                "review": {
+                    "status": "continue",
+                    "reason": "still pending",
+                    "next_action": "",
+                }
+            }
+        ]
+    }
+    request = build_plan_request(
+        objective="旧目标",
+        exit_code=0,
+        state_payload=state_payload,
+        planner_report_path=report,
+    )
+    assert request == "实现 GUI 高层 planner 与 computer-use 执行层的联动验证。"
+
+
+def test_extract_suggested_next_objective_from_markdown_none_when_placeholder() -> None:
+    text = (
+        "# Planning Snapshot\n"
+        "## Suggested Next Objective\n"
+        "No follow-up objective proposed yet.\n"
+        "## Acceptance Checks\n"
+    )
+    assert extract_suggested_next_objective_from_markdown(text) is None
+
+
+def test_sanitize_follow_up_objective_removes_run_prefixes() -> None:
+    assert sanitize_follow_up_objective("run /run 继续修复") == "继续修复"
+    assert sanitize_follow_up_objective("/run 继续修复") == "继续修复"
 
 
 def test_append_plan_record_row_writes_markdown_table(tmp_path: Path) -> None:
