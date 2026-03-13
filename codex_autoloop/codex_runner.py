@@ -65,12 +65,14 @@ class CodexRunner:
         command[0] = self._resolve_executable(command[0])
         process = subprocess.Popen(
             command,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
             cwd=options.working_dir or None,
         )
+        self._write_prompt(process=process, prompt=prompt)
 
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
@@ -264,8 +266,26 @@ class CodexRunner:
             command.extend(options.extra_args)
         if resume_thread_id:
             command.append(resume_thread_id)
-        command.append(prompt)
+        # Always stream the prompt through stdin so multiline prompts survive
+        # Windows `.cmd` wrappers and do not appear in process lists.
+        command.append("-")
         return command
+
+    @staticmethod
+    def _write_prompt(*, process: subprocess.Popen[str], prompt: str) -> None:
+        if process.stdin is None:
+            return
+        try:
+            process.stdin.write(prompt)
+            if not prompt.endswith("\n"):
+                process.stdin.write("\n")
+        except BrokenPipeError:
+            return
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                return
 
     @staticmethod
     def _resolve_executable(executable: str) -> str:

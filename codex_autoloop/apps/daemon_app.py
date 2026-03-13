@@ -439,6 +439,7 @@ class TelegramDaemonApp:
             self.status_path,
             {
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
+                "daemon_pid": os.getpid(),
                 "daemon_running": not self._stopping,
                 "running": running,
                 "default_plan_mode": getattr(self.args, "run_plan_mode", "auto"),
@@ -486,6 +487,7 @@ class TelegramDaemonApp:
             self.status_path,
             {
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
+                "daemon_pid": os.getpid(),
                 "daemon_running": False,
                 "running": False,
             },

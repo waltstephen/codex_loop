@@ -4,9 +4,15 @@ import argparse
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 from .apps.daemon_app import render_plan_context, render_review_context
-from .daemon_bus import BusCommand, JsonlCommandBus, read_status
+from .daemon_bus import (
+    DEFAULT_DAEMON_STATUS_STALE_SECONDS,
+    BusCommand,
+    JsonlCommandBus,
+    inspect_daemon_status,
+)
 
 
 def main() -> None:
@@ -18,50 +24,24 @@ def main() -> None:
     status_path = bus_dir / "daemon_status.json"
 
     if args.subcommand == "status":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=False)
         print(json.dumps(payload, ensure_ascii=True, indent=2))
-        raise SystemExit(0)
+        raise SystemExit(0 if payload.get("daemon_status_state") != "stale" else 1)
 
     if args.subcommand == "show-plan":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=True)
         plan_path = payload.get("child_plan_overview_path")
-        if not isinstance(plan_path, str) or not plan_path.strip():
-            print("No plan overview path found in daemon status.")
-            raise SystemExit(1)
-        try:
-            print(Path(plan_path).read_text(encoding="utf-8"))
-        except OSError as exc:
-            print(f"Unable to read plan overview: {exc}")
-            raise SystemExit(1)
+        print(read_required_text_artifact(plan_path, label="plan overview"))
         raise SystemExit(0)
 
     if args.subcommand == "show-main-prompt":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=True)
         prompt_path = payload.get("child_main_prompt_path")
-        if not isinstance(prompt_path, str) or not prompt_path.strip():
-            print("No main prompt path found in daemon status.")
-            raise SystemExit(1)
-        try:
-            print(Path(prompt_path).read_text(encoding="utf-8"))
-        except OSError as exc:
-            print(f"Unable to read main prompt: {exc}")
-            raise SystemExit(1)
+        print(read_required_text_artifact(prompt_path, label="main prompt"))
         raise SystemExit(0)
 
     if args.subcommand == "show-plan-context":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=True)
         print(
             render_plan_context(
                 operator_messages_path=payload.get("child_operator_messages_path"),
@@ -72,10 +52,7 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.subcommand == "show-review":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=True)
         review_dir = payload.get("child_review_summaries_dir")
         if not isinstance(review_dir, str) or not review_dir.strip():
             print("No review summaries dir found in daemon status.")
@@ -89,18 +66,11 @@ def main() -> None:
                 print("Round must be an integer.")
                 raise SystemExit(1)
             target = base / f"round-{round_index:03d}.md"
-        try:
-            print(target.read_text(encoding="utf-8"))
-        except OSError as exc:
-            print(f"Unable to read review summary: {exc}")
-            raise SystemExit(1)
+        print(read_required_text_artifact(target, label="review summary"))
         raise SystemExit(0)
 
     if args.subcommand == "show-review-context":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=True)
         print(
             render_review_context(
                 operator_messages_path=payload.get("child_operator_messages_path"),
@@ -127,10 +97,7 @@ def main() -> None:
         raise SystemExit(0)
 
     if args.subcommand == "btw":
-        payload = read_status(status_path)
-        if payload is None:
-            print("No daemon status found.")
-            raise SystemExit(1)
+        payload = load_status_for_cli(status_path, require_live=True)
         btw_path_raw = payload.get("btw_messages_file")
         btw_path = Path(str(btw_path_raw)) if isinstance(btw_path_raw, str) and btw_path_raw.strip() else None
         before = ""
@@ -198,6 +165,49 @@ def main() -> None:
 
 def publish(bus: JsonlCommandBus, kind: str, text: str, source: str) -> None:
     bus.publish(BusCommand(kind=kind, text=text, source=source, ts=time.time()))
+
+
+def load_status_for_cli(status_path: Path, *, require_live: bool) -> dict[str, Any]:
+    inspection = inspect_daemon_status(
+        status_path,
+        stale_after_seconds=DEFAULT_DAEMON_STATUS_STALE_SECONDS,
+    )
+    if inspection.payload is None:
+        raise SystemExit(_print_error("No daemon status found."))
+    if require_live and not inspection.is_live:
+        raise SystemExit(_print_error(inspection.reason or "Daemon is not running."))
+    payload = dict(inspection.payload)
+    payload["daemon_status_live"] = inspection.is_live
+    if inspection.is_live:
+        payload["daemon_status_state"] = "live"
+    elif inspection.payload.get("daemon_running") is True:
+        payload["daemon_status_state"] = "stale"
+    else:
+        payload["daemon_status_state"] = "offline"
+    if inspection.reason:
+        payload["daemon_status_warning"] = inspection.reason
+    if payload.get("daemon_running") is True and not inspection.is_live:
+        payload["daemon_running"] = False
+        payload["running"] = False
+    return payload
+
+
+def read_required_text_artifact(path_value: str | Path | None, *, label: str) -> str:
+    if isinstance(path_value, Path):
+        path = path_value
+    elif isinstance(path_value, str) and path_value.strip():
+        path = Path(path_value)
+    else:
+        raise SystemExit(_print_error(f"No {label} path found in daemon status."))
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(_print_error(f"Unable to read {label}: {exc}"))
+
+
+def _print_error(message: str) -> int:
+    print(message)
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:

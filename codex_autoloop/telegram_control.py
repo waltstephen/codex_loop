@@ -377,7 +377,7 @@ def extract_command_text_from_message(message: dict[str, Any]) -> str | None:
 
 
 def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramCommand | None:
-    content = text.strip()
+    content = normalize_command_prefix(text.strip())
     if not content:
         return None
     lowered = content.lower()
@@ -438,6 +438,16 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
     if plain_text_as_inject:
         return TelegramCommand(kind="inject", text=content)
     return None
+
+
+def normalize_command_prefix(text: str) -> str:
+    if not text:
+        return ""
+    if text.startswith("／"):
+        return "/" + text[1:].lstrip()
+    if text.startswith("、"):
+        return "/" + text[1:].lstrip()
+    return text
 
 
 def parse_mode_selection_text(text: str) -> TelegramCommand | None:

@@ -189,6 +189,21 @@ def test_parse_show_context_commands() -> None:
     assert review_context is not None and review_context.kind == "show-review-context"
 
 
+def test_parse_help_with_cjk_punctuation_prefix() -> None:
+    help_cmd = parse_command_from_update(
+        update=_wrap("、help"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    status_cmd = parse_command_from_update(
+        update=_wrap("／status"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert help_cmd is not None and help_cmd.kind == "help"
+    assert status_cmd is not None and status_cmd.kind == "status"
+
+
 def test_ignore_other_chat() -> None:
     command = parse_command_from_update(
         update=_wrap("/inject x", chat_id=999),

@@ -4,16 +4,20 @@ import argparse
 import getpass
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+from .apps.shell_utils import looks_like_bot_token
+from .daemon_bus import read_status
 from .model_catalog import MODEL_PRESETS, get_preset
 from .telegram_notifier import resolve_chat_id
 from .token_lock import acquire_token_lock, default_token_lock_dir
+
+VALID_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
 
 
 def main() -> None:
@@ -37,7 +41,7 @@ def main() -> None:
             raise SystemExit(2)
 
     token = prompt_secret("Telegram bot token: ")
-    if ":" not in token:
+    if not looks_like_bot_token(token):
         print("Token format looks invalid. Expected <digits>:<secret>.", file=sys.stderr)
         raise SystemExit(2)
     requested_chat_id = prompt_input("Telegram chat id (or 'auto'): ", default="auto").strip() or "auto"
@@ -82,27 +86,31 @@ def main() -> None:
             plan_model = args.run_plan_model
             plan_reasoning_effort = args.run_plan_reasoning_effort
         else:
-            main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
-            main_reasoning_effort = (
-                prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default="").strip()
-                or None
-            )
-            reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
-            reviewer_reasoning_effort = (
-                prompt_input(
-                    "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
-                    default="",
-                ).strip()
-                or None
-            )
-            plan_model = prompt_input("Plan agent model (optional): ", default="").strip() or None
-            plan_reasoning_effort = (
-                prompt_input(
-                    "Plan agent reasoning effort (low/medium/high/xhigh, optional): ",
-                    default="",
-                ).strip()
-                or None
-            )
+            try:
+                main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
+                main_reasoning_effort = normalize_reasoning_effort(
+                    prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default=""),
+                    field_name="Main agent reasoning effort",
+                )
+                reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
+                reviewer_reasoning_effort = normalize_reasoning_effort(
+                    prompt_input(
+                        "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
+                        default="",
+                    ),
+                    field_name="Reviewer agent reasoning effort",
+                )
+                plan_model = prompt_input("Plan agent model (optional): ", default="").strip() or None
+                plan_reasoning_effort = normalize_reasoning_effort(
+                    prompt_input(
+                        "Plan agent reasoning effort (low/medium/high/xhigh, optional): ",
+                        default="",
+                    ),
+                    field_name="Plan agent reasoning effort",
+                )
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                raise SystemExit(2)
 
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -208,6 +216,9 @@ def main() -> None:
     else:
         daemon_cmd.append("--no-run-resume-last-session")
 
+    status_path = bus_dir / "daemon_status.json"
+    status_path.unlink(missing_ok=True)
+    launched_after = datetime.now(timezone.utc)
     with daemon_log.open("a", encoding="utf-8") as f:
         proc = subprocess.Popen(
             daemon_cmd,
@@ -216,8 +227,14 @@ def main() -> None:
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-    time.sleep(1.0)
-    if proc.poll() is not None:
+    ready_status = wait_for_daemon_ready(
+        status_path=status_path,
+        process=proc,
+        timeout_seconds=15,
+        launched_after=launched_after,
+    )
+    if ready_status is None:
+        _terminate_spawned_process(proc)
         print("Daemon failed to start. Recent log:", file=sys.stderr)
         print(read_log_tail(daemon_log, max_lines=25), file=sys.stderr)
         raise SystemExit(2)
@@ -316,7 +333,7 @@ def resolve_daemon_launch_prefix() -> list[str]:
 
 def resolve_effective_chat_id(*, bot_token: str, requested_chat_id: str, timeout_seconds: int) -> str:
     raw = (requested_chat_id or "").strip()
-    if raw.lower() not in {"", "auto", "none", "null"} and raw != "1":
+    if raw.lower() not in {"", "auto", "none", "null"}:
         return raw
     print("Resolving Telegram chat_id from recent updates. Send /start or a message to your bot now...", file=sys.stderr)
     resolved = resolve_chat_id(
@@ -343,7 +360,7 @@ def materialize_codex_autoloop_shim(home_dir: Path) -> str:
     home_dir.mkdir(parents=True, exist_ok=True)
     repo_root = Path(__file__).resolve().parent.parent
     python_exe = sys.executable
-    if platform.system().lower().startswith("win"):
+    if os.name == "nt":
         shim_path = home_dir / "codex-autoloop-shim.cmd"
         lines = [
             "@echo off",
@@ -385,17 +402,13 @@ def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
 
     ctl_bin = shutil.which("codex-autoloop-daemon-ctl")
     if ctl_bin:
-        subprocess.run(
+        _run_quiet(
             [ctl_bin, "--bus-dir", str(bus_dir), "daemon-stop"],
-            capture_output=True,
-            text=True,
             timeout=10,
         )
     else:
-        subprocess.run(
+        _run_quiet(
             [sys.executable, "-m", "codex_autoloop.daemon_ctl", "--bus-dir", str(bus_dir), "daemon-stop"],
-            capture_output=True,
-            text=True,
             timeout=10,
         )
 
@@ -427,21 +440,23 @@ def read_log_tail(path: Path, max_lines: int) -> str:
 
 def _is_pid_running(pid: str) -> bool:
     if os.name == "nt":
-        completed = subprocess.run(
+        completed = _run_quiet(
             ["tasklist", "/FI", f"PID eq {pid}"],
-            capture_output=True,
-            text=True,
             timeout=10,
         )
+        if completed is None:
+            # On timeout, prefer assuming the PID may still exist so setup can
+            # continue with best-effort shutdown instead of crashing.
+            return True
         if completed.returncode != 0:
             return False
         return pid in (completed.stdout or "")
-    completed = subprocess.run(
+    completed = _run_quiet(
         ["kill", "-0", pid],
-        capture_output=True,
-        text=True,
         timeout=10,
     )
+    if completed is None:
+        return True
     return completed.returncode == 0
 
 
@@ -450,14 +465,92 @@ def _terminate_pid(pid: str, *, force: bool) -> None:
         cmd = ["taskkill", "/PID", pid]
         if force:
             cmd.append("/F")
-        subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        _run_quiet(cmd, timeout=10)
         return
     cmd = ["kill", "-9" if force else pid]
     if force:
         cmd = ["kill", "-9", pid]
     else:
         cmd = ["kill", pid]
-    subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    _run_quiet(cmd, timeout=10)
+
+
+def _run_quiet(args: list[str], *, timeout: int):
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def wait_for_daemon_ready(
+    *,
+    status_path: Path,
+    process: subprocess.Popen[str],
+    timeout_seconds: int,
+    launched_after: datetime,
+) -> dict | None:
+    deadline = time.monotonic() + max(1, timeout_seconds)
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return None
+        status = read_status(status_path)
+        if _is_matching_daemon_status(status, expected_pid=process.pid, launched_after=launched_after):
+            return status
+        time.sleep(0.25)
+    return None
+
+
+def _terminate_spawned_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=5)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            return
+
+
+def _is_matching_daemon_status(
+    status: dict | None,
+    *,
+    expected_pid: int,
+    launched_after: datetime,
+) -> bool:
+    if not isinstance(status, dict):
+        return False
+    if status.get("daemon_running") is not True:
+        return False
+    if status.get("daemon_pid") != expected_pid:
+        return False
+    updated_at = _parse_status_timestamp(status.get("updated_at"))
+    if updated_at is None:
+        return False
+    return updated_at >= launched_after
+
+
+def _parse_status_timestamp(raw: object) -> datetime | None:
+    if not isinstance(raw, str):
+        return None
+    normalized = raw.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -469,6 +562,16 @@ def prompt_input(prompt: str, default: str) -> str:
 
 def prompt_secret(prompt: str) -> str:
     return getpass.getpass(prompt).strip()
+
+
+def normalize_reasoning_effort(raw: str | None, *, field_name: str) -> str | None:
+    value = (raw or "").strip().lower()
+    if not value:
+        return None
+    if value not in VALID_REASONING_EFFORTS:
+        allowed = ", ".join(sorted(VALID_REASONING_EFFORTS))
+        raise ValueError(f"{field_name} must be one of: {allowed}")
+    return value
 
 
 def prompt_model_choice() -> str:
