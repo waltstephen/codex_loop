@@ -22,7 +22,7 @@ Apply these rules for every run:
 6. Push when remote is configured and credentials allow push.
 7. Treat tests as hard completion gates, not optional checks.
 8. In YOLO mode (`--dangerously-bypass-approvals-and-sandbox`), assume full execution power and apply extra caution before any destructive command.
-9. Maintain project-local execution memory under `codexloop/` for session continuity.
+9. Maintain project-local execution memory under `argusbot/` for session continuity.
 
 ## Step 0: Bootstrap Git Safely
 
@@ -49,17 +49,17 @@ If pull fails, continue local work and record reason in status updates.
 
 ## Step 0.5: Create Local Execution Memory
 
-At project root, create and maintain a `codexloop/` directory.
+At project root, create and maintain an `argusbot/` directory.
 
 Required files:
 
-1. `codexloop/current-session.md`
-2. `codexloop/todo.md`
-3. `codexloop/todo_session.md`
+1. `argusbot/current-session.md`
+2. `argusbot/todo.md`
+3. `argusbot/todo_session.md`
 
 Update them at start and after every meaningful loop iteration.
 
-`codexloop/current-session.md` must contain:
+`argusbot/current-session.md` must contain:
 
 1. Current objective
 2. What was completed in this session
@@ -68,13 +68,13 @@ Update them at start and after every meaningful loop iteration.
 5. Latest commit hash
 6. Current blockers or risks
 
-`codexloop/todo.md` must contain:
+`argusbot/todo.md` must contain:
 
 1. Remaining work items
 2. Next highest-priority action
 3. Any deferred investigation
 
-`codexloop/todo_session.md` must contain:
+`argusbot/todo_session.md` must contain:
 
 1. Session-specific objective interpretation
 2. Completed items in this session
@@ -90,9 +90,9 @@ Purpose:
 
 Inject handling rule:
 
-1. If an inject changes core scope, replaces a requirement, adds a major subtask, or changes completion criteria, treat it as a primary-task inject and update `codexloop/todo_session.md` immediately.
-2. If an inject is only a reminder, small preference, or tactical nudge that does not materially change scope, record it in `codexloop/current-session.md` but do not rewrite `codexloop/todo_session.md`.
-3. When uncertain, prefer treating the inject as primary-task relevant and update `codexloop/todo_session.md`.
+1. If an inject changes core scope, replaces a requirement, adds a major subtask, or changes completion criteria, treat it as a primary-task inject and update `argusbot/todo_session.md` immediately.
+2. If an inject is only a reminder, small preference, or tactical nudge that does not materially change scope, record it in `argusbot/current-session.md` but do not rewrite `argusbot/todo_session.md`.
+3. When uncertain, prefer treating the inject as primary-task relevant and update `argusbot/todo_session.md`.
 
 ## Step 1: Define Completion Gates Up Front
 

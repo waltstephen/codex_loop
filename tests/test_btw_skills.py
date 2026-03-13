@@ -22,3 +22,16 @@ def test_resolve_btw_skill_result_finds_image(tmp_path: Path) -> None:
     assert result.is_file_request is True
     assert result.attachments
     assert result.attachments[0].path.endswith("preview_effect.png")
+
+
+def test_resolve_btw_skill_result_finds_repo_image_fixture() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    fixture = repo_root / "tests" / "assets" / "argusbot-preview.png"
+    assert fixture.exists()
+    result = resolve_btw_skill_result(
+        working_dir=str(repo_root),
+        question="show me image files",
+    )
+    assert result.is_file_request is True
+    assert result.attachments
+    assert any(item.path.endswith("argusbot-preview.png") for item in result.attachments)
