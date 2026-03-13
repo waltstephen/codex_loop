@@ -98,8 +98,10 @@ codex-autoloop-setup --run-cd .
 ```
 
 If the command is missing, use:
-
+Get-Process | Where-Object { $_.ProcessName -like 'codex-autoloop*' } | Stop-Process -Force
 ```bash
+  .\.venv\Scripts\Activate.ps1                                                                                   
+                                   
 python -m codex_autoloop.setup_wizard --run-cd .
 ```
 

@@ -16,7 +16,7 @@ def test_build_command_new_exec() -> None:
     )
     assert command[:3] == ["codex", "exec", "--json"]
     assert "--output-schema" in command
-    assert command[-1] == "do work"
+    assert command[-1] == "-"
 
 
 def test_build_command_resume() -> None:
@@ -28,22 +28,67 @@ def test_build_command_resume() -> None:
     )
     assert command[:4] == ["codex", "exec", "resume", "--json"]
     assert "--output-schema" not in command
-    assert command[-2:] == ["thread123", "continue"]
+    assert command[-2:] == ["thread123", "-"]
 
 
-def test_run_exec_marks_nonzero_exit_without_turn_completion_as_failed(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    fake_codex = tmp_path / "fake-codex"
-    fake_codex.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
-    fake_codex.chmod(0o755)
+def test_resolve_executable_uses_which_for_bare_command(monkeypatch) -> None:
+    monkeypatch.setattr("codex_autoloop.codex_runner.shutil.which", lambda name: "C:/Users/test/AppData/Roaming/npm/codex.CMD")
+    assert CodexRunner._resolve_executable("codex") == "C:/Users/test/AppData/Roaming/npm/codex.CMD"
 
-    runner = CodexRunner(codex_bin=str(fake_codex))
-    result = runner.run_exec(
-        prompt="do work",
-        resume_thread_id=None,
-        options=RunnerOptions(),
+
+def test_resolve_executable_keeps_explicit_path(monkeypatch) -> None:
+    called = False
+
+    def fake_which(name: str) -> str | None:
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr("codex_autoloop.codex_runner.shutil.which", fake_which)
+    assert CodexRunner._resolve_executable(r".\tools\codex.cmd") == r".\tools\codex.cmd"
+    assert called is False
+
+
+def test_run_exec_writes_prompt_to_stdin(monkeypatch) -> None:
+    written: list[str] = []
+
+    class _FakeStdin:
+        def write(self, text: str) -> None:
+            written.append(text)
+
+        def close(self) -> None:
+            written.append("<closed>")
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.stdin = _FakeStdin()
+            self.stdout = iter(())
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+    monkeypatch.setattr(
+        "codex_autoloop.codex_runner.subprocess.Popen",
+        lambda *args, **kwargs: _FakeProcess(),
+    )
+    monkeypatch.setattr(
+        "codex_autoloop.codex_runner.shutil.which",
+        lambda name: "C:/Users/test/AppData/Roaming/npm/codex.CMD",
     )
 
-    assert result.exit_code == 17
-    assert result.turn_completed is False
-    assert result.turn_failed is True
-    assert result.fatal_error == "Process exited with code 17 before turn completion."
+    runner = CodexRunner(codex_bin="codex")
+    result = runner.run_exec(
+        prompt="line1\nline2",
+        resume_thread_id=None,
+        options=RunnerOptions(skip_git_repo_check=True),
+        run_label="main",
+    )
+
+    assert result.command[-1] == "-"
+    assert written == ["line1\nline2", "\n", "<closed>"]
