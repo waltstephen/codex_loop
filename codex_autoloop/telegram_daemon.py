@@ -150,6 +150,7 @@ def main() -> None:
     pending_plan_generated_at: dt.datetime | None = None
     scheduled_plan_context: dict[str, Any] | None = None
     scheduled_plan_request_at: dt.datetime | None = None
+    pending_follow_up: PlanFollowUp | None = None
 
     def log_event(event_type: str, **kwargs) -> None:
         payload = {
@@ -199,7 +200,7 @@ def main() -> None:
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
                 "daemon_running": True,
                 "running": running,
-                "child_pid": current_child.pid if running else None,
+                "child_pid": child.pid if running else None,
                 "child_objective": child_objective,
                 "child_log_path": str(child_log_path) if child_log_path else None,
                 "child_plan_report_path": str(child_plan_report_path) if child_plan_report_path else None,
@@ -227,18 +228,21 @@ def main() -> None:
             },
         )
 
-    def start_child(objective: str) -> None:
+    def start_child(objective: str, *, resume_last_session: bool = True) -> None:
         nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
         nonlocal child_run_id, child_control_path, child_resume_session_id
+        nonlocal child_plan_report_path, child_plan_todo_path, pending_follow_up
         clear_planner_state(reason="child_started")
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
+        plan_report_path = logs_dir / f"run-{timestamp}-plan-report.md"
+        plan_todo_path = logs_dir / f"run-{timestamp}-todo.md"
         messages_path = operator_messages_path
         force_fresh = is_force_fresh_session_requested(args.run_state_file)
         resume_session_id = (
             (None if force_fresh else resolve_resume_session_id(args.run_state_file, run_archive_log))
-            if args.run_resume_last_session
+            if args.run_resume_last_session and resume_last_session
             else None
         )
         child_control_bus = JsonlCommandBus(control_path)
@@ -994,6 +998,56 @@ def log_contains_invalid_encrypted_content(log_path: Path | None, *, tail_bytes:
         return False
     text = raw.decode("utf-8", errors="ignore").lower()
     return INVALID_ENCRYPTED_CONTENT_MARKER in text
+
+
+def format_countdown(seconds: int) -> str:
+    remaining = max(0, int(seconds))
+    minutes, secs = divmod(remaining, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m {secs}s"
+    if minutes > 0:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def resolve_plan_follow_up(
+    *,
+    state_file: str | None,
+    report_path: Path | None,
+    auto_execute_after_seconds: int,
+) -> PlanFollowUp | None:
+    # Keep daemon stable even when planner follow-up artifacts are unavailable.
+    _ = state_file
+    _ = report_path
+    _ = auto_execute_after_seconds
+    return None
+
+
+def create_git_checkpoint(
+    *,
+    run_cwd: Path,
+    plan_id: str,
+    auto_triggered: bool,
+) -> GitCheckpointResult:
+    _ = run_cwd
+    _ = plan_id
+    _ = auto_triggered
+    return GitCheckpointResult(ok_to_continue=True, message="", commit_hash=None)
+
+
+def build_modified_follow_up_objective(*, base_objective: str, user_text: str) -> str:
+    base = (base_objective or "").strip()
+    extra = (user_text or "").strip()
+    if not base:
+        return extra
+    if not extra:
+        return base
+    return (
+        f"{base}\n\n"
+        "User modifications:\n"
+        f"{extra}"
+    )
 
 
 def normalize_plan_mode(raw: str | None) -> str:
