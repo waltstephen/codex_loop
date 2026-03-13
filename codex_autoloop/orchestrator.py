@@ -26,16 +26,24 @@ class AutoLoopConfig:
     main_reasoning_effort: str | None = None
     reviewer_model: str | None = None
     reviewer_reasoning_effort: str | None = None
+    planner_model: str | None = None
+    planner_reasoning_effort: str | None = None
+    planner_mode: str = "off"
     main_extra_args: list[str] | None = None
     reviewer_extra_args: list[str] | None = None
+    planner_extra_args: list[str] | None = None
     skip_git_repo_check: bool = False
     full_auto: bool = False
     dangerous_yolo: bool = False
     state_file: str | None = None
+    plan_report_file: str | None = None
+    plan_todo_file: str | None = None
     initial_session_id: str | None = None
     loop_event_callback: LoopEventCallback | None = None
     stall_soft_idle_seconds: int = 1200
     stall_hard_idle_seconds: int = 10800
+    plan_update_interval_seconds: int = 1800
+    planner_enabled: bool = False
     external_interrupt_reason_provider: Callable[[], str | None] | None = None
     pending_instruction_consumer: Callable[[], str | None] | None = None
     stop_requested_checker: Callable[[], bool] | None = None
@@ -48,13 +56,21 @@ class AutoLoopResult:
     session_id: str | None
     rounds: list[RoundSummary]
     stop_reason: str
+    plan: Any | None = None
 
 
 class AutoLoopOrchestrator:
-    def __init__(self, runner: CodexRunner, reviewer: Reviewer, config: AutoLoopConfig) -> None:
+    def __init__(
+        self,
+        runner: CodexRunner,
+        reviewer: Reviewer,
+        config: AutoLoopConfig,
+        planner: Any | None = None,
+    ) -> None:
         self.runner = runner
         self.reviewer = reviewer
         self.config = config
+        self.planner = planner
 
     def run(self) -> AutoLoopResult:
         rounds: list[RoundSummary] = []
