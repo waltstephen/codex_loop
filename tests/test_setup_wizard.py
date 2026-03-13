@@ -62,6 +62,11 @@ def test_prompt_model_choice_default(monkeypatch) -> None:
     assert setup_wizard.prompt_model_choice() == "cheap"
 
 
+def test_prompt_model_choice_out_of_range_falls_back_to_default(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "999")
+    assert setup_wizard.prompt_model_choice() == "cheap"
+
+
 def test_resolve_run_model_settings_prefers_explicit_overrides() -> None:
     args = SimpleNamespace(
         run_main_model="gpt-5.4",

@@ -596,7 +596,9 @@ def prompt_model_choice() -> str:
         return _default_preset_name()
     if 1 <= index <= len(MODEL_PRESETS):
         return MODEL_PRESETS[index - 1].name
-    return "custom"
+    if index == len(MODEL_PRESETS) + 1:
+        return "custom"
+    return _default_preset_name()
 
 
 def resolve_run_model_settings(
