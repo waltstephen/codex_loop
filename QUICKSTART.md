@@ -1,4 +1,4 @@
-# codex-autoloop Quickstart
+# ArgusBot Quickstart
 
 ## 1) Install
 

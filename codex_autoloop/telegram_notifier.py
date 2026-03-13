@@ -8,7 +8,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 
 @dataclass
@@ -31,6 +33,8 @@ class TelegramNotifier:
         base = f"https://api.telegram.org/bot{config.bot_token}"
         self.send_message_url = f"{base}/sendMessage"
         self.send_chat_action_url = f"{base}/sendChatAction"
+        self.send_photo_url = f"{base}/sendPhoto"
+        self.send_document_url = f"{base}/sendDocument"
         self.answer_callback_query_url = f"{base}/answerCallbackQuery"
         self._typing_stop = threading.Event()
         self._typing_thread: threading.Thread | None = None
@@ -49,7 +53,7 @@ class TelegramNotifier:
             return
         self.send_message(message)
 
-    def send_message(self, message: str, reply_markup: dict[str, Any] | None = None) -> None:
+    def send_message(self, message: str, reply_markup: dict[str, Any] | None = None) -> bool:
         payload = {
             "chat_id": self.config.chat_id,
             "text": message[:3900],
@@ -57,7 +61,7 @@ class TelegramNotifier:
         }
         if reply_markup is not None:
             payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=True)
-        self._post_form(self.send_message_url, payload)
+        return self._post_form(self.send_message_url, payload)
 
     def send_typing(self) -> None:
         payload = {
@@ -65,6 +69,25 @@ class TelegramNotifier:
             "action": "typing",
         }
         self._post_form(self.send_chat_action_url, payload)
+
+    def send_local_file(self, path: str | Path, *, caption: str = "") -> bool:
+        file_path = Path(path)
+        if not file_path.exists():
+            self._emit_error(f"Telegram local file missing: {file_path}")
+            return False
+        try:
+            file_bytes = file_path.read_bytes()
+        except OSError as exc:
+            self._emit_error(f"Telegram local file read failed: {exc}")
+            return False
+        is_image = file_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+        return self._post_multipart_file(
+            url=self.send_photo_url if is_image else self.send_document_url,
+            field_name="photo" if is_image else "document",
+            file_name=file_path.name,
+            file_bytes=file_bytes,
+            caption=caption,
+        )
 
     def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
         payload = {
@@ -111,6 +134,63 @@ class TelegramNotifier:
             except Exception:
                 body = ""
             self._emit_error(f"Telegram HTTP {exc.code}: {body[:300]}")
+            return False
+        except urllib.error.URLError as exc:
+            self._emit_error(f"Telegram network error: {exc}")
+            return False
+        except (TimeoutError, socket.timeout) as exc:
+            self._emit_error(f"Telegram network timeout: {exc}")
+            return False
+        except OSError as exc:
+            self._emit_error(f"Telegram network os error: {exc}")
+            return False
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            self._emit_error("Telegram response is not JSON.")
+            return False
+        if not parsed.get("ok"):
+            desc = str(parsed.get("description", "unknown"))
+            self._emit_error(f"Telegram API error: {desc}")
+            return False
+        return True
+
+    def _post_multipart_file(
+        self,
+        *,
+        url: str,
+        field_name: str,
+        file_name: str,
+        file_bytes: bytes,
+        caption: str,
+    ) -> bool:
+        boundary = f"----codexautoloop{uuid4().hex}"
+        body = bytearray()
+        body.extend(_multipart_text_part(boundary, "chat_id", self.config.chat_id))
+        if caption.strip():
+            body.extend(_multipart_text_part(boundary, "caption", caption[:900]))
+        body.extend(_multipart_text_part(boundary, "disable_content_type_detection", "false"))
+        body.extend(_multipart_file_part(boundary, field_name, file_name, file_bytes))
+        body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+        req = urllib.request.Request(
+            url,
+            data=bytes(body),
+            method="POST",
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.config.timeout_seconds) as resp:
+                raw = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            body_text = ""
+            try:
+                body_text = exc.read().decode("utf-8")
+            except Exception:
+                body_text = ""
+            self._emit_error(f"Telegram HTTP {exc.code}: {body_text[:300]}")
             return False
         except urllib.error.URLError as exc:
             self._emit_error(f"Telegram network error: {exc}")
@@ -221,6 +301,23 @@ def extract_chat_id_from_update(update: dict[str, Any]) -> str | None:
         if ok and isinstance(value, (int, str)):
             return str(value)
     return None
+
+
+def _multipart_text_part(boundary: str, field: str, value: str) -> bytes:
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"\r\n\r\n'
+        f"{value}\r\n"
+    ).encode("utf-8")
+
+
+def _multipart_file_part(boundary: str, field: str, file_name: str, file_bytes: bytes) -> bytes:
+    safe_name = file_name.replace('"', "_")
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{safe_name}"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode("utf-8") + file_bytes + b"\r\n"
 
 
 def format_event_message(event: dict[str, Any]) -> str:

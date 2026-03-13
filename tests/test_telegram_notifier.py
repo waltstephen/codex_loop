@@ -1,4 +1,5 @@
 import urllib.error
+from pathlib import Path
 
 from codex_autoloop.cli import looks_like_bot_token
 from codex_autoloop.telegram_notifier import (
@@ -76,6 +77,38 @@ def test_typing_disabled_does_not_start_thread() -> None:
 def test_extract_chat_id_from_message_update() -> None:
     update = {"message": {"chat": {"id": 12345}}}
     assert extract_chat_id_from_update(update) == "12345"
+
+
+def test_send_local_file_uses_photo_for_images(tmp_path: Path) -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    calls = []
+    notifier._post_multipart_file = lambda **kwargs: calls.append(kwargs) or True  # type: ignore[attr-defined]
+    image = tmp_path / "preview.png"
+    image.write_bytes(b"png")
+    assert notifier.send_local_file(image, caption="preview") is True
+    assert calls[0]["field_name"] == "photo"
+
+
+def test_send_local_file_uses_document_for_non_images(tmp_path: Path) -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    calls = []
+    notifier._post_multipart_file = lambda **kwargs: calls.append(kwargs) or True  # type: ignore[attr-defined]
+    file_path = tmp_path / "report.md"
+    file_path.write_text("hello", encoding="utf-8")
+    assert notifier.send_local_file(file_path, caption="report") is True
+    assert calls[0]["field_name"] == "document"
 
 
 def test_send_message_timeout_does_not_raise(monkeypatch) -> None:

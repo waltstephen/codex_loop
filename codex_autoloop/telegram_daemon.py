@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .apps.daemon_app import render_plan_context, render_review_context
+from .apps.shell_utils import format_mode_menu
+from .btw_agent import BtwAgent, BtwConfig
+from .codex_runner import CodexRunner
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .model_catalog import MODEL_PRESETS, get_preset
 from .planner_modes import (
@@ -135,8 +139,10 @@ def main() -> None:
     child: subprocess.Popen[str] | None = None
     child_objective: str | None = None
     child_log_path: Path | None = None
+    child_main_prompt_path: Path | None = None
     child_plan_report_path: Path | None = None
     child_plan_todo_path: Path | None = None
+    child_review_summaries_dir: Path | None = None
     child_started_at: dt.datetime | None = None
     child_control_bus: JsonlCommandBus | None = None
     child_run_id: str | None = None
@@ -151,6 +157,25 @@ def main() -> None:
     scheduled_plan_context: dict[str, Any] | None = None
     scheduled_plan_request_at: dt.datetime | None = None
     pending_follow_up: PlanFollowUp | None = None
+    btw_agent = BtwAgent(
+        runner=CodexRunner(),
+        config=BtwConfig(
+            working_dir=str(run_cwd),
+            model=(
+                args.run_planner_model
+                or args.run_reviewer_model
+                or args.run_main_model
+                or (get_preset(args.run_model_preset).reviewer_model if args.run_model_preset and get_preset(args.run_model_preset) else None)
+            ),
+            reasoning_effort=(
+                args.run_planner_reasoning_effort
+                or args.run_reviewer_reasoning_effort
+                or args.run_main_reasoning_effort
+                or (get_preset(args.run_model_preset).reviewer_reasoning_effort if args.run_model_preset and get_preset(args.run_model_preset) else None)
+            ),
+            messages_file=str(logs_dir / "btw_messages.md"),
+        ),
+    )
 
     def log_event(event_type: str, **kwargs) -> None:
         payload = {
@@ -203,8 +228,12 @@ def main() -> None:
                 "child_pid": child.pid if running else None,
                 "child_objective": child_objective,
                 "child_log_path": str(child_log_path) if child_log_path else None,
+                "child_main_prompt_path": str(child_main_prompt_path) if child_main_prompt_path else None,
                 "child_plan_report_path": str(child_plan_report_path) if child_plan_report_path else None,
                 "child_plan_todo_path": str(child_plan_todo_path) if child_plan_todo_path else None,
+                "child_review_summaries_dir": (
+                    str(child_review_summaries_dir) if child_review_summaries_dir else None
+                ),
                 "child_started_at": child_started_at.isoformat() + "Z" if child_started_at else None,
                 "last_session_id": last_session_id,
                 "force_fresh_session": force_fresh_session,
@@ -214,7 +243,12 @@ def main() -> None:
                 "events_log": str(events_log),
                 "run_archive_log": str(run_archive_log),
                 "operator_messages_file": str(operator_messages_path),
+                "child_operator_messages_path": str(operator_messages_path),
                 "plan_mode": plan_mode,
+                "default_plan_mode": args.run_planner_mode,
+                "btw_busy": btw_agent.status_snapshot().busy,
+                "btw_session_id": btw_agent.status_snapshot().session_id,
+                "btw_messages_file": btw_agent.status_snapshot().messages_file,
                 "pending_plan_request": pending_plan_request,
                 "pending_plan_generated_at": (
                     pending_plan_generated_at.isoformat() + "Z" if pending_plan_generated_at else None
@@ -231,13 +265,16 @@ def main() -> None:
     def start_child(objective: str, *, resume_last_session: bool = True) -> None:
         nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
         nonlocal child_run_id, child_control_path, child_resume_session_id
-        nonlocal child_plan_report_path, child_plan_todo_path, pending_follow_up
+        nonlocal child_main_prompt_path, child_plan_report_path, child_plan_todo_path
+        nonlocal child_review_summaries_dir, pending_follow_up
         clear_planner_state(reason="child_started")
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
+        main_prompt_path = logs_dir / f"run-{timestamp}-main-prompt.md"
         plan_report_path = logs_dir / f"run-{timestamp}-plan-report.md"
         plan_todo_path = logs_dir / f"run-{timestamp}-todo.md"
+        review_summaries_dir = logs_dir / f"run-{timestamp}-review"
         messages_path = operator_messages_path
         force_fresh = is_force_fresh_session_requested(args.run_state_file)
         resume_session_id = (
@@ -253,8 +290,10 @@ def main() -> None:
             chat_id=chat_id,
             control_file=str(control_path),
             operator_messages_file=str(messages_path),
+            main_prompt_file=str(main_prompt_path),
             plan_report_file=str(plan_report_path),
             plan_todo_file=str(plan_todo_path),
+            review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
         )
         log_file = log_path.open("w", encoding="utf-8")
@@ -268,8 +307,10 @@ def main() -> None:
         )
         child_objective = objective
         child_log_path = log_path
+        child_main_prompt_path = main_prompt_path
         child_plan_report_path = plan_report_path
         child_plan_todo_path = plan_todo_path
+        child_review_summaries_dir = review_summaries_dir
         child_started_at = dt.datetime.utcnow()
         child_run_id = timestamp
         child_control_path = control_path
@@ -287,8 +328,10 @@ def main() -> None:
             log_path=str(log_path),
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
+            main_prompt_file=str(main_prompt_path),
             plan_report_file=str(plan_report_path),
             plan_todo_file=str(plan_todo_path),
+            review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
             run_id=timestamp,
         )
@@ -401,6 +444,12 @@ def main() -> None:
         if command.kind == "help":
             send_reply(source, help_text())
             return
+        if command.kind == "mode-menu":
+            send_reply(source, format_mode_menu(str(args.run_planner_mode)))
+            return
+        if command.kind == "mode-invalid":
+            send_reply(source, "[daemon] invalid selection. Reply with 1, 2, or 3.")
+            return
         if command.kind == "status":
             last_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
             send_reply(
@@ -409,17 +458,24 @@ def main() -> None:
                     child=child,
                     child_objective=child_objective,
                     child_log_path=child_log_path,
+                    child_main_prompt_path=child_main_prompt_path,
+                    child_plan_report_path=child_plan_report_path,
+                    child_review_summaries_dir=child_review_summaries_dir,
+                    child_operator_messages_path=operator_messages_path,
                     child_started_at=child_started_at,
                     last_session_id=last_session_id,
                     force_fresh_session=is_force_fresh_session_requested(args.run_state_file),
                     plan_mode=plan_mode,
+                    default_planner_mode=str(args.run_planner_mode),
+                    btw_busy=btw_agent.status_snapshot().busy,
+                    btw_session_id=btw_agent.status_snapshot().session_id,
                     pending_plan_request=pending_plan_request,
                     pending_plan_auto_execute_at=pending_plan_auto_execute_at,
                     scheduled_plan_request_at=scheduled_plan_request_at,
                 ),
             )
             return
-        if command.kind == "fresh-session":
+        if command.kind in {"fresh-session", "new"}:
             set_force_fresh_session_marker(
                 args.run_state_file,
                 enabled=True,
@@ -442,6 +498,103 @@ def main() -> None:
             else:
                 send_reply(source, "[daemon] fresh session armed. Next /run will not resume previous session_id.")
             update_status()
+            return
+        if command.kind == "mode":
+            updated_mode = normalize_child_plan_mode(command.text)
+            if updated_mode is None:
+                send_reply(source, "[daemon] invalid mode. Use: off, auto, or record.")
+                return
+            args.run_planner_mode = updated_mode
+            if child is not None and child.poll() is None:
+                if forward_to_child("mode", updated_mode, source):
+                    send_reply(
+                        source,
+                        f"[daemon] plan mode updated to {updated_mode} for future runs and forwarded to active run.",
+                    )
+                else:
+                    send_reply(
+                        source,
+                        f"[daemon] plan mode updated to {updated_mode} for future runs, but active child bus is unavailable.",
+                    )
+            else:
+                send_reply(source, f"[daemon] default plan mode updated to {updated_mode}.")
+            update_status()
+            return
+        if command.kind == "show-main-prompt":
+            send_reply(source, _read_text_file(child_main_prompt_path) or "[daemon] no main prompt markdown available.")
+            return
+        if command.kind == "show-plan":
+            send_reply(source, _read_text_file(child_plan_report_path) or "[daemon] no plan markdown available.")
+            return
+        if command.kind == "show-plan-context":
+            send_reply(
+                source,
+                render_plan_context(
+                    operator_messages_path=operator_messages_path,
+                    plan_overview_path=child_plan_report_path,
+                    plan_mode=str(args.run_planner_mode),
+                ),
+            )
+            return
+        if command.kind == "show-review":
+            target = child_review_summaries_dir / "index.md" if child_review_summaries_dir else None
+            if command.text.strip():
+                if child_review_summaries_dir is None:
+                    send_reply(source, "[daemon] no reviewer summary markdown available.")
+                    return
+                try:
+                    round_index = int(command.text.strip())
+                except ValueError:
+                    send_reply(source, "[daemon] invalid round number for show-review.")
+                    return
+                target = child_review_summaries_dir / f"round-{round_index:03d}.md"
+            send_reply(source, _read_text_file(target) or "[daemon] no reviewer summary markdown available.")
+            return
+        if command.kind == "show-review-context":
+            send_reply(
+                source,
+                render_review_context(
+                    operator_messages_path=operator_messages_path,
+                    review_summaries_dir=child_review_summaries_dir,
+                    state_file=args.run_state_file,
+                    check_commands=args.run_check,
+                ),
+            )
+            return
+        if command.kind == "btw":
+            question = command.text.strip()
+            if not question:
+                send_reply(source, "[btw] missing question.")
+                return
+
+            def on_busy() -> None:
+                send_reply(source, "[btw] side-agent is busy. Wait for the current answer to finish.")
+
+            def on_complete(result) -> None:
+                send_reply(source, result.answer)
+                if source == "telegram" and result.attachments:
+                    for item in result.attachments:
+                        notifier.send_local_file(item.path, caption=item.reason)
+                elif result.attachments:
+                    send_reply(
+                        source,
+                        "[btw] attachments:\n" + "\n".join(f"- {item.path}" for item in result.attachments),
+                    )
+                update_status()
+
+            started = btw_agent.start_async(question=question, on_complete=on_complete, on_busy=on_busy)
+            if started:
+                send_reply(source, "[btw] side-agent started. It will reply when ready.")
+                update_status()
+            return
+        if command.kind in {"plan", "review"}:
+            if child is None or child.poll() is not None:
+                send_reply(source, f"[daemon] no active run for targeted {command.kind} command.")
+                return
+            if forward_to_child(command.kind, command.text.strip(), source):
+                send_reply(source, f"[daemon] {command.kind} forwarded to active run.")
+            else:
+                send_reply(source, "[daemon] active run exists but child control bus unavailable.")
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
@@ -665,7 +818,7 @@ def main() -> None:
     notifier.send_message(
         "[daemon] online\n"
         "Send /run <objective> to start a new run.\n"
-        "Commands: /status /stop /fresh /help"
+        "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
     )
     log_event(
         "daemon.started",
@@ -807,8 +960,10 @@ def build_child_command(
     chat_id: str,
     control_file: str,
     operator_messages_file: str,
+    main_prompt_file: str = "",
     plan_report_file: str,
     plan_todo_file: str,
+    review_summaries_dir: str = "",
     resume_session_id: str | None,
 ) -> list[str]:
     planner_mode = resolve_planner_mode(planner_enabled_flag=args.run_planner, planner_mode=args.run_planner_mode)
@@ -833,10 +988,14 @@ def build_child_command(
         control_file,
         "--operator-messages-file",
         operator_messages_file,
+        "--main-prompt-file",
+        main_prompt_file or "",
         "--plan-report-file",
         plan_report_file,
         "--plan-todo-file",
         plan_todo_file,
+        "--review-summaries-dir",
+        review_summaries_dir or "",
         "--telegram-control-whisper-model",
         args.telegram_control_whisper_model,
         "--telegram-control-whisper-base-url",
@@ -895,20 +1054,37 @@ def format_status(
     child: subprocess.Popen[str] | None,
     child_objective: str | None,
     child_log_path: Path | None,
-    child_started_at: dt.datetime | None,
+    child_main_prompt_path: Path | None = None,
+    child_plan_report_path: Path | None = None,
+    child_review_summaries_dir: Path | None = None,
+    child_operator_messages_path: Path | None = None,
+    child_started_at: dt.datetime | None = None,
     last_session_id: str | None = None,
     force_fresh_session: bool = False,
     plan_mode: str = PLAN_MODE_FULLY_PLAN,
+    default_planner_mode: str = PLANNER_MODE_AUTO,
+    btw_busy: bool = False,
+    btw_session_id: str | None = None,
     pending_plan_request: str | None = None,
     pending_plan_auto_execute_at: dt.datetime | None = None,
     scheduled_plan_request_at: dt.datetime | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
-        base = f"[daemon] status=idle\nplan_mode={plan_mode}"
+        base = f"[daemon] status=idle\nplan_mode={plan_mode}\ndefault_planner_mode={default_planner_mode}"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
         if force_fresh_session:
             base += "\nforce_fresh_session=true"
+        base += f"\nbtw_busy={btw_busy}"
+        base += f"\nbtw_session_id={btw_session_id}"
+        if child_main_prompt_path:
+            base += f"\nmain_prompt={child_main_prompt_path}"
+        if child_plan_report_path:
+            base += f"\nplan_report={child_plan_report_path}"
+        if child_operator_messages_path:
+            base += f"\noperator_messages={child_operator_messages_path}"
+        if child_review_summaries_dir:
+            base += f"\nreview_summaries_dir={child_review_summaries_dir}"
         if scheduled_plan_request_at is not None:
             base += f"\nplan_request_at={scheduled_plan_request_at.isoformat()}Z"
         if pending_plan_request:
@@ -923,11 +1099,18 @@ def format_status(
     return (
         "[daemon] status=running\n"
         f"plan_mode={plan_mode}\n"
+        f"default_planner_mode={default_planner_mode}\n"
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
         f"last_session_id={last_session_id}\n"
         f"force_fresh_session={str(force_fresh_session).lower()}\n"
+        f"btw_busy={btw_busy}\n"
+        f"btw_session_id={btw_session_id}\n"
         f"objective={str(child_objective or '')[:700]}\n"
+        f"operator_messages={child_operator_messages_path}\n"
+        f"main_prompt={child_main_prompt_path}\n"
+        f"plan_report={child_plan_report_path}\n"
+        f"review_summaries_dir={child_review_summaries_dir}\n"
         f"log={child_log_path}"
     )
 
@@ -1086,6 +1269,25 @@ def build_modified_follow_up_objective(*, base_objective: str, user_text: str) -
 def normalize_plan_mode(raw: str | None) -> str:
     value = (raw or PLAN_MODE_FULLY_PLAN).strip().lower()
     return value if value in PLAN_MODES else PLAN_MODE_FULLY_PLAN
+
+
+def normalize_child_plan_mode(raw: str | None) -> str | None:
+    value = (raw or "").strip().lower()
+    if value in PLANNER_MODE_CHOICES:
+        return value
+    return None
+
+
+def _read_text_file(path: str | Path | None) -> str | None:
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        return p.read_text(encoding="utf-8")
+    except OSError:
+        return None
 
 
 def should_schedule_plan_follow_up(*, exit_code: int, state_payload: dict[str, Any] | None) -> tuple[bool, str | None]:
@@ -1260,8 +1462,19 @@ def _table_cell(value: str) -> str:
 def help_text() -> str:
     return (
         "[daemon] commands\n"
-        "/run <objective> - start a new codex-autoloop run\n"
+        "/run <objective> - start a new ArgusBot run\n"
         "/inject <instruction> - inject instruction to active run (or run if idle)\n"
+        "/new - force the next /run to start in a fresh main session\n"
+        "/mode - show a mode selection menu\n"
+        "/mode <off|auto|record> - hot-switch daemon default planner mode and active child mode\n"
+        "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
+        "/plan <direction> - send direction to the active plan agent only\n"
+        "/review <criteria> - send audit criteria to the active reviewer only\n"
+        "/show-main-prompt - print the latest main prompt markdown\n"
+        "/show-plan - print the latest plan markdown\n"
+        "/show-plan-context - print current plan directions and inputs\n"
+        "/show-review [round] - print reviewer summary markdown\n"
+        "/show-review-context - print current reviewer direction, checks, and criteria\n"
         "/status - daemon + child status\n"
         "/stop - stop active run\n"
         "/fresh - force next run to use a fresh session (ignore saved session_id)\n"
@@ -1278,7 +1491,7 @@ def build_parser() -> argparse.ArgumentParser:
     preset_names = ", ".join(p.name for p in MODEL_PRESETS)
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-telegram-daemon",
-        description="Keep a Telegram command daemon online and launch codex-autoloop runs on demand.",
+        description="Keep an ArgusBot Telegram command daemon online and launch runs on demand.",
     )
     parser.add_argument("--telegram-bot-token", required=True, help="Telegram bot token.")
     parser.add_argument(
@@ -1336,9 +1549,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-cd",
         default=".",
-        help="Working directory for child codex-autoloop runs.",
+        help="Working directory for child ArgusBot runs.",
     )
-    parser.add_argument("--run-max-rounds", type=int, default=500, help="Child codex-autoloop max rounds.")
+    parser.add_argument("--run-max-rounds", type=int, default=500, help="Child ArgusBot max rounds.")
     parser.add_argument(
         "--run-model-preset",
         default=None,

@@ -87,17 +87,6 @@ def main() -> None:
             reviewer_reasoning_effort = prompt_reasoning_effort(
                 "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): "
             )
-            reviewer_model = prompt_input(
-                "Reviewer agent model (optional): ",
-                default="gpt-5.2-codex",
-            ).strip() or None
-            reviewer_reasoning_effort = (
-                prompt_input(
-                    "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
-                    default="xhigh",
-                ).strip()
-                or None
-            )
     planner_mode = args.run_planner_mode
     if planner_mode is None:
         planner_mode = prompt_planner_mode_choice()
@@ -325,47 +314,31 @@ def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
     if pid_path.exists():
         existing_pid = pid_path.read_text(encoding="utf-8").strip()
         if existing_pid and existing_pid.isdigit():
-            daemon_running = subprocess.run(
-                ["kill", "-0", existing_pid],
-                capture_output=True,
-                text=True,
-            ).returncode == 0
+            daemon_running = _is_pid_running(existing_pid)
     if not daemon_running:
         return
 
     ctl_bin = shutil.which("codex-autoloop-daemon-ctl")
     if ctl_bin:
-        subprocess.run(
+        _run_quiet(
             [ctl_bin, "--bus-dir", str(bus_dir), "daemon-stop"],
-            capture_output=True,
-            text=True,
             timeout=10,
         )
     else:
-        subprocess.run(
+        _run_quiet(
             [sys.executable, "-m", "codex_autoloop.daemon_ctl", "--bus-dir", str(bus_dir), "daemon-stop"],
-            capture_output=True,
-            text=True,
             timeout=10,
         )
 
     if existing_pid and existing_pid.isdigit():
         time.sleep(1.0)
-        still_running = subprocess.run(
-            ["kill", "-0", existing_pid],
-            capture_output=True,
-            text=True,
-        ).returncode == 0
+        still_running = _is_pid_running(existing_pid)
         if still_running:
-            subprocess.run(["kill", existing_pid], capture_output=True, text=True, timeout=5)
+            _terminate_pid(existing_pid, force=False)
             time.sleep(1.0)
-            still_running = subprocess.run(
-                ["kill", "-0", existing_pid],
-                capture_output=True,
-                text=True,
-            ).returncode == 0
+            still_running = _is_pid_running(existing_pid)
             if still_running:
-                subprocess.run(["kill", "-9", existing_pid], capture_output=True, text=True, timeout=5)
+                _terminate_pid(existing_pid, force=True)
 
     try:
         pid_path.unlink(missing_ok=True)
@@ -381,6 +354,49 @@ def read_log_tail(path: Path, max_lines: int) -> str:
     if len(lines) <= max_lines:
         return "\n".join(lines)
     return "\n".join(lines[-max_lines:])
+
+
+def _is_pid_running(pid: str) -> bool:
+    if os.name == "nt":
+        completed = _run_quiet(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            timeout=10,
+        )
+        if completed is None:
+            return True
+        if completed.returncode != 0:
+            return False
+        return pid in (completed.stdout or "")
+    completed = _run_quiet(
+        ["kill", "-0", pid],
+        timeout=10,
+    )
+    if completed is None:
+        return True
+    return completed.returncode == 0
+
+
+def _terminate_pid(pid: str, *, force: bool) -> None:
+    if os.name == "nt":
+        cmd = ["taskkill", "/PID", pid]
+        if force:
+            cmd.append("/F")
+        _run_quiet(cmd, timeout=10)
+        return
+    cmd = ["kill", "-9", pid] if force else ["kill", pid]
+    _run_quiet(cmd, timeout=10)
+
+
+def _run_quiet(args: list[str], *, timeout: int):
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -478,7 +494,7 @@ def prompt_planner_mode_choice() -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-setup",
-        description="Interactive setup: verify codex, collect Telegram token, and launch daemon in background.",
+        description="Interactive ArgusBot setup: verify codex, collect Telegram token, and launch daemon in background.",
     )
     parser.add_argument(
         "--home-dir",
@@ -488,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-cd",
         default=".",
-        help="Working directory for launched codex-autoloop runs.",
+        help="Working directory for launched ArgusBot runs.",
     )
     parser.add_argument("--run-max-rounds", type=int, default=100, help="Default max rounds for daemon-launched runs.")
     parser.add_argument(

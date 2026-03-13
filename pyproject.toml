@@ -3,14 +3,20 @@ requires = ["setuptools>=69.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "codex-autoloop"
+name = "ArgusBot"
 version = "0.1.0"
-description = "Supervisor loop for Codex CLI with reviewer sub-agent gating."
+description = "ArgusBot supervisor loop for Codex CLI with reviewer and planner gating."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
+argusbot = "codex_autoloop.codexloop:main"
+argusbot-run = "codex_autoloop.cli:main"
+argusbot-daemon = "codex_autoloop.telegram_daemon:main"
+argusbot-daemon-ctl = "codex_autoloop.daemon_ctl:main"
+argusbot-setup = "codex_autoloop.setup_wizard:main"
+argusbot-models = "codex_autoloop.model_catalog:main"
 codexloop = "codex_autoloop.codexloop:main"
 codex-autoloop = "codex_autoloop.cli:main"
 codex-autoloop-telegram-daemon = "codex_autoloop.telegram_daemon:main"

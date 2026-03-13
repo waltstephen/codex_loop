@@ -1,4 +1,6 @@
 from codex_autoloop.telegram_control import (
+    TelegramCommand,
+    TelegramCommandPoller,
     TelegramWhisperTranscriber,
     extract_audio_file_from_message,
     parse_command_from_update,
@@ -36,6 +38,16 @@ def _wrap_callback(data: str, chat_id: int = 100) -> dict:
             },
         },
     }
+
+
+def test_parse_new_command() -> None:
+    cmd = parse_command_from_update(
+        update=_wrap("/new"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert cmd is not None
+    assert cmd.kind == "new"
 
 
 def test_parse_inject_command() -> None:
@@ -82,6 +94,100 @@ def test_parse_fresh_session_command() -> None:
     )
     assert cmd is not None
     assert cmd.kind == "fresh-session"
+
+
+def test_parse_mode_command() -> None:
+    cmd = parse_command_from_update(
+        update=_wrap("/mode record"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert cmd is not None
+    assert cmd.kind == "mode"
+    assert cmd.text == "record"
+
+
+def test_parse_mode_menu_command() -> None:
+    cmd = parse_command_from_update(
+        update=_wrap("/mode"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert cmd is not None
+    assert cmd.kind == "mode-menu"
+
+
+def test_parse_btw_command() -> None:
+    cmd = parse_command_from_update(
+        update=_wrap("/btw 这个项目的 planner 怎么接的"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert cmd is not None
+    assert cmd.kind == "btw"
+
+
+def test_parse_plan_and_review_commands() -> None:
+    plan = parse_command_from_update(
+        update=_wrap("/plan focus on state persistence"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    review = parse_command_from_update(
+        update=_wrap("/review must pass pytest -q"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert plan is not None and plan.kind == "plan"
+    assert review is not None and review.kind == "review"
+
+
+def test_parse_show_commands() -> None:
+    show_main = parse_command_from_update(
+        update=_wrap("/show-main-prompt"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    show_plan = parse_command_from_update(
+        update=_wrap("/show-plan"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    show_plan_context = parse_command_from_update(
+        update=_wrap("/show-plan-context"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    show_review = parse_command_from_update(
+        update=_wrap("/show-review 3"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    show_review_context = parse_command_from_update(
+        update=_wrap("/show-review-context"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert show_main is not None and show_main.kind == "show-main-prompt"
+    assert show_plan is not None and show_plan.kind == "show-plan"
+    assert show_plan_context is not None and show_plan_context.kind == "show-plan-context"
+    assert show_review is not None and show_review.kind == "show-review" and show_review.text == "3"
+    assert show_review_context is not None and show_review_context.kind == "show-review-context"
+
+
+def test_parse_help_with_cjk_punctuation_prefix() -> None:
+    help_cmd = parse_command_from_update(
+        update=_wrap("、help"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    status_cmd = parse_command_from_update(
+        update=_wrap("／status"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert help_cmd is not None and help_cmd.kind == "help"
+    assert status_cmd is not None and status_cmd.kind == "status"
 
 
 def test_parse_daemon_stop() -> None:
@@ -189,3 +295,48 @@ def test_whisper_transcriber_missing_key_reports_once() -> None:
     assert second is None
     assert len(errors) == 1
     assert "missing OPENAI_API_KEY" in errors[0]
+
+
+def test_fetch_updates_timeout_is_reported(monkeypatch) -> None:
+    errors: list[str] = []
+    poller = TelegramCommandPoller(
+        bot_token="123:abc",
+        chat_id="100",
+        on_command=lambda command: None,
+        on_error=errors.append,
+    )
+
+    def fake_urlopen(req, timeout):  # type: ignore[no-untyped-def]
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("codex_autoloop.telegram_control.urllib.request.urlopen", fake_urlopen)
+    assert poller._fetch_updates() is None
+    assert errors
+    assert "network error" in errors[0]
+
+
+def test_run_loop_survives_unexpected_fetch_error(monkeypatch) -> None:
+    errors: list[str] = []
+    commands: list[TelegramCommand] = []
+    poller = TelegramCommandPoller(
+        bot_token="123:abc",
+        chat_id="100",
+        on_command=commands.append,
+        on_error=errors.append,
+        poll_interval_seconds=1,
+    )
+    calls = {"count": 0}
+
+    def fake_fetch_updates():
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("boom")
+        poller._stop_event.set()
+        return []
+
+    monkeypatch.setattr(poller, "_fetch_updates", fake_fetch_updates)
+    poller._run()
+    assert calls["count"] == 2
+    assert errors
+    assert "unexpected error" in errors[0]
+    assert commands == []

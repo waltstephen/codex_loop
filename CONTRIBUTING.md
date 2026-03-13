@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving `codex-autoloop`.
+Thanks for your interest in improving `ArgusBot`.
 
 ## How to Contribute
 
@@ -19,7 +19,7 @@ Thanks for your interest in improving `codex-autoloop`.
 
 ## Project Contributors
 
-- Yijia Fan: [https://github.com/waltstephen/codex_loop](https://github.com/waltstephen/codex_loop)
+- Yijia Fan: original migration source for ArgusBot.
 - Zimo Wen: [https://github.com/nssmd](https://github.com/nssmd)
 - Boxiu Li: [https://github.com/lbx154](https://github.com/lbx154)
 

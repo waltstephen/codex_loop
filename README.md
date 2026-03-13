@@ -1,9 +1,9 @@
-# codex-autoloop
+# ArgusBot
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
 
-`codex-autoloop` is a Python supervisor plugin for Codex CLI:
+`ArgusBot` is a Python supervisor plugin for Codex CLI:
 
 - Main agent executes the task (`codex exec` or `codex exec resume`)
 - Reviewer sub-agent evaluates completion (`done` / `continue` / `blocked`)
@@ -37,9 +37,9 @@ Prerequisites and cost notes:
 Example:
 
 ```bash
-# 1) clone + install codex-autoloop
-git clone https://github.com/waltstephen/codex_loop.git
-cd codex_loop
+# 1) clone + install ArgusBot
+git clone <your-ArgusBot-repo-url> ArgusBot
+cd ArgusBot
 python -m pip install -e .
 
 # 2) go to your main project
@@ -445,12 +445,12 @@ The wizard now lets you choose either:
 
 ## Example: Use in another project (`newproject`) with sanitized paths
 
-Use this pattern when `codex_loop` is cloned under a different workspace and you want the daemon to run tasks in `newproject`.
+Use this pattern when `ArgusBot` is cloned under a different workspace and you want the daemon to run tasks in `newproject`.
 
 ```bash
 # Replace with your own locations (public-safe placeholders)
 export WORKSPACE_ROOT="/path/to/workspace"
-export LOOP_REPO="$WORKSPACE_ROOT/codex_loop"
+export LOOP_REPO="$WORKSPACE_ROOT/ArgusBot"
 export TARGET_REPO="$WORKSPACE_ROOT/newproject"
 
 cd "$TARGET_REPO"
@@ -520,4 +520,4 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=waltstephen/codex_loop&type=Date)](https://www.star-history.com/#waltstephen/codex_loop&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=ArgusBot&type=Date)](https://www.star-history.com/#ArgusBot&Date)

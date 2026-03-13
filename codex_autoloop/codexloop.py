@@ -130,7 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codexloop",
         description=(
-            "Single-word entrypoint for codex-autoloop daemon. "
+            "Single-word entrypoint for the ArgusBot daemon. "
             "First run configures + starts daemon, later runs attach and monitor."
         ),
     )

@@ -116,7 +116,7 @@ MODEL_PRESETS: list[ModelPreset] = [
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-models",
-        description="List supported model presets and common model names for codex-autoloop.",
+        description="List supported model presets and common model names for ArgusBot.",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON.")
     args = parser.parse_args()

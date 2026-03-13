@@ -30,7 +30,7 @@ def main() -> None:
 
     if args.subcommand == "show-plan":
         payload = load_status_for_cli(status_path, require_live=True)
-        plan_path = payload.get("child_plan_overview_path")
+        plan_path = payload.get("child_plan_report_path") or payload.get("child_plan_overview_path")
         print(read_required_text_artifact(plan_path, label="plan overview"))
         raise SystemExit(0)
 
@@ -44,9 +44,9 @@ def main() -> None:
         payload = load_status_for_cli(status_path, require_live=True)
         print(
             render_plan_context(
-                operator_messages_path=payload.get("child_operator_messages_path"),
-                plan_overview_path=payload.get("child_plan_overview_path"),
-                plan_mode=str(payload.get("default_plan_mode", "auto")),
+                operator_messages_path=payload.get("child_operator_messages_path") or payload.get("operator_messages_file"),
+                plan_overview_path=payload.get("child_plan_report_path") or payload.get("child_plan_overview_path"),
+                plan_mode=str(payload.get("default_plan_mode") or payload.get("plan_mode") or "auto"),
             )
         )
         raise SystemExit(0)
@@ -73,7 +73,7 @@ def main() -> None:
         payload = load_status_for_cli(status_path, require_live=True)
         print(
             render_review_context(
-                operator_messages_path=payload.get("child_operator_messages_path"),
+                operator_messages_path=payload.get("child_operator_messages_path") or payload.get("operator_messages_file"),
                 review_summaries_dir=payload.get("child_review_summaries_dir"),
                 state_file=payload.get("run_state_file"),
                 check_commands=list(payload.get("run_check", [])) if isinstance(payload.get("run_check"), list) else [],
@@ -213,7 +213,7 @@ def _print_error(message: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codex-autoloop-daemon-ctl",
-        description="Send terminal commands to codex-autoloop telegram daemon.",
+        description="Send terminal commands to the ArgusBot Telegram daemon.",
     )
     parser.add_argument(
         "--bus-dir",

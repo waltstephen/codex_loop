@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from codex_autoloop import setup_wizard
 
@@ -19,6 +20,40 @@ def test_resolve_daemon_ctl_hint_fallback(monkeypatch) -> None:
 
 def test_stop_existing_daemon_no_pid_file(tmp_path: Path) -> None:
     setup_wizard.stop_existing_daemon(home_dir=tmp_path, bus_dir=tmp_path / "bus")
+
+
+def test_is_pid_running_timeout_is_treated_as_running(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(setup_wizard, "_run_quiet", lambda args, timeout: None)
+    assert setup_wizard._is_pid_running("123") is True
+
+
+def test_stop_existing_daemon_tolerates_probe_timeout(monkeypatch, tmp_path: Path) -> None:
+    pid_path = tmp_path / "daemon.pid"
+    pid_path.write_text("33580", encoding="utf-8")
+    monkeypatch.setattr(setup_wizard, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(setup_wizard.shutil, "which", lambda name: None)
+    monkeypatch.setattr(setup_wizard.time, "sleep", lambda seconds: None)
+
+    calls: list[tuple[str, bool]] = []
+    probe_results = iter([True, True, True])
+
+    monkeypatch.setattr(setup_wizard, "_is_pid_running", lambda pid: next(probe_results))
+    monkeypatch.setattr(
+        setup_wizard,
+        "_terminate_pid",
+        lambda pid, force: calls.append((pid, force)),
+    )
+    monkeypatch.setattr(
+        setup_wizard,
+        "_run_quiet",
+        lambda args, timeout: calls.append((" ".join(args), False)),
+    )
+    setup_wizard.stop_existing_daemon(home_dir=tmp_path, bus_dir=tmp_path / "bus")
+    assert not pid_path.exists()
+    assert any(isinstance(item[0], str) and "codex_autoloop.daemon_ctl" in item[0] for item in calls)
+    assert ("33580", False) in calls
+    assert ("33580", True) in calls
 
 
 def test_prompt_model_choice_default(monkeypatch) -> None:

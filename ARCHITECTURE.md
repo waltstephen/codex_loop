@@ -1,4 +1,4 @@
-# codex-autoloop Architecture
+# ArgusBot Architecture
 
 ## Goals
 
@@ -115,7 +115,7 @@ CLI args
 Telegram or terminal command
   -> adapters.control_channels
   -> apps.daemon_app
-  -> child codex-autoloop process
+  -> child ArgusBot process
   -> child status/log/state files
   -> Telegram notifier / daemon status file
 ```

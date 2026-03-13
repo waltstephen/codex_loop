@@ -1,6 +1,6 @@
 # Agent Memory, Telegram, and Execution Flow
 
-This document summarizes the current `codex-autoloop` implementation after the Plan Agent integration.
+This document summarizes the current `ArgusBot` implementation after the Plan Agent integration.
 
 ## 1. Current Agents and Their Memory
 
@@ -89,7 +89,7 @@ Persistence:
 
 ## 2. Current Persistent Record Files
 
-These are the current record/working-memory artifacts in `codex-autoloop`:
+These are the current record/working-memory artifacts in `ArgusBot`:
 
 - `operator_messages.md`
   - All recorded operator input.
@@ -307,7 +307,7 @@ The loop stops when one of these is true:
 
 ## 5. Important Reality Check
 
-Current `codex-autoloop` memory is best described as:
+Current `ArgusBot` memory is best described as:
 
 - **persistent execution state**
 - **persistent summaries**

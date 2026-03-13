@@ -1,6 +1,6 @@
 # Agent 记忆、Telegram 功能与执行流程
 
-这份文档总结当前 `codex-autoloop` 在接入 Plan Agent 之后的实现状态。
+这份文档总结当前 `ArgusBot` 在接入 Plan Agent 之后的实现状态。
 
 ## 1. 当前有哪些 Agent，以及它们的记忆来自哪里
 
@@ -89,7 +89,7 @@
 
 ## 2. 当前有哪些持久化记录文件
 
-现在 `codex-autoloop` 里已经实现的记录/工作记忆文件包括：
+现在 `ArgusBot` 里已经实现的记录/工作记忆文件包括：
 
 - `operator_messages.md`
   - 记录所有 operator 输入。
@@ -307,7 +307,7 @@
 
 ## 5. 当前实现的现实边界
 
-现在 `codex-autoloop` 的记忆更准确地说是：
+现在 `ArgusBot` 的记忆更准确地说是：
 
 - **持久化执行状态**
 - **持久化总结文档**
