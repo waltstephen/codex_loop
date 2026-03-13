@@ -22,6 +22,12 @@ Current defaults:
 
 If you want to control your main project from Telegram 24/7 with an always-on daemon, use this flow:
 
+Prerequisites and cost notes:
+
+- You must have Codex CLI installed and authenticated first (make sure `codex` works before running `codexloop init`).
+- For 24/7 daemon operation, choosing `high` or `xhigh` reasoning can lead to token usage close to running one Codex session continuously for 24 hours. Plan budget carefully.
+- `medium` reasoning is usually a good quality/cost tradeoff for long-running background control.
+
 1. Clone this repo and install it in editable mode.
 2. Go to your target project directory (the repo you actually want to operate on).
 3. Run `codexloop init` and complete Telegram/model setup prompts.
@@ -424,6 +430,7 @@ Note:
 
 - `gpt-5.4` is the model name.
 - `high` is the reasoning effort level, not part of the model name.
+- For always-on daemon use, `medium` is often the safer default for token cost while keeping solid quality.
 
 Daemon overrides:
 
