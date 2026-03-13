@@ -47,6 +47,7 @@ def test_build_child_command_includes_core_args() -> None:
         chat_id="42",
         control_file="/tmp/control.jsonl",
         operator_messages_file="/tmp/operator_messages.md",
+        main_prompt_file="/tmp/main_prompt.md",
         plan_overview_file="/tmp/plan_overview.md",
         review_summaries_dir="/tmp/reviews",
         resume_session_id="thread123",
@@ -56,6 +57,7 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--telegram-chat-id" in cmd
     assert "--control-file" in cmd
     assert "--operator-messages-file" in cmd
+    assert "--main-prompt-file" in cmd
     assert "--plan-overview-file" in cmd
     assert "--review-summaries-dir" in cmd
     assert "--plan-mode" in cmd

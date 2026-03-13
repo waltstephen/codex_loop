@@ -63,6 +63,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         operator_messages_file=operator_messages_file,
         plan_overview_file=plan_overview_file,
         review_summaries_dir=review_summaries_dir,
+        main_prompt_file=args.main_prompt_file,
         check_commands=args.check or [],
         plan_mode=args.plan_mode,
     )
@@ -275,6 +276,10 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             doc = state_store.read_plan_overview_markdown()
             reply_to_source(command.source, doc or "[autoloop] no plan overview markdown available yet.")
             return
+        if command.kind == "show-main-prompt":
+            doc = state_store.read_main_prompt_markdown()
+            reply_to_source(command.source, doc or "[autoloop] no main prompt markdown available yet.")
+            return
         if command.kind == "show-review":
             round_index = None
             raw = command.text.strip()
@@ -356,6 +361,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             "session_id": result.session_id,
             "stop_reason": result.stop_reason,
             "plan_mode": args.plan_mode,
+            "main_prompt_file": state_store.main_prompt_path(),
             "plan_overview_file": state_store.plan_overview_path(),
             "review_summaries_dir": state_store.review_summaries_dir(),
             "rounds": [

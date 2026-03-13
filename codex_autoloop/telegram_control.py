@@ -216,7 +216,12 @@ class TelegramCommandPoller:
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
-            updates = self._fetch_updates()
+            try:
+                updates = self._fetch_updates()
+            except Exception as exc:
+                self._emit_error(f"telegram getUpdates unexpected error: {exc}")
+                self._stop_event.wait(self.poll_interval_seconds)
+                continue
             if updates is None:
                 self._stop_event.wait(self.poll_interval_seconds)
                 continue
@@ -281,7 +286,7 @@ class TelegramCommandPoller:
         try:
             with urllib.request.urlopen(req, timeout=self.long_poll_timeout_seconds + 10) as resp:
                 raw = resp.read().decode("utf-8")
-        except urllib.error.URLError as exc:
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
             self._emit_error(f"telegram getUpdates network error: {exc}")
             return None
 
@@ -398,6 +403,8 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return None
     if lowered.startswith("/criteria "):
         return TelegramCommand(kind="review", text=content[len("/criteria ") :].strip())
+    if lowered in {"/show-main-prompt", "/main-prompt"}:
+        return TelegramCommand(kind="show-main-prompt", text="")
     if lowered in {"/show-plan", "/plan-md"}:
         return TelegramCommand(kind="show-plan", text="")
     if lowered in {"/show-plan-context", "/plan-context"}:

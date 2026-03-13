@@ -27,6 +27,7 @@ class LoopStateStore:
         operator_messages_file: str | None = None,
         plan_overview_file: str | None = None,
         review_summaries_dir: str | None = None,
+        main_prompt_file: str | None = None,
         check_commands: list[str] | None = None,
         plan_mode: PlanMode = "off",
     ) -> None:
@@ -36,6 +37,7 @@ class LoopStateStore:
         self._operator_messages_file = operator_messages_file
         self._plan_overview_file = plan_overview_file
         self._review_summaries_dir = review_summaries_dir
+        self._main_prompt_file = main_prompt_file
         self._check_commands = list(check_commands or [])
         self._plan_mode = plan_mode
         self._interrupt_reason: str | None = None
@@ -56,6 +58,7 @@ class LoopStateStore:
             "plan_mode": plan_mode,
             "plan_overview_file": plan_overview_file,
             "review_summaries_dir": review_summaries_dir,
+            "main_prompt_file": main_prompt_file,
             "latest_plan_next_explore": None,
         }
 
@@ -278,17 +281,44 @@ class LoopStateStore:
             return self._read_text_file(base / "index.md")
         return self._read_text_file(base / f"round-{round_index:03d}.md")
 
+    def read_main_prompt_markdown(self) -> str | None:
+        return self._read_text_file(self._main_prompt_file)
+
     def plan_overview_path(self) -> str | None:
         return self._plan_overview_file
 
     def review_summaries_dir(self) -> str | None:
         return self._review_summaries_dir
 
+    def main_prompt_path(self) -> str | None:
+        return self._main_prompt_file
+
     def latest_plan_overview(self) -> str:
         if self._latest_plan is not None and self._latest_plan.overview_markdown.strip():
             return self._latest_plan.overview_markdown
         path_text = self.read_plan_overview_markdown()
         return path_text or ""
+
+    def record_main_prompt(self, *, round_index: int, phase: str, prompt: str) -> None:
+        if not self._main_prompt_file:
+            return
+        with self._lock:
+            path = Path(self._main_prompt_file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lines = [
+                "# Main Prompt",
+                "",
+                f"- Updated At: `{self._now()}`",
+                f"- Round: `{round_index}`",
+                f"- Phase: `{phase}`",
+                f"- Session ID: `{self._session_id or self._runtime.get('session_id') or '-'}`",
+                "",
+                "## Prompt",
+                "",
+                prompt.strip(),
+                "",
+            ]
+            path.write_text("\n".join(lines), encoding="utf-8")
 
     def render_plan_context_markdown(self) -> str:
         with self._lock:
@@ -372,6 +402,7 @@ class LoopStateStore:
             "success": self._runtime["success"],
             "stop_reason": self._runtime["stop_reason"],
             "plan_mode": self._plan_mode,
+            "main_prompt_file": self._main_prompt_file,
             "plan_overview_file": self._plan_overview_file,
             "review_summaries_dir": self._review_summaries_dir,
             "latest_plan": asdict(self._latest_plan) if self._latest_plan else None,

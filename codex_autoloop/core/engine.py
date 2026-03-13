@@ -86,6 +86,7 @@ class LoopEngine:
             plan=current_plan,
             plan_mode=self._current_plan_mode(),
         )
+        next_main_prompt_phase = "initial"
 
         for round_index in range(1, self.config.max_rounds + 1):
             if self.state_store.is_stop_requested():
@@ -105,6 +106,11 @@ class LoopEngine:
                     "round_index": round_index,
                     "session_id": session_id,
                 }
+            )
+            self.state_store.record_main_prompt(
+                round_index=round_index,
+                phase=next_main_prompt_phase,
+                prompt=next_main_prompt,
             )
             main_result = self.runner.run_exec(
                 prompt=next_main_prompt,
@@ -213,6 +219,7 @@ class LoopEngine:
                         plan=current_plan,
                         plan_mode=self._current_plan_mode(),
                     )
+                    next_main_prompt_phase = "operator-override"
                 else:
                     next_main_prompt = self._build_continue_prompt(
                         objective=self.config.objective,
@@ -222,6 +229,7 @@ class LoopEngine:
                         plan=current_plan,
                         plan_mode=self._current_plan_mode(),
                     )
+                    next_main_prompt_phase = "continue"
                 continue
 
             checks = run_checks(self.config.check_commands or [], self.config.check_timeout_seconds)
@@ -327,6 +335,7 @@ class LoopEngine:
                     operator_messages=self.state_store.list_messages_for_role("main"),
                     plan=current_plan,
                 )
+                next_main_prompt_phase = "follow-up"
                 continue
 
             if review.status == "blocked":
@@ -363,6 +372,7 @@ class LoopEngine:
                 plan=current_plan,
                 plan_mode=self._current_plan_mode(),
             )
+            next_main_prompt_phase = "continue"
 
         return self._complete(
             success=False,

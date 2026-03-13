@@ -43,6 +43,17 @@ def test_control_state_writes_markdown_doc(tmp_path) -> None:
     assert "fix test" in content
 
 
+def test_state_store_writes_main_prompt_markdown(tmp_path) -> None:
+    prompt_path = tmp_path / "main_prompt.md"
+    state = LoopStateStore(objective="ship", main_prompt_file=str(prompt_path), plan_mode="off")
+    state.record_main_prompt(round_index=1, phase="initial", prompt="Objective:\nship\n")
+    content = prompt_path.read_text(encoding="utf-8")
+    assert "# Main Prompt" in content
+    assert "Round: `1`" in content
+    assert "Phase: `initial`" in content
+    assert "Objective:" in content
+
+
 def test_targeted_messages_respect_audience() -> None:
     state = LoopControlState()
     state.record_message(text="shared", source="terminal", kind="note", audience="broadcast")

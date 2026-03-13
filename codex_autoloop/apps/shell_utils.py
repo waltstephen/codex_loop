@@ -99,6 +99,7 @@ def format_control_status(state: dict[str, Any]) -> str:
     stop_reason = state.get("stop_reason")
     plan_mode = state.get("plan_mode")
     latest_plan_next_explore = state.get("latest_plan_next_explore")
+    main_prompt_file = state.get("main_prompt_file")
     plan_overview_file = state.get("plan_overview_file")
     review_summaries_dir = state.get("review_summaries_dir")
     lines = [
@@ -115,6 +116,8 @@ def format_control_status(state: dict[str, Any]) -> str:
         lines.append(f"success={success}")
     if stop_reason:
         lines.append(f"stop_reason={stop_reason}")
+    if main_prompt_file:
+        lines.append(f"main_prompt_file={main_prompt_file}")
     if plan_overview_file:
         lines.append(f"plan_overview_file={plan_overview_file}")
     if review_summaries_dir:
@@ -132,6 +135,7 @@ def control_help_text() -> str:
         "/btw <question> - ask the side-agent a read-only question about the current project\n"
         "/plan <direction> - send extension/direction input to the plan agent only\n"
         "/review <criteria> - send audit criteria to the reviewer only\n"
+        "/show-main-prompt - print the latest main prompt markdown\n"
         "/show-plan - print the current plan overview markdown\n"
         "/show-plan-context - print current planner directions and inputs\n"
         "/show-review [round] - print review summaries markdown (latest index or a specific round)\n"

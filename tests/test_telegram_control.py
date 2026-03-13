@@ -1,4 +1,6 @@
 from codex_autoloop.telegram_control import (
+    TelegramCommand,
+    TelegramCommandPoller,
     TelegramWhisperTranscriber,
     extract_audio_file_from_message,
     parse_command_from_update,
@@ -162,6 +164,16 @@ def test_parse_show_plan_and_show_review_commands() -> None:
     assert show_review.text == "3"
 
 
+def test_parse_show_main_prompt_command() -> None:
+    show_main = parse_command_from_update(
+        update=_wrap("/show-main-prompt"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert show_main is not None
+    assert show_main.kind == "show-main-prompt"
+
+
 def test_parse_show_context_commands() -> None:
     plan_context = parse_command_from_update(
         update=_wrap("/show-plan-context"),
@@ -234,3 +246,48 @@ def test_whisper_transcriber_missing_key_reports_once() -> None:
     assert second is None
     assert len(errors) == 1
     assert "missing OPENAI_API_KEY" in errors[0]
+
+
+def test_fetch_updates_timeout_is_reported(monkeypatch) -> None:
+    errors: list[str] = []
+    poller = TelegramCommandPoller(
+        bot_token="123:abc",
+        chat_id="100",
+        on_command=lambda command: None,
+        on_error=errors.append,
+    )
+
+    def fake_urlopen(req, timeout):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("codex_autoloop.telegram_control.urllib.request.urlopen", fake_urlopen)
+    assert poller._fetch_updates() is None
+    assert errors
+    assert "network error" in errors[0]
+
+
+def test_run_loop_survives_unexpected_fetch_error(monkeypatch) -> None:
+    errors: list[str] = []
+    commands: list[TelegramCommand] = []
+    poller = TelegramCommandPoller(
+        bot_token="123:abc",
+        chat_id="100",
+        on_command=commands.append,
+        on_error=errors.append,
+        poll_interval_seconds=1,
+    )
+    calls = {"count": 0}
+
+    def fake_fetch_updates():
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("boom")
+        poller._stop_event.set()
+        return []
+
+    monkeypatch.setattr(poller, "_fetch_updates", fake_fetch_updates)
+    poller._run()
+    assert calls["count"] == 2
+    assert errors
+    assert "unexpected error" in errors[0]
+    assert commands == []

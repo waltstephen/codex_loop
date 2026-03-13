@@ -148,6 +148,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for per-round reviewer summary markdown files.",
     )
     parser.add_argument(
+        "--main-prompt-file",
+        default=None,
+        help="Markdown file path for the latest main prompt sent to Codex.",
+    )
+    parser.add_argument(
         "--control-file",
         default=None,
         help="Local JSONL control file for terminal commands (inject/stop/status).",

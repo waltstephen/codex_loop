@@ -232,6 +232,31 @@ def test_initial_main_prompt_forbids_generic_ack() -> None:
     assert "Do not reply with a generic role acknowledgment" in prompt
 
 
+def test_loop_engine_records_main_prompt_file(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    reviewer = _DoneReviewer()
+    state = LoopStateStore(
+        objective="ship feature",
+        main_prompt_file=str(tmp_path / "main_prompt.md"),
+        plan_mode="off",
+    )
+    state.record_message(text="ship feature", source="operator", kind="initial-objective")
+    engine = LoopEngine(
+        runner=runner,
+        reviewer=reviewer,
+        planner=None,
+        state_store=state,
+        config=LoopConfig(objective="ship feature", max_rounds=1, plan_mode="off"),
+    )
+
+    result = engine.run()
+
+    assert result.success is True
+    content = (tmp_path / "main_prompt.md").read_text(encoding="utf-8")
+    assert "Objective:\nship feature" in content
+    assert "Phase: `initial`" in content
+
+
 def test_continue_prompt_requires_concrete_execution_evidence() -> None:
     prompt = LoopEngine._build_continue_prompt(
         objective="ship feature",

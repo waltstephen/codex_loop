@@ -40,6 +40,7 @@ class TelegramDaemonApp:
         self.child_objective: str | None = None
         self.child_log_path: Path | None = None
         self.child_operator_messages_path: Path | None = None
+        self.child_main_prompt_path: Path | None = None
         self.child_plan_overview_path: Path | None = None
         self.child_review_summaries_dir: Path | None = None
         self.child_started_at: dt.datetime | None = None
@@ -88,7 +89,7 @@ class TelegramDaemonApp:
         self.notifier.send_message(
             "[daemon] online\n"
             "Send /run <objective> to start a new run.\n"
-            "Commands: /status /new /mode /btw /plan /review /show-plan /show-plan-context /show-review /show-review-context /stop /help"
+            "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /help"
         )
         self._log_event(
             "daemon.started",
@@ -211,6 +212,7 @@ class TelegramDaemonApp:
                     child=self.child,
                     child_objective=self.child_objective,
                     child_operator_messages_path=self.child_operator_messages_path,
+                    child_main_prompt_path=self.child_main_prompt_path,
                     child_log_path=self.child_log_path,
                     child_plan_overview_path=self.child_plan_overview_path,
                     child_review_summaries_dir=self.child_review_summaries_dir,
@@ -225,6 +227,10 @@ class TelegramDaemonApp:
         if command.kind == "show-plan":
             doc = _read_text_file(self.child_plan_overview_path)
             self._send_reply(command.source, doc or "[daemon] no plan overview markdown available.")
+            return
+        if command.kind == "show-main-prompt":
+            doc = _read_text_file(self.child_main_prompt_path)
+            self._send_reply(command.source, doc or "[daemon] no main prompt markdown available.")
             return
         if command.kind == "show-plan-context":
             self._send_reply(
@@ -335,6 +341,7 @@ class TelegramDaemonApp:
         log_path = self.logs_dir / f"run-{timestamp}.log"
         control_path = self.bus_dir / f"child-control-{timestamp}.jsonl"
         messages_path = self.logs_dir / f"run-{timestamp}-operator_messages.md"
+        main_prompt_path = self.logs_dir / f"run-{timestamp}-main_prompt.md"
         plan_overview_path = self.logs_dir / f"run-{timestamp}-plan_overview.md"
         review_summaries_dir = self.logs_dir / f"run-{timestamp}-review"
         force_new_session = consume_force_new_session_next_run(self.next_run_new_session_flag_path)
@@ -350,6 +357,7 @@ class TelegramDaemonApp:
             chat_id=self.chat_id,
             control_file=str(control_path),
             operator_messages_file=str(messages_path),
+            main_prompt_file=str(main_prompt_path),
             plan_overview_file=str(plan_overview_path),
             review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
@@ -360,6 +368,7 @@ class TelegramDaemonApp:
         self.child_objective = objective
         self.child_log_path = log_path
         self.child_operator_messages_path = messages_path
+        self.child_main_prompt_path = main_prompt_path
         self.child_plan_overview_path = plan_overview_path
         self.child_review_summaries_dir = review_summaries_dir
         self.child_started_at = dt.datetime.utcnow()
@@ -376,6 +385,7 @@ class TelegramDaemonApp:
             log_path=str(log_path),
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
+            main_prompt_file=str(main_prompt_path),
             plan_overview_file=str(plan_overview_path),
             review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
@@ -439,6 +449,7 @@ class TelegramDaemonApp:
                 "child_operator_messages_path": (
                     str(self.child_operator_messages_path) if self.child_operator_messages_path else None
                 ),
+                "child_main_prompt_path": str(self.child_main_prompt_path) if self.child_main_prompt_path else None,
                 "child_log_path": str(self.child_log_path) if self.child_log_path else None,
                 "child_plan_overview_path": str(self.child_plan_overview_path) if self.child_plan_overview_path else None,
                 "child_review_summaries_dir": (
@@ -497,6 +508,7 @@ def build_child_command(
     chat_id: str,
     control_file: str,
     operator_messages_file: str,
+    main_prompt_file: str,
     plan_overview_file: str,
     review_summaries_dir: str,
     resume_session_id: str | None,
@@ -532,6 +544,8 @@ def build_child_command(
         control_file,
         "--operator-messages-file",
         operator_messages_file,
+        "--main-prompt-file",
+        main_prompt_file,
         "--plan-overview-file",
         plan_overview_file,
         "--review-summaries-dir",
@@ -595,6 +609,7 @@ def format_status(
     child: subprocess.Popen[str] | None,
     child_objective: str | None,
     child_operator_messages_path: Path | None,
+    child_main_prompt_path: Path | None,
     child_log_path: Path | None,
     child_plan_overview_path: Path | None,
     child_review_summaries_dir: Path | None,
@@ -612,6 +627,8 @@ def format_status(
         base += f"\nforce_new_session_next_run={force_new_session_next_run}"
         base += f"\nbtw_busy={btw_status.busy}"
         base += f"\nbtw_session_id={btw_status.session_id}"
+        if child_main_prompt_path:
+            base += f"\nmain_prompt={child_main_prompt_path}"
         if child_plan_overview_path:
             base += f"\nplan_overview={child_plan_overview_path}"
         if child_operator_messages_path:
@@ -634,6 +651,7 @@ def format_status(
         f"last_session_id={last_session_id}\n"
         f"objective={str(child_objective or '')[:700]}\n"
         f"operator_messages={child_operator_messages_path}\n"
+        f"main_prompt={child_main_prompt_path}\n"
         f"log={child_log_path}\n"
         f"plan_overview={child_plan_overview_path}\n"
         f"review_summaries_dir={child_review_summaries_dir}"
@@ -663,6 +681,7 @@ def help_text() -> str:
         "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
         "/plan <direction> - send direction to the active plan agent only\n"
         "/review <criteria> - send audit criteria to the active reviewer only\n"
+        "/show-main-prompt - print the latest main prompt markdown\n"
         "/show-plan - print the latest plan overview markdown\n"
         "/show-plan-context - print current plan directions and inputs\n"
         "/show-review [round] - print reviewer summary markdown\n"

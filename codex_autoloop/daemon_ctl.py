@@ -41,6 +41,22 @@ def main() -> None:
             raise SystemExit(1)
         raise SystemExit(0)
 
+    if args.subcommand == "show-main-prompt":
+        payload = read_status(status_path)
+        if payload is None:
+            print("No daemon status found.")
+            raise SystemExit(1)
+        prompt_path = payload.get("child_main_prompt_path")
+        if not isinstance(prompt_path, str) or not prompt_path.strip():
+            print("No main prompt path found in daemon status.")
+            raise SystemExit(1)
+        try:
+            print(Path(prompt_path).read_text(encoding="utf-8"))
+        except OSError as exc:
+            print(f"Unable to read main prompt: {exc}")
+            raise SystemExit(1)
+        raise SystemExit(0)
+
     if args.subcommand == "show-plan-context":
         payload = read_status(status_path)
         if payload is None:
@@ -208,6 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("text", help="Plan direction text.")
     review = sub.add_parser("review", help="Send audit criteria to the reviewer only.")
     review.add_argument("text", help="Review criteria text.")
+    sub.add_parser("show-main-prompt", help="Print the latest main prompt markdown from daemon status.")
     sub.add_parser("show-plan", help="Print the current plan overview markdown from daemon status.")
     sub.add_parser("show-plan-context", help="Ask daemon to print current plan directions and inputs.")
     show_review = sub.add_parser("show-review", help="Print review summaries markdown.")
