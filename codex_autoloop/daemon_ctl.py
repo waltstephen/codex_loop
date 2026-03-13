@@ -24,6 +24,47 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         raise SystemExit(0)
 
+    if args.subcommand == "show-plan":
+        payload = read_status(status_path)
+        if payload is None:
+            print("No daemon status found.")
+            raise SystemExit(1)
+        plan_path = payload.get("child_plan_overview_path")
+        if not isinstance(plan_path, str) or not plan_path.strip():
+            print("No plan overview path found in daemon status.")
+            raise SystemExit(1)
+        try:
+            print(Path(plan_path).read_text(encoding="utf-8"))
+        except OSError as exc:
+            print(f"Unable to read plan overview: {exc}")
+            raise SystemExit(1)
+        raise SystemExit(0)
+
+    if args.subcommand == "show-review":
+        payload = read_status(status_path)
+        if payload is None:
+            print("No daemon status found.")
+            raise SystemExit(1)
+        review_dir = payload.get("child_review_summaries_dir")
+        if not isinstance(review_dir, str) or not review_dir.strip():
+            print("No review summaries dir found in daemon status.")
+            raise SystemExit(1)
+        base = Path(review_dir)
+        target = base / "index.md"
+        if args.text:
+            try:
+                round_index = int(args.text)
+            except ValueError:
+                print("Round must be an integer.")
+                raise SystemExit(1)
+            target = base / f"round-{round_index:03d}.md"
+        try:
+            print(target.read_text(encoding="utf-8"))
+        except OSError as exc:
+            print(f"Unable to read review summary: {exc}")
+            raise SystemExit(1)
+        raise SystemExit(0)
+
     if args.subcommand == "help":
         publish(command_bus, "help", "", source="terminal")
         print("Sent: help")
@@ -38,6 +79,27 @@ def main() -> None:
         publish(command_bus, "inject", args.text, source="terminal")
         print("Sent: inject")
         raise SystemExit(0)
+
+    if args.subcommand == "mode":
+        publish(command_bus, "mode", args.text, source="terminal")
+        print("Sent: mode")
+        raise SystemExit(0)
+
+    if args.subcommand == "plan":
+        publish(command_bus, "plan", args.text, source="terminal")
+        print("Sent: plan")
+        raise SystemExit(0)
+
+    if args.subcommand == "review":
+        publish(command_bus, "review", args.text, source="terminal")
+        print("Sent: review")
+        raise SystemExit(0)
+
+    if args.subcommand == "show-plan":
+        parser.error("show-plan should have returned before publish path.")
+
+    if args.subcommand == "show-review":
+        parser.error("show-review should have returned before publish path.")
 
     if args.subcommand == "stop":
         publish(command_bus, "stop", "", source="terminal")
@@ -71,6 +133,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("text", help="Objective text.")
     inject = sub.add_parser("inject", help="Inject instruction to active run.")
     inject.add_argument("text", help="Instruction text.")
+    mode = sub.add_parser("mode", help="Hot-switch plan mode for daemon default and active child.")
+    mode.add_argument("text", help="Mode value: off, auto, or record.")
+    plan = sub.add_parser("plan", help="Send direction to the plan agent only.")
+    plan.add_argument("text", help="Plan direction text.")
+    review = sub.add_parser("review", help="Send audit criteria to the reviewer only.")
+    review.add_argument("text", help="Review criteria text.")
+    sub.add_parser("show-plan", help="Print the current plan overview markdown from daemon status.")
+    show_review = sub.add_parser("show-review", help="Print review summaries markdown.")
+    show_review.add_argument("text", nargs="?", default="", help="Optional round number.")
     sub.add_parser("stop", help="Stop active run.")
     sub.add_parser("status", help="Read daemon status file.")
     sub.add_parser("help", help="Ask daemon to print help.")

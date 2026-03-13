@@ -10,10 +10,13 @@ def test_build_child_command_includes_core_args() -> None:
         codex_autoloop_bin="codex-autoloop",
         run_max_rounds=8,
         run_model_preset="quality",
+        run_plan_mode="auto",
         run_main_model=None,
         run_main_reasoning_effort=None,
         run_reviewer_model=None,
         run_reviewer_reasoning_effort=None,
+        run_plan_model=None,
+        run_plan_reasoning_effort=None,
         telegram_bot_token="123:abc",
         telegram_control_whisper=True,
         telegram_control_whisper_api_key=None,
@@ -36,6 +39,8 @@ def test_build_child_command_includes_core_args() -> None:
         chat_id="42",
         control_file="/tmp/control.jsonl",
         operator_messages_file="/tmp/operator_messages.md",
+        plan_overview_file="/tmp/plan_overview.md",
+        review_summaries_dir="/tmp/reviews",
         resume_session_id="thread123",
     )
     assert cmd[0] == "codex-autoloop"
@@ -43,10 +48,15 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--telegram-chat-id" in cmd
     assert "--control-file" in cmd
     assert "--operator-messages-file" in cmd
+    assert "--plan-overview-file" in cmd
+    assert "--review-summaries-dir" in cmd
+    assert "--plan-mode" in cmd
     assert "--main-model" in cmd
     assert "--main-reasoning-effort" in cmd
     assert "--reviewer-model" in cmd
     assert "--reviewer-reasoning-effort" in cmd
+    assert "--plan-model" in cmd
+    assert "--plan-reasoning-effort" in cmd
     assert "--session-id" in cmd
     assert "--check" in cmd
     assert "--yolo" in cmd

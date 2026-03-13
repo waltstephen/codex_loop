@@ -235,6 +235,17 @@ def format_event_message(event: dict[str, Any]) -> str:
             f"reason={reason[:320]}\n"
             f"next_action={next_action[:320]}"
         )
+    if event_type == "plan.completed":
+        next_explore = str(event.get("next_explore", "")).strip().replace("\n", " ")
+        main_instruction = str(event.get("main_instruction", "")).strip().replace("\n", " ")
+        follow_up_required = event.get("follow_up_required")
+        return (
+            f"[autoloop] plan updated {now}\n"
+            f"round={event.get('round_index')} mode={event.get('plan_mode')}\n"
+            f"follow_up_required={follow_up_required}\n"
+            f"next_explore={next_explore[:320]}\n"
+            f"main_instruction={main_instruction[:320]}"
+        )
     if event_type == "loop.completed":
         return (
             f"[autoloop] completed {now}\n"

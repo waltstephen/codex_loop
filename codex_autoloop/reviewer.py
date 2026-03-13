@@ -29,6 +29,7 @@ class Reviewer:
         *,
         objective: str,
         operator_messages: list[str],
+        planner_review_instruction: str = "",
         round_index: int,
         session_id: str | None,
         main_summary: str,
@@ -39,6 +40,7 @@ class Reviewer:
         prompt = self._build_prompt(
             objective=objective,
             operator_messages=operator_messages,
+            planner_review_instruction=planner_review_instruction,
             round_index=round_index,
             session_id=session_id,
             main_summary=main_summary,
@@ -65,6 +67,7 @@ class Reviewer:
                 confidence=0.0,
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
                 next_action="Continue implementation and provide concrete completed work.",
+                round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
             )
 
         parsed = parse_decision_text(result.last_agent_message)
@@ -74,6 +77,7 @@ class Reviewer:
                 confidence=0.0,
                 reason="Reviewer output was not valid JSON.",
                 next_action="Continue implementation and include clear completion evidence.",
+                round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
             )
         return parsed
 
@@ -82,6 +86,7 @@ class Reviewer:
         *,
         objective: str,
         operator_messages: list[str],
+        planner_review_instruction: str = "",
         round_index: int,
         session_id: str | None,
         main_summary: str,
@@ -99,9 +104,14 @@ class Reviewer:
             "2) If uncertain, choose `continue`.\n"
             "3) Use `blocked` only if additional user input is strictly required.\n"
             "4) `next_action` must be a concrete instruction for the primary agent.\n\n"
+            "5) `round_summary_markdown` must summarize this round's completed work, evidence, and gaps.\n"
+            "6) If status is not `done`, `completion_summary_markdown` should be a short placeholder or empty note.\n"
+            "7) If status is `done`, `completion_summary_markdown` must summarize final completion evidence.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"
+            "Planner guidance for this review:\n"
+            f"{planner_review_instruction or 'none'}\n\n"
             f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
             f"Main agent fatal error: {error_text}\n\n"
@@ -128,17 +138,25 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
     confidence = parsed.get("confidence", 0.0)
     reason = parsed.get("reason", "")
     next_action = parsed.get("next_action", "")
+    round_summary_markdown = parsed.get("round_summary_markdown", "")
+    completion_summary_markdown = parsed.get("completion_summary_markdown", "")
     if not isinstance(confidence, (int, float)):
         confidence = 0.0
     if not isinstance(reason, str):
         reason = str(reason)
     if not isinstance(next_action, str):
         next_action = str(next_action)
+    if not isinstance(round_summary_markdown, str):
+        round_summary_markdown = str(round_summary_markdown)
+    if not isinstance(completion_summary_markdown, str):
+        completion_summary_markdown = str(completion_summary_markdown)
     return ReviewDecision(
         status=status,
         confidence=max(0.0, min(float(confidence), 1.0)),
         reason=reason.strip(),
         next_action=next_action.strip(),
+        round_summary_markdown=round_summary_markdown.strip(),
+        completion_summary_markdown=completion_summary_markdown.strip(),
     )
 
 

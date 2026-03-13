@@ -6,6 +6,7 @@ from typing import Any, Callable
 from .codex_runner import CodexRunner
 from .core.engine import LoopConfig, LoopEngine, LoopResult
 from .core.state_store import LoopStateStore
+from .planner import Planner
 from .reviewer import Reviewer
 
 LoopEventCallback = Callable[[dict[str, Any]], None]
@@ -26,7 +27,7 @@ AutoLoopResult = LoopResult
 
 class _CallbackStateStore(LoopStateStore):
     def __init__(self, *, config: AutoLoopConfig) -> None:
-        super().__init__(objective=config.objective, state_file=config.state_file)
+        super().__init__(objective=config.objective, state_file=config.state_file, plan_mode=config.plan_mode)
         self._config = config
 
     def consume_interrupt_reason(self) -> str | None:
@@ -71,6 +72,7 @@ class AutoLoopOrchestrator:
         self._engine = LoopEngine(
             runner=runner,
             reviewer=reviewer,
+            planner=(Planner(runner=runner) if config.plan_mode != "off" else None),
             config=LoopConfig(
                 objective=config.objective,
                 max_rounds=config.max_rounds,
@@ -89,6 +91,10 @@ class AutoLoopOrchestrator:
                 stall_soft_idle_seconds=config.stall_soft_idle_seconds,
                 stall_hard_idle_seconds=config.stall_hard_idle_seconds,
                 initial_session_id=config.initial_session_id,
+                plan_mode=config.plan_mode,
+                plan_model=config.plan_model,
+                plan_reasoning_effort=config.plan_reasoning_effort,
+                plan_extra_args=config.plan_extra_args,
             ),
             state_store=_CallbackStateStore(config=config),
         )

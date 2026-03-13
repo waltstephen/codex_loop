@@ -19,7 +19,21 @@
     "next_action": {
       "type": "string",
       "minLength": 1
+    },
+    "round_summary_markdown": {
+      "type": "string",
+      "minLength": 1
+    },
+    "completion_summary_markdown": {
+      "type": "string"
     }
   },
-  "required": ["status", "confidence", "reason", "next_action"]
+  "required": [
+    "status",
+    "confidence",
+    "reason",
+    "next_action",
+    "round_summary_markdown",
+    "completion_summary_markdown"
+  ]
 }

@@ -12,6 +12,8 @@ class ModelPreset:
     main_reasoning_effort: str
     reviewer_model: str
     reviewer_reasoning_effort: str
+    plan_model: str
+    plan_reasoning_effort: str
     note: str
 
 
@@ -41,6 +43,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         main_reasoning_effort="high",
         reviewer_model="gpt-5.4",
         reviewer_reasoning_effort="high",
+        plan_model="gpt-5.4",
+        plan_reasoning_effort="high",
         note="Highest-quality default with high reasoning for both agents.",
     ),
     ModelPreset(
@@ -49,6 +53,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         main_reasoning_effort="xhigh",
         reviewer_model="gpt-5.4",
         reviewer_reasoning_effort="xhigh",
+        plan_model="gpt-5.4",
+        plan_reasoning_effort="xhigh",
         note="Highest-quality preset with maximum reasoning on both agents.",
     ),
     ModelPreset(
@@ -57,6 +63,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         main_reasoning_effort="high",
         reviewer_model="gpt-5.1-codex",
         reviewer_reasoning_effort="medium",
+        plan_model="gpt-5.1-codex",
+        plan_reasoning_effort="medium",
         note="Strong coding quality with cheaper reviewer.",
     ),
     ModelPreset(
@@ -65,6 +73,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         main_reasoning_effort="xhigh",
         reviewer_model="gpt-5.3-codex",
         reviewer_reasoning_effort="xhigh",
+        plan_model="gpt-5.3-codex",
+        plan_reasoning_effort="xhigh",
         note="Pure codex-focused preset with maximum reasoning on both agents.",
     ),
     ModelPreset(
@@ -73,6 +83,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         main_reasoning_effort="medium",
         reviewer_model="gpt-5-codex-mini",
         reviewer_reasoning_effort="low",
+        plan_model="gpt-5-codex-mini",
+        plan_reasoning_effort="low",
         note="Lower-cost pairing for long background loops.",
     ),
     ModelPreset(
@@ -81,6 +93,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         main_reasoning_effort="xhigh",
         reviewer_model="gpt-5.3-codex",
         reviewer_reasoning_effort="high",
+        plan_model="gpt-5.3-codex",
+        plan_reasoning_effort="high",
         note="Most expensive long-horizon pairing.",
     ),
 ]
@@ -106,7 +120,8 @@ def main() -> None:
     for preset in MODEL_PRESETS:
         print(
             f"- {preset.name}: main={preset.main_model}/{preset.main_reasoning_effort}, "
-            f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort} "
+            f"reviewer={preset.reviewer_model}/{preset.reviewer_reasoning_effort}, "
+            f"plan={preset.plan_model}/{preset.plan_reasoning_effort} "
             f"({preset.note})"
         )
     print("")

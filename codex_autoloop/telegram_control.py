@@ -344,6 +344,30 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
     content = text.strip()
     if not content:
         return None
+    if content.startswith("/mode "):
+        return TelegramCommand(kind="mode", text=content[len("/mode ") :].strip())
+    if content == "/mode":
+        return None
+    if content.startswith("/plan-mode "):
+        return TelegramCommand(kind="mode", text=content[len("/plan-mode ") :].strip())
+    if content == "/plan-mode":
+        return None
+    if content.startswith("/plan "):
+        return TelegramCommand(kind="plan", text=content[len("/plan ") :].strip())
+    if content == "/plan":
+        return None
+    if content.startswith("/review "):
+        return TelegramCommand(kind="review", text=content[len("/review ") :].strip())
+    if content == "/review":
+        return None
+    if content.startswith("/criteria "):
+        return TelegramCommand(kind="review", text=content[len("/criteria ") :].strip())
+    if content in {"/show-plan", "/plan-md"}:
+        return TelegramCommand(kind="show-plan", text="")
+    if content.startswith("/show-review "):
+        return TelegramCommand(kind="show-review", text=content[len("/show-review ") :].strip())
+    if content in {"/show-review", "/review-md"}:
+        return TelegramCommand(kind="show-review", text="")
     if content.startswith("/inject "):
         return TelegramCommand(kind="inject", text=content[len("/inject ") :].strip())
     if content == "/inject":

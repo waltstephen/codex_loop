@@ -77,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="cheap",
         help="Model preset name for child runs (cheap, balanced, strong, max).",
     )
+    parser.add_argument(
+        "--run-plan-mode",
+        default="auto",
+        choices=["off", "auto", "record"],
+        help="Plan agent mode for child runs.",
+    )
     parser.add_argument("--run-main-model", default=None, help="Explicit main agent model override for child runs.")
     parser.add_argument(
         "--run-main-reasoning-effort",
@@ -94,6 +100,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=["low", "medium", "high", "xhigh"],
         help="Explicit reviewer agent reasoning effort override for child runs.",
+    )
+    parser.add_argument("--run-plan-model", default=None, help="Explicit plan agent model override for child runs.")
+    parser.add_argument(
+        "--run-plan-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Explicit plan agent reasoning effort override for child runs.",
     )
     parser.add_argument("--run-check", action="append", default=[], help="Child acceptance check command (repeatable).")
     parser.add_argument(

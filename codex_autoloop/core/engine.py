@@ -6,7 +6,8 @@ from typing import Any
 
 from ..checks import all_checks_passed, run_checks
 from ..codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
-from ..models import ReviewDecision, RoundSummary
+from ..models import PlanDecision, PlanMode, ReviewDecision, RoundSummary
+from ..planner import Planner, PlannerConfig
 from ..reviewer import Reviewer, ReviewerConfig
 from ..stall_subagent import analyze_stall
 from .ports import EventSink
@@ -32,6 +33,10 @@ class LoopConfig:
     stall_soft_idle_seconds: int = 1200
     stall_hard_idle_seconds: int = 10800
     initial_session_id: str | None = None
+    plan_mode: PlanMode = "off"
+    plan_model: str | None = None
+    plan_reasoning_effort: str | None = None
+    plan_extra_args: list[str] | None = None
 
 
 @dataclass
@@ -48,14 +53,16 @@ class LoopEngine:
         *,
         runner: CodexRunner,
         reviewer: Reviewer,
+        planner: Planner | None,
         config: LoopConfig,
         state_store: LoopStateStore | None = None,
         event_sink: EventSink | None = None,
     ) -> None:
         self.runner = runner
         self.reviewer = reviewer
+        self.planner = planner
         self.config = config
-        self.state_store = state_store or LoopStateStore(objective=config.objective)
+        self.state_store = state_store or LoopStateStore(objective=config.objective, plan_mode=config.plan_mode)
         self.event_sink = event_sink
 
     def run(self) -> LoopResult:
@@ -63,14 +70,21 @@ class LoopEngine:
         session_id = self.config.initial_session_id
         no_progress_rounds = 0
         previous_main_message = ""
-        next_main_prompt = self._initial_main_prompt(self.config.objective)
         self._emit(
             {
                 "type": "loop.started",
                 "objective": self.config.objective,
                 "max_rounds": self.config.max_rounds,
                 "session_id": session_id,
+                "plan_mode": self._current_plan_mode(),
             }
+        )
+        current_plan: PlanDecision | None = None
+        next_main_prompt = self._initial_main_prompt(
+            self.config.objective,
+            operator_messages=self.state_store.list_messages_for_role("main"),
+            plan=current_plan,
+            plan_mode=self._current_plan_mode(),
         )
 
         for round_index in range(1, self.config.max_rounds + 1):
@@ -148,6 +162,21 @@ class LoopEngine:
                     confidence=1.0,
                     reason=review_reason,
                     next_action=next_action,
+                    round_summary_markdown=(
+                        "# Review Summary\n\n"
+                        f"- Round interrupted: {main_result.fatal_error}\n"
+                        f"- Latest main summary: {main_result.last_agent_message or 'none'}\n"
+                    ),
+                )
+                self._emit(
+                    {
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                    }
                 )
                 round_summary = RoundSummary(
                     round_index=round_index,
@@ -158,9 +187,15 @@ class LoopEngine:
                     checks=[],
                     review=review,
                     main_last_message=main_result.last_agent_message,
+                    plan=current_plan,
                 )
                 rounds.append(round_summary)
-                self.state_store.record_round(round_summary, session_id=session_id, current_review=review)
+                self.state_store.record_round(
+                    round_summary,
+                    session_id=session_id,
+                    current_review=review,
+                    current_plan=current_plan,
+                )
 
                 if self.state_store.is_stop_requested():
                     return self._complete(
@@ -174,12 +209,18 @@ class LoopEngine:
                     next_main_prompt = self._build_operator_override_prompt(
                         objective=self.config.objective,
                         instruction=injected_instruction,
+                        operator_messages=self.state_store.list_messages_for_role("main"),
+                        plan=current_plan,
+                        plan_mode=self._current_plan_mode(),
                     )
                 else:
                     next_main_prompt = self._build_continue_prompt(
                         objective=self.config.objective,
                         review=review,
                         checks_ok=False,
+                        operator_messages=self.state_store.list_messages_for_role("main"),
+                        plan=current_plan,
+                        plan_mode=self._current_plan_mode(),
                     )
                 continue
 
@@ -200,7 +241,8 @@ class LoopEngine:
             )
             review = self.reviewer.evaluate(
                 objective=self.config.objective,
-                operator_messages=self.state_store.list_messages(),
+                operator_messages=self.state_store.list_messages_for_role("review"),
+                planner_review_instruction=(current_plan.review_instruction if current_plan is not None else ""),
                 round_index=round_index,
                 session_id=session_id,
                 main_summary=main_result.last_agent_message,
@@ -225,6 +267,15 @@ class LoopEngine:
                     "next_action": review.next_action,
                 }
             )
+            checks_ok = all_checks_passed(checks)
+            planned_follow_up: PlanDecision | None = None
+            current_plan_mode = self._current_plan_mode()
+            if review.status == "done" and checks_ok and current_plan_mode != "off":
+                planned_follow_up = self._maybe_run_planner(
+                    round_index=round_index,
+                    session_id=session_id,
+                    latest_review_completion_summary=review.completion_summary_markdown,
+                )
 
             round_summary = RoundSummary(
                 round_index=round_index,
@@ -235,18 +286,48 @@ class LoopEngine:
                 checks=checks,
                 review=review,
                 main_last_message=main_result.last_agent_message,
+                plan=planned_follow_up if planned_follow_up is not None else current_plan,
             )
             rounds.append(round_summary)
-            self.state_store.record_round(round_summary, session_id=session_id, current_review=review)
+            self.state_store.record_round(
+                round_summary,
+                session_id=session_id,
+                current_review=review,
+                current_plan=planned_follow_up if planned_follow_up is not None else current_plan,
+            )
 
-            checks_ok = all_checks_passed(checks)
             if review.status == "done" and checks_ok:
-                return self._complete(
-                    success=True,
-                    session_id=session_id,
-                    rounds=rounds,
-                    stop_reason="Reviewer marked done and acceptance checks passed.",
+                current_plan_mode = self._current_plan_mode()
+                if current_plan_mode == "off":
+                    return self._complete(
+                        success=True,
+                        session_id=session_id,
+                        rounds=rounds,
+                        stop_reason="Reviewer marked done and acceptance checks passed.",
+                    )
+                if current_plan_mode == "record":
+                    return self._complete(
+                        success=True,
+                        session_id=session_id,
+                        rounds=rounds,
+                        stop_reason="Reviewer marked done, checks passed, and planner recorded the final summary.",
+                    )
+                if planned_follow_up is None or not planned_follow_up.follow_up_required:
+                    return self._complete(
+                        success=True,
+                        session_id=session_id,
+                        rounds=rounds,
+                        stop_reason="Reviewer marked done, checks passed, and planner did not require a follow-up phase.",
+                    )
+                current_plan = planned_follow_up
+                no_progress_rounds = 0
+                previous_main_message = ""
+                next_main_prompt = self._build_follow_up_prompt(
+                    objective=self.config.objective,
+                    operator_messages=self.state_store.list_messages_for_role("main"),
+                    plan=current_plan,
                 )
+                continue
 
             if review.status == "blocked":
                 return self._complete(
@@ -278,6 +359,9 @@ class LoopEngine:
                 objective=self.config.objective,
                 review=review,
                 checks_ok=checks_ok,
+                operator_messages=self.state_store.list_messages_for_role("main"),
+                plan=current_plan,
+                plan_mode=self._current_plan_mode(),
             )
 
         return self._complete(
@@ -317,6 +401,50 @@ class LoopEngine:
         if self.event_sink is not None:
             self.event_sink.handle_event(payload)
 
+    def _current_plan_mode(self) -> PlanMode:
+        return self.state_store.current_plan_mode()
+
+    def _maybe_run_planner(
+        self,
+        *,
+        round_index: int,
+        session_id: str | None,
+        latest_review_completion_summary: str,
+    ) -> PlanDecision | None:
+        current_plan_mode = self._current_plan_mode()
+        if current_plan_mode == "off" or self.planner is None:
+            return None
+        plan = self.planner.evaluate(
+            objective=self.config.objective,
+            plan_messages=self.state_store.list_messages_for_role("plan"),
+            round_index=round_index,
+            session_id=session_id,
+            latest_review_completion_summary=latest_review_completion_summary,
+            latest_plan_overview=self.state_store.latest_plan_overview(),
+            config=PlannerConfig(
+                mode=current_plan_mode,
+                model=self.config.plan_model,
+                reasoning_effort=self.config.plan_reasoning_effort,
+                extra_args=self.config.plan_extra_args,
+                skip_git_repo_check=self.config.skip_git_repo_check,
+                full_auto=self.config.full_auto,
+                dangerous_yolo=self.config.dangerous_yolo,
+            ),
+        )
+        self.state_store.record_plan(plan, round_index=round_index, session_id=session_id)
+        self._emit(
+            {
+                "type": "plan.completed",
+                "round_index": round_index,
+                "plan_mode": current_plan_mode,
+                "follow_up_required": plan.follow_up_required,
+                "next_explore": plan.next_explore,
+                "main_instruction": plan.main_instruction,
+                "review_instruction": plan.review_instruction,
+            }
+        )
+        return plan
+
     def _handle_inactivity(self, *, round_index: int, snapshot: InactivitySnapshot) -> str:
         decision = analyze_stall(snapshot)
         self._emit(
@@ -342,42 +470,119 @@ class LoopEngine:
         return "continue"
 
     @staticmethod
-    def _initial_main_prompt(objective: str) -> str:
-        return (
+    def _initial_main_prompt(
+        objective: str,
+        *,
+        operator_messages: list[str],
+        plan: PlanDecision | None,
+        plan_mode: PlanMode,
+    ) -> str:
+        prompt = (
             "You are the primary implementation agent.\n"
             "Complete the objective end-to-end by executing required edits and commands directly.\n"
             "Do not stop after a partial plan.\n"
             "If one path fails, try alternatives before declaring a blocker.\n"
             "Do not ask the user to perform next steps.\n\n"
             f"Objective:\n{objective}\n\n"
+        )
+        if operator_messages:
+            prompt += "Operator messages visible to you:\n" + "\n".join(f"- {item}" for item in operator_messages) + "\n\n"
+        if plan_mode == "auto" and plan is not None:
+            prompt += (
+                "Planner guidance:\n"
+                f"- Next explore: {plan.next_explore}\n"
+                f"- Main instruction: {plan.main_instruction}\n\n"
+            )
+        prompt += (
             "At the end, output a concise execution summary:\n"
             "- DONE:\n- REMAINING:\n- BLOCKERS:\n"
         )
+        return prompt
 
     @staticmethod
-    def _build_continue_prompt(*, objective: str, review: ReviewDecision, checks_ok: bool) -> str:
+    def _build_continue_prompt(
+        *,
+        objective: str,
+        review: ReviewDecision,
+        checks_ok: bool,
+        operator_messages: list[str],
+        plan: PlanDecision | None,
+        plan_mode: PlanMode,
+    ) -> str:
         check_instruction = (
             "Acceptance checks passed in previous round."
             if checks_ok
             else "Acceptance checks failed in previous round; fix them first."
         )
-        return (
+        prompt = (
             "Continue the same objective in this session.\n"
             f"Objective:\n{objective}\n\n"
             f"Reviewer reason:\n{review.reason}\n\n"
             f"Reviewer next action:\n{review.next_action}\n\n"
+        )
+        if operator_messages:
+            prompt += "Operator messages visible to you:\n" + "\n".join(f"- {item}" for item in operator_messages) + "\n\n"
+        if plan_mode == "auto" and plan is not None:
+            prompt += (
+                "Planner follow-up:\n"
+                f"- Next explore: {plan.next_explore}\n"
+                f"- Main instruction: {plan.main_instruction}\n\n"
+            )
+        prompt += (
             f"{check_instruction}\n"
             "Execute concrete work now. Do not stop at guidance-only output.\n"
             "End your response with updated DONE/REMAINING/BLOCKERS."
         )
+        return prompt
 
     @staticmethod
-    def _build_operator_override_prompt(*, objective: str, instruction: str) -> str:
-        return (
+    def _build_follow_up_prompt(
+        *,
+        objective: str,
+        operator_messages: list[str],
+        plan: PlanDecision,
+    ) -> str:
+        prompt = (
+            "The previous implementation/review phase completed successfully.\n"
+            "Start the next automatic follow-up phase planned below.\n\n"
+            f"Objective:\n{objective}\n\n"
+            "Planner follow-up:\n"
+            f"- Next explore: {plan.next_explore}\n"
+            f"- Main instruction: {plan.main_instruction}\n\n"
+        )
+        if operator_messages:
+            prompt += "Operator messages visible to you:\n" + "\n".join(f"- {item}" for item in operator_messages) + "\n\n"
+        prompt += (
+            "Execute concrete work now. Do not stop at guidance-only output.\n"
+            "End your response with updated DONE/REMAINING/BLOCKERS."
+        )
+        return prompt
+
+    @staticmethod
+    def _build_operator_override_prompt(
+        *,
+        objective: str,
+        instruction: str,
+        operator_messages: list[str],
+        plan: PlanDecision | None,
+        plan_mode: PlanMode,
+    ) -> str:
+        prompt = (
             "Operator override received from control channel.\n"
             "Immediately switch to the following instruction while preserving repository safety.\n\n"
             f"Original objective:\n{objective}\n\n"
             f"New operator instruction:\n{instruction}\n\n"
+        )
+        if operator_messages:
+            prompt += "Operator messages visible to you:\n" + "\n".join(f"- {item}" for item in operator_messages) + "\n\n"
+        if plan_mode == "auto" and plan is not None:
+            prompt += (
+                "Planner context:\n"
+                f"- Next explore: {plan.next_explore}\n"
+                f"- Main instruction: {plan.main_instruction}\n\n"
+            )
+        prompt += (
             "Execute concrete work now and continue until completion gates are met.\n"
             "End with DONE/REMAINING/BLOCKERS."
         )
+        return prompt

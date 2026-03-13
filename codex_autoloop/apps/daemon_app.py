@@ -34,6 +34,8 @@ class TelegramDaemonApp:
         self.child: subprocess.Popen[str] | None = None
         self.child_objective: str | None = None
         self.child_log_path: Path | None = None
+        self.child_plan_overview_path: Path | None = None
+        self.child_review_summaries_dir: Path | None = None
         self.child_started_at: dt.datetime | None = None
         self.child_control_bus: JsonlCommandBus | None = None
         self._stopping = False
@@ -57,7 +59,7 @@ class TelegramDaemonApp:
         self.notifier.send_message(
             "[daemon] online\n"
             "Send /run <objective> to start a new run.\n"
-            "Commands: /status /stop /help"
+            "Commands: /status /mode /plan /review /show-plan /show-review /stop /help"
         )
         self._log_event(
             "daemon.started",
@@ -135,6 +137,28 @@ class TelegramDaemonApp:
         if command.kind == "help":
             self._send_reply(command.source, help_text())
             return
+        if command.kind == "mode":
+            updated_mode = _normalize_plan_mode(command.text)
+            if updated_mode is None:
+                self._send_reply(command.source, "[daemon] invalid mode. Use: off, auto, or record.")
+                return
+            self.args.run_plan_mode = updated_mode
+            self._log_event("daemon.mode.updated", source=command.source, plan_mode=updated_mode)
+            if self._child_running():
+                if self._forward_to_child("mode", updated_mode, command.source):
+                    self._send_reply(
+                        command.source,
+                        f"[daemon] plan mode updated to {updated_mode} for future runs and forwarded to active run.",
+                    )
+                else:
+                    self._send_reply(
+                        command.source,
+                        f"[daemon] plan mode updated to {updated_mode} for future runs, but active child bus is unavailable.",
+                    )
+            else:
+                self._send_reply(command.source, f"[daemon] default plan mode updated to {updated_mode}.")
+            self._write_status()
+            return
         if command.kind == "status":
             self._send_reply(
                 command.source,
@@ -142,10 +166,32 @@ class TelegramDaemonApp:
                     child=self.child,
                     child_objective=self.child_objective,
                     child_log_path=self.child_log_path,
+                    child_plan_overview_path=self.child_plan_overview_path,
+                    child_review_summaries_dir=self.child_review_summaries_dir,
                     child_started_at=self.child_started_at,
+                    default_plan_mode=getattr(self.args, "run_plan_mode", "auto"),
                     last_session_id=resolve_saved_session_id(self.args.run_state_file),
                 ),
             )
+            return
+        if command.kind == "show-plan":
+            doc = _read_text_file(self.child_plan_overview_path)
+            self._send_reply(command.source, doc or "[daemon] no plan overview markdown available.")
+            return
+        if command.kind == "show-review":
+            target = self.child_review_summaries_dir / "index.md" if self.child_review_summaries_dir else None
+            if command.text.strip():
+                if self.child_review_summaries_dir is None:
+                    self._send_reply(command.source, "[daemon] no reviewer summary markdown available.")
+                    return
+                try:
+                    round_index = int(command.text.strip())
+                except ValueError:
+                    self._send_reply(command.source, "[daemon] invalid round number for show-review.")
+                    return
+                target = self.child_review_summaries_dir / f"round-{round_index:03d}.md"
+            doc = _read_text_file(target)
+            self._send_reply(command.source, doc or "[daemon] no reviewer summary markdown available.")
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
@@ -163,6 +209,15 @@ class TelegramDaemonApp:
                     self._send_reply(command.source, "[daemon] active run exists but child control bus unavailable.")
                 return
             self._start_child(objective)
+            return
+        if command.kind in {"plan", "review"}:
+            if not self._child_running():
+                self._send_reply(command.source, "[daemon] no active run for targeted plan/review command.")
+                return
+            if self._forward_to_child(command.kind, command.text.strip(), command.source):
+                self._send_reply(command.source, f"[daemon] {command.kind} forwarded to active run.")
+            else:
+                self._send_reply(command.source, "[daemon] active run exists but child control bus unavailable.")
             return
         if command.kind == "stop":
             if not self._child_running():
@@ -185,6 +240,8 @@ class TelegramDaemonApp:
         log_path = self.logs_dir / f"run-{timestamp}.log"
         control_path = self.bus_dir / f"child-control-{timestamp}.jsonl"
         messages_path = self.logs_dir / f"run-{timestamp}-operator_messages.md"
+        plan_overview_path = self.logs_dir / f"run-{timestamp}-plan_overview.md"
+        review_summaries_dir = self.logs_dir / f"run-{timestamp}-review"
         resume_session_id = resolve_saved_session_id(self.args.run_state_file) if self.args.run_resume_last_session else None
         self.child_control_bus = JsonlCommandBus(control_path)
         cmd = build_child_command(
@@ -193,12 +250,16 @@ class TelegramDaemonApp:
             chat_id=self.chat_id,
             control_file=str(control_path),
             operator_messages_file=str(messages_path),
+            plan_overview_file=str(plan_overview_path),
+            review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
         )
         log_file = log_path.open("w", encoding="utf-8")
         self.child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=self.run_cwd)
         self.child_objective = objective
         self.child_log_path = log_path
+        self.child_plan_overview_path = plan_overview_path
+        self.child_review_summaries_dir = review_summaries_dir
         self.child_started_at = dt.datetime.utcnow()
         self.notifier.send_message(
             "[daemon] launched run\n"
@@ -213,6 +274,8 @@ class TelegramDaemonApp:
             log_path=str(log_path),
             control_path=str(control_path),
             operator_messages_file=str(messages_path),
+            plan_overview_file=str(plan_overview_path),
+            review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
         )
         self._write_status()
@@ -265,9 +328,14 @@ class TelegramDaemonApp:
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
                 "daemon_running": not self._stopping,
                 "running": running,
+                "default_plan_mode": getattr(self.args, "run_plan_mode", "auto"),
                 "child_pid": self.child.pid if running and self.child else None,
                 "child_objective": self.child_objective,
                 "child_log_path": str(self.child_log_path) if self.child_log_path else None,
+                "child_plan_overview_path": str(self.child_plan_overview_path) if self.child_plan_overview_path else None,
+                "child_review_summaries_dir": (
+                    str(self.child_review_summaries_dir) if self.child_review_summaries_dir else None
+                ),
                 "child_started_at": self.child_started_at.isoformat() + "Z" if self.child_started_at else None,
                 "last_session_id": resolve_saved_session_id(self.args.run_state_file),
                 "run_cwd": str(self.run_cwd),
@@ -317,6 +385,8 @@ def build_child_command(
     chat_id: str,
     control_file: str,
     operator_messages_file: str,
+    plan_overview_file: str,
+    review_summaries_dir: str,
     resume_session_id: str | None,
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
@@ -326,6 +396,13 @@ def build_child_command(
     reviewer_reasoning_effort = (
         preset.reviewer_reasoning_effort if preset is not None else args.run_reviewer_reasoning_effort
     )
+    plan_model = preset.plan_model if preset is not None else getattr(args, "run_plan_model", None)
+    plan_reasoning_effort = (
+        preset.plan_reasoning_effort
+        if preset is not None
+        else getattr(args, "run_plan_reasoning_effort", None)
+    )
+    plan_mode = getattr(args, "run_plan_mode", "auto")
     cmd = [
         args.codex_autoloop_bin,
         "--max-rounds",
@@ -338,6 +415,12 @@ def build_child_command(
         control_file,
         "--operator-messages-file",
         operator_messages_file,
+        "--plan-overview-file",
+        plan_overview_file,
+        "--review-summaries-dir",
+        review_summaries_dir,
+        "--plan-mode",
+        plan_mode,
         "--telegram-control-whisper-model",
         args.telegram_control_whisper_model,
         "--telegram-control-whisper-base-url",
@@ -353,6 +436,10 @@ def build_child_command(
         cmd.extend(["--reviewer-model", reviewer_model])
     if reviewer_reasoning_effort:
         cmd.extend(["--reviewer-reasoning-effort", reviewer_reasoning_effort])
+    if plan_model:
+        cmd.extend(["--plan-model", plan_model])
+    if plan_reasoning_effort:
+        cmd.extend(["--plan-reasoning-effort", plan_reasoning_effort])
     if args.telegram_control_whisper:
         cmd.append("--telegram-control-whisper")
     else:
@@ -386,13 +473,21 @@ def format_status(
     child: subprocess.Popen[str] | None,
     child_objective: str | None,
     child_log_path: Path | None,
+    child_plan_overview_path: Path | None,
+    child_review_summaries_dir: Path | None,
     child_started_at: dt.datetime | None,
+    default_plan_mode: str,
     last_session_id: str | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
         base = "[daemon] status=idle"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
+        base += f"\ndefault_plan_mode={default_plan_mode}"
+        if child_plan_overview_path:
+            base += f"\nplan_overview={child_plan_overview_path}"
+        if child_review_summaries_dir:
+            base += f"\nreview_summaries_dir={child_review_summaries_dir}"
         return base
     elapsed = "unknown"
     if child_started_at is not None:
@@ -402,9 +497,12 @@ def format_status(
         "[daemon] status=running\n"
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
+        f"default_plan_mode={default_plan_mode}\n"
         f"last_session_id={last_session_id}\n"
         f"objective={str(child_objective or '')[:700]}\n"
-        f"log={child_log_path}"
+        f"log={child_log_path}\n"
+        f"plan_overview={child_plan_overview_path}\n"
+        f"review_summaries_dir={child_review_summaries_dir}"
     )
 
 
@@ -425,6 +523,11 @@ def help_text() -> str:
         "[daemon] commands\n"
         "/run <objective> - start a new codex-autoloop run\n"
         "/inject <instruction> - inject instruction to active run (or run if idle)\n"
+        "/mode <off|auto|record> - hot-switch daemon default mode and active child mode\n"
+        "/plan <direction> - send direction to the active plan agent only\n"
+        "/review <criteria> - send audit criteria to the active reviewer only\n"
+        "/show-plan - print the latest plan overview markdown\n"
+        "/show-review [round] - print reviewer summary markdown\n"
         "/status - daemon + child status\n"
         "/stop - stop active run\n"
         "/daemon-stop - stop daemon process\n"
@@ -432,3 +535,24 @@ def help_text() -> str:
         "Plain text message is treated as /run when idle.\n"
         "Voice/audio message will be transcribed by Whisper when enabled."
     )
+
+
+def _normalize_plan_mode(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"off", "auto", "record"}:
+        return normalized
+    return None
+
+
+def _read_text_file(path: str | Path | None) -> str | None:
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        return p.read_text(encoding="utf-8")
+    except OSError:
+        return None

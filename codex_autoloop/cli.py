@@ -9,6 +9,8 @@ from .apps.shell_utils import (
     format_control_status,
     looks_like_bot_token,
     parse_telegram_events,
+    resolve_plan_overview_file,
+    resolve_review_summaries_dir,
     resolve_operator_messages_file,
 )
 
@@ -18,6 +20,8 @@ __all__ = [
     "format_control_status",
     "looks_like_bot_token",
     "parse_telegram_events",
+    "resolve_plan_overview_file",
+    "resolve_review_summaries_dir",
     "resolve_operator_messages_file",
 ]
 
@@ -80,6 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--main-model", default=None, help="Primary agent model override.")
     parser.add_argument("--reviewer-model", default=None, help="Reviewer sub-agent model override.")
+    parser.add_argument("--plan-model", default=None, help="Plan agent model override.")
     parser.add_argument(
         "--main-reasoning-effort",
         default=None,
@@ -93,6 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reviewer sub-agent reasoning effort override.",
     )
     parser.add_argument(
+        "--plan-reasoning-effort",
+        default=None,
+        choices=["low", "medium", "high", "xhigh"],
+        help="Plan agent reasoning effort override.",
+    )
+    parser.add_argument(
         "--main-extra-arg",
         action="append",
         help="Extra argument passed to main `codex exec` command (repeatable).",
@@ -101,6 +112,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--reviewer-extra-arg",
         action="append",
         help="Extra argument passed to reviewer `codex exec` command (repeatable).",
+    )
+    parser.add_argument(
+        "--plan-extra-arg",
+        action="append",
+        help="Extra argument passed to planner `codex exec` command (repeatable).",
+    )
+    parser.add_argument(
+        "--plan-mode",
+        default="auto",
+        choices=["off", "auto", "record"],
+        help="Plan agent mode: off, auto follow-up, or record-only.",
     )
     parser.add_argument("--skip-git-repo-check", action="store_true", help="Pass through to Codex CLI.")
     parser.add_argument("--full-auto", action="store_true", help="Pass `--full-auto` to Codex CLI.")
@@ -114,6 +136,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--operator-messages-file",
         default=None,
         help="Markdown document path for operator message history used by reviewer.",
+    )
+    parser.add_argument(
+        "--plan-overview-file",
+        default=None,
+        help="Markdown document path for the plan agent overall summary.",
+    )
+    parser.add_argument(
+        "--review-summaries-dir",
+        default=None,
+        help="Directory for per-round reviewer summary markdown files.",
     )
     parser.add_argument(
         "--control-file",

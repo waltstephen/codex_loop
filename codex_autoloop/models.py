@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 
 ReviewStatus = Literal["done", "continue", "blocked"]
+PlanMode = Literal["off", "auto", "record"]
 
 
 @dataclass
@@ -41,6 +42,17 @@ class ReviewDecision:
     confidence: float
     reason: str
     next_action: str
+    round_summary_markdown: str = ""
+    completion_summary_markdown: str = ""
+
+
+@dataclass
+class PlanDecision:
+    follow_up_required: bool
+    next_explore: str
+    main_instruction: str
+    review_instruction: str
+    overview_markdown: str
 
 
 @dataclass
@@ -53,3 +65,4 @@ class RoundSummary:
     checks: list[CheckResult]
     review: ReviewDecision
     main_last_message: str
+    plan: PlanDecision | None = None

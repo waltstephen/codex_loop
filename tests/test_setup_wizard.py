@@ -24,3 +24,20 @@ def test_stop_existing_daemon_no_pid_file(tmp_path: Path) -> None:
 def test_prompt_model_choice_default(monkeypatch) -> None:
     monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "")
     assert setup_wizard.prompt_model_choice() == "quality"
+
+
+def test_build_parser_accepts_plan_args() -> None:
+    parser = setup_wizard.build_parser()
+    args = parser.parse_args(
+        [
+            "--run-plan-mode",
+            "record",
+            "--run-plan-model",
+            "gpt-5.4",
+            "--run-plan-reasoning-effort",
+            "high",
+        ]
+    )
+    assert args.run_plan_mode == "record"
+    assert args.run_plan_model == "gpt-5.4"
+    assert args.run_plan_reasoning_effort == "high"

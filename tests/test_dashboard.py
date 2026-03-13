@@ -1,5 +1,10 @@
 from codex_autoloop.dashboard import DashboardStore
-from codex_autoloop.cli import parse_telegram_events, resolve_operator_messages_file
+from codex_autoloop.cli import (
+    parse_telegram_events,
+    resolve_operator_messages_file,
+    resolve_plan_overview_file,
+    resolve_review_summaries_dir,
+)
 
 
 def test_dashboard_store_state_and_events() -> None:
@@ -32,3 +37,20 @@ def test_resolve_operator_messages_file_prefers_explicit() -> None:
         state_file="/tmp/state.json",
     )
     assert out == "/tmp/a.md"
+
+
+def test_resolve_plan_and_review_paths_from_operator_doc() -> None:
+    plan = resolve_plan_overview_file(
+        explicit_path=None,
+        operator_messages_file="/tmp/operator_messages.md",
+        control_file=None,
+        state_file=None,
+    )
+    review = resolve_review_summaries_dir(
+        explicit_path=None,
+        operator_messages_file="/tmp/operator_messages.md",
+        control_file=None,
+        state_file=None,
+    )
+    assert plan.endswith("plan_overview.md")
+    assert review.endswith("review_summaries")

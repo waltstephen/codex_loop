@@ -34,6 +34,20 @@ def test_format_review() -> None:
     assert "status=continue" in message
 
 
+def test_format_plan() -> None:
+    message = format_event_message(
+        {
+            "type": "plan.completed",
+            "round_index": 2,
+            "plan_mode": "auto",
+            "next_explore": "inspect parser",
+            "main_instruction": "fix parser",
+        }
+    )
+    assert "plan updated" in message
+    assert "inspect parser" in message
+
+
 def test_unknown_event_empty() -> None:
     assert format_event_message({"type": "x.unknown"}) == ""
 

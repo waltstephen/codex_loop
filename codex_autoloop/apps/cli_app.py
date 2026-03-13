@@ -10,6 +10,7 @@ from ..codex_runner import CodexRunner
 from ..core.engine import LoopConfig, LoopEngine
 from ..core.state_store import LoopStateStore
 from ..dashboard import DashboardServer, DashboardStore
+from ..planner import Planner
 from ..reviewer import Reviewer
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .shell_utils import (
@@ -17,6 +18,8 @@ from .shell_utils import (
     format_control_status,
     looks_like_bot_token,
     parse_telegram_events,
+    resolve_plan_overview_file,
+    resolve_review_summaries_dir,
     resolve_operator_messages_file,
 )
 
@@ -32,10 +35,25 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         control_file=args.control_file,
         state_file=args.state_file,
     )
+    plan_overview_file = resolve_plan_overview_file(
+        explicit_path=args.plan_overview_file,
+        operator_messages_file=operator_messages_file,
+        control_file=args.control_file,
+        state_file=args.state_file,
+    )
+    review_summaries_dir = resolve_review_summaries_dir(
+        explicit_path=args.review_summaries_dir,
+        operator_messages_file=operator_messages_file,
+        control_file=args.control_file,
+        state_file=args.state_file,
+    )
     state_store = LoopStateStore(
         objective=objective,
         state_file=args.state_file,
         operator_messages_file=operator_messages_file,
+        plan_overview_file=plan_overview_file,
+        review_summaries_dir=review_summaries_dir,
+        plan_mode=args.plan_mode,
     )
     state_store.record_message(text=objective, source="operator", kind="initial-objective")
 
@@ -156,6 +174,34 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             else:
                 print("[control] local inject received.", file=sys.stderr)
             return
+        if command.kind == "mode":
+            updated_mode = state_store.request_plan_mode(command.text, source=command.source)
+            if updated_mode is None:
+                reply_to_source(command.source, "[autoloop] invalid mode. Use: off, auto, or record.")
+            else:
+                reply_to_source(
+                    command.source,
+                    f"[autoloop] control ack\nAction: mode\nplan_mode={updated_mode}",
+                )
+            return
+        if command.kind == "plan":
+            state_store.request_plan_direction(command.text, source=command.source)
+            reply_to_source(
+                command.source,
+                "[autoloop] control ack\n"
+                "Action: plan\n"
+                "Plan-only direction recorded and will be applied by the plan agent.",
+            )
+            return
+        if command.kind == "review":
+            state_store.request_review_criteria(command.text, source=command.source)
+            reply_to_source(
+                command.source,
+                "[autoloop] control ack\n"
+                "Action: review\n"
+                "Reviewer-only audit criteria recorded for the next review pass.",
+            )
+            return
         if command.kind == "stop":
             state_store.request_stop(source=command.source)
             if command.source == "telegram" and telegram_notifier is not None:
@@ -173,6 +219,25 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         if command.kind == "help":
             reply_to_source(command.source, control_help_text())
             return
+        if command.kind == "show-plan":
+            doc = state_store.read_plan_overview_markdown()
+            reply_to_source(command.source, doc or "[autoloop] no plan overview markdown available yet.")
+            return
+        if command.kind == "show-review":
+            round_index = None
+            raw = command.text.strip()
+            if raw:
+                try:
+                    round_index = int(raw)
+                except ValueError:
+                    reply_to_source(command.source, "[autoloop] invalid round number for /show-review.")
+                    return
+            doc = state_store.read_review_summaries_markdown(round_index=round_index)
+            reply_to_source(
+                command.source,
+                doc or "[autoloop] no reviewer summary markdown available for that request.",
+            )
+            return
         if command.kind == "run":
             reply_to_source(
                 command.source,
@@ -186,9 +251,11 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     event_sink = CompositeEventSink(sinks)
     runner = CodexRunner(codex_bin=args.codex_bin, event_callback=event_sink.handle_stream_line)
     reviewer = Reviewer(runner=runner)
+    planner = Planner(runner=runner) if args.plan_mode != "off" else None
     engine = LoopEngine(
         runner=runner,
         reviewer=reviewer,
+        planner=planner,
         state_store=state_store,
         event_sink=event_sink,
         config=LoopConfig(
@@ -201,8 +268,12 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             main_reasoning_effort=args.main_reasoning_effort,
             reviewer_model=args.reviewer_model,
             reviewer_reasoning_effort=args.reviewer_reasoning_effort,
+            plan_mode=args.plan_mode,
+            plan_model=args.plan_model,
+            plan_reasoning_effort=args.plan_reasoning_effort,
             main_extra_args=args.main_extra_arg or [],
             reviewer_extra_args=args.reviewer_extra_arg or [],
+            plan_extra_args=args.plan_extra_arg or [],
             skip_git_repo_check=args.skip_git_repo_check,
             full_auto=args.full_auto,
             dangerous_yolo=args.yolo,
@@ -218,6 +289,9 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             "success": result.success,
             "session_id": result.session_id,
             "stop_reason": result.stop_reason,
+            "plan_mode": args.plan_mode,
+            "plan_overview_file": state_store.plan_overview_path(),
+            "review_summaries_dir": state_store.review_summaries_dir(),
             "rounds": [
                 {
                     "round": item.round_index,
@@ -230,6 +304,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
                     "review_reason": item.review.reason,
                     "check_count": len(item.checks),
                     "checks_passed": all(check.passed for check in item.checks),
+                    "plan_next_explore": item.plan.next_explore if item.plan is not None else None,
                 }
                 for item in result.rounds
             ],

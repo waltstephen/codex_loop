@@ -31,6 +31,8 @@ class DashboardStore:
             "current_round": 0,
             "stop_reason": None,
             "success": None,
+            "plan_mode": None,
+            "latest_plan_next_explore": None,
             "updated_at": self._now(),
         }
 
@@ -46,6 +48,7 @@ class DashboardStore:
                 self._state["current_round"] = 0
                 self._state["stop_reason"] = None
                 self._state["success"] = None
+                self._state["plan_mode"] = event.get("plan_mode", self._state["plan_mode"])
             elif event_type == "round.started":
                 self._state["current_round"] = event.get("round_index", self._state["current_round"])
                 if event.get("session_id"):
@@ -53,6 +56,9 @@ class DashboardStore:
             elif event_type == "round.main.completed":
                 if event.get("session_id"):
                     self._state["session_id"] = event.get("session_id")
+            elif event_type == "plan.completed":
+                self._state["plan_mode"] = event.get("plan_mode", self._state["plan_mode"])
+                self._state["latest_plan_next_explore"] = event.get("next_explore")
             elif event_type == "loop.completed":
                 self._state["status"] = "completed"
                 self._state["success"] = bool(event.get("success"))

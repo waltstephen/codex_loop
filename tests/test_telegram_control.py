@@ -82,6 +82,48 @@ def test_parse_run_command() -> None:
     assert run.text == "build training pipeline"
 
 
+def test_parse_plan_and_review_commands() -> None:
+    plan = parse_command_from_update(
+        update=_wrap("/plan explore memory architecture"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    review = parse_command_from_update(
+        update=_wrap("/review block on failing acceptance tests"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert plan is not None and plan.kind == "plan"
+    assert review is not None and review.kind == "review"
+
+
+def test_parse_mode_command() -> None:
+    mode = parse_command_from_update(
+        update=_wrap("/mode record"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert mode is not None
+    assert mode.kind == "mode"
+    assert mode.text == "record"
+
+
+def test_parse_show_plan_and_show_review_commands() -> None:
+    show_plan = parse_command_from_update(
+        update=_wrap("/show-plan"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    show_review = parse_command_from_update(
+        update=_wrap("/show-review 3"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert show_plan is not None and show_plan.kind == "show-plan"
+    assert show_review is not None and show_review.kind == "show-review"
+    assert show_review.text == "3"
+
+
 def test_ignore_other_chat() -> None:
     command = parse_command_from_update(
         update=_wrap("/inject x", chat_id=999),
