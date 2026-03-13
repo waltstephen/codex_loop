@@ -1,3 +1,4 @@
+import json
 import sys
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
@@ -86,6 +87,78 @@ def test_resolve_run_model_settings_prefers_explicit_overrides() -> None:
         "gpt-5.1-codex",
         "low",
     )
+
+
+def test_main_uses_custom_home_dir_state_file_for_config_and_daemon_cmd(monkeypatch, tmp_path: Path) -> None:
+    home_dir = tmp_path / "custom-home"
+    run_cd = tmp_path / "repo"
+    run_cd.mkdir()
+    expected_state_file = str((home_dir / "last_state.json").resolve())
+
+    args = SimpleNamespace(
+        run_cd=str(run_cd),
+        home_dir=str(home_dir),
+        run_max_rounds=50,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_resume_last_session=True,
+        run_plan_mode="auto",
+        run_model_preset="cheap",
+        run_main_model=None,
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort=None,
+        run_plan_model=None,
+        run_plan_reasoning_effort=None,
+        token_lock_dir=str(tmp_path / "locks"),
+        restart_existing=False,
+    )
+
+    class _FakeParser:
+        def parse_args(self):
+            return args
+
+    class _FakeLock:
+        def release(self) -> None:
+            return None
+
+    captured: dict[str, object] = {}
+
+    class _FakeProcess:
+        pid = 4321
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(setup_wizard, "build_parser", lambda: _FakeParser())
+    monkeypatch.setattr(setup_wizard.shutil, "which", lambda name: "codex" if name == "codex" else None)
+    monkeypatch.setattr(setup_wizard, "check_codex_binary", lambda codex_bin: True)
+    monkeypatch.setattr(setup_wizard, "check_codex_auth", lambda **kwargs: True)
+    monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: "123456:ABCDEFGHIJK")
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
+    monkeypatch.setattr(setup_wizard, "resolve_effective_chat_id", lambda **kwargs: "42")
+    monkeypatch.setattr(setup_wizard, "acquire_token_lock", lambda **kwargs: _FakeLock())
+    monkeypatch.setattr(setup_wizard, "resolve_daemon_launch_prefix", lambda: ["codex-autoloop-telegram-daemon"])
+    monkeypatch.setattr(setup_wizard, "resolve_codex_autoloop_bin", lambda home: "codex-autoloop")
+    monkeypatch.setattr(setup_wizard, "wait_for_daemon_ready", lambda **kwargs: {"daemon_running": True})
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeProcess()
+
+    monkeypatch.setattr(setup_wizard.subprocess, "Popen", fake_popen)
+
+    setup_wizard.main()
+
+    config_path = home_dir / "daemon_config.json"
+    assert config_path.exists()
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["run_state_file"] == expected_state_file
+    cmd = captured["cmd"]
+    assert isinstance(cmd, list)
+    index = cmd.index("--run-state-file")
+    assert cmd[index + 1] == expected_state_file
 
 
 def test_build_parser_accepts_plan_args() -> None:

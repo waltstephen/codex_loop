@@ -105,6 +105,7 @@ def main() -> None:
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
     logs_dir = home_dir / "logs"
+    run_state_file = resolve_run_state_file(home_dir)
     home_dir.mkdir(parents=True, exist_ok=True)
     bus_dir.mkdir(parents=True, exist_ok=True)
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -135,6 +136,7 @@ def main() -> None:
         "run_yolo": args.run_yolo,
         "run_resume_last_session": args.run_resume_last_session,
         "run_plan_mode": args.run_plan_mode,
+        "run_state_file": run_state_file,
         "run_main_reasoning_effort": main_reasoning_effort,
         "run_reviewer_reasoning_effort": reviewer_reasoning_effort,
         "run_plan_reasoning_effort": plan_reasoning_effort,
@@ -169,6 +171,8 @@ def main() -> None:
         str(args.run_max_rounds),
         "--run-plan-mode",
         args.run_plan_mode,
+        "--run-state-file",
+        run_state_file,
         "--bus-dir",
         str(bus_dir),
         "--logs-dir",
@@ -392,6 +396,10 @@ def resolve_daemon_ctl_hint() -> str:
     if ctl_bin:
         return ctl_bin
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
+
+
+def resolve_run_state_file(home_dir: Path) -> str:
+    return str((home_dir / "last_state.json").resolve())
 
 
 def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:

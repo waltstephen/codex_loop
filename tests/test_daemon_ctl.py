@@ -207,3 +207,44 @@ def test_show_review_prints_live_review_markdown(monkeypatch, tmp_path: Path, ca
         daemon_ctl.main()
     assert exc.value.code == 0
     assert capsys.readouterr().out == "# Reviews\n\n- round 1 ok\n\n"
+
+
+def test_show_review_context_uses_run_state_file_from_status(monkeypatch, tmp_path: Path, capsys) -> None:
+    bus_dir = tmp_path / "bus"
+    bus_dir.mkdir()
+    review_dir = tmp_path / "reviews"
+    review_dir.mkdir()
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        daemon_ctl,
+        "inspect_daemon_status",
+        lambda *args, **kwargs: DaemonStatusInspection(
+            payload={
+                "daemon_running": True,
+                "running": True,
+                "daemon_pid": 123,
+                "updated_at": "2026-03-13T00:00:00Z",
+                "child_review_summaries_dir": str(review_dir),
+                "child_operator_messages_path": str(tmp_path / "operator_messages.md"),
+                "run_state_file": str(tmp_path / "custom-home" / "last_state.json"),
+                "run_check": ["pytest -q"],
+            },
+            is_live=True,
+            reason=None,
+            daemon_pid=123,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+
+    def fake_render_review_context(**kwargs) -> str:
+        captured.update(kwargs)
+        return "# Review Context\n"
+
+    monkeypatch.setattr(daemon_ctl, "render_review_context", fake_render_review_context)
+    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "show-review-context"])
+    with pytest.raises(SystemExit) as exc:
+        daemon_ctl.main()
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == "# Review Context\n\n"
+    assert captured["state_file"] == str(tmp_path / "custom-home" / "last_state.json")
+    assert captured["review_summaries_dir"] == str(review_dir)
