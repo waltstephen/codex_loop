@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -79,7 +80,7 @@ class Reviewer:
                 next_action="Continue implementation and include clear completion evidence.",
                 round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
             )
-        return parsed
+        return _coerce_decision_against_main_summary(parsed, main_summary=main_summary)
 
     def _build_prompt(
         self,
@@ -168,3 +169,63 @@ def _load_json(text: str) -> dict | None:
     if not isinstance(value, dict):
         return None
     return value
+
+
+GENERIC_MAIN_PATTERNS = [
+    "i am the primary implementation agent",
+    "i'm the primary implementation agent",
+    "i’m the primary implementation agent",
+    "i will act as the primary implementation agent",
+    "i'll act as the primary implementation agent",
+    "i’ll act as the primary implementation agent",
+    "acting as the primary implementation agent",
+    "i'll handle the main task directly",
+    "i’ll handle the main task directly",
+    "continuing as the primary implementation agent",
+    "i’ll keep ownership of the main task here",
+    "i'll keep ownership of the main task here",
+]
+
+CONCRETE_EXECUTION_PATTERNS = [
+    "done:",
+    "remaining:",
+    "blockers:",
+]
+
+COMMAND_EVIDENCE_RE = re.compile(r"\b(?:ran|executed)\s+(?:pytest|git diff|git status|rg|get-content)\b")
+COMPLETED_ACTION_RE = re.compile(
+    r"\b(?:read|inspected|edited|updated|changed|patched|ran|tested|implemented|verified|fixed)\b"
+)
+
+
+def _coerce_decision_against_main_summary(decision: ReviewDecision, *, main_summary: str) -> ReviewDecision:
+    normalized = " ".join((main_summary or "").lower().split())
+    if any(pattern in normalized for pattern in GENERIC_MAIN_PATTERNS) and not _has_concrete_execution_evidence(
+        main_summary
+    ):
+        return ReviewDecision(
+            status="continue",
+            confidence=min(decision.confidence, 0.2),
+            reason=(
+                "Main agent summary appears to be a generic role acknowledgment without concrete repository work. "
+                "Continue and require specific execution evidence."
+            ),
+            next_action="Perform concrete repository inspection or code changes before the next review.",
+            round_summary_markdown=(
+                decision.round_summary_markdown
+                or "# Review Summary\n\n- Main summary was a generic acknowledgment without concrete execution evidence.\n"
+            ),
+            completion_summary_markdown="",
+        )
+    return decision
+
+
+def _has_concrete_execution_evidence(main_summary: str) -> bool:
+    normalized = " ".join((main_summary or "").lower().split())
+    if any(pattern in normalized for pattern in CONCRETE_EXECUTION_PATTERNS):
+        return True
+    if COMMAND_EVIDENCE_RE.search(normalized):
+        return True
+    if COMPLETED_ACTION_RE.search(normalized):
+        return True
+    return False

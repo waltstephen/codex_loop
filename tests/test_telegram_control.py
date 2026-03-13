@@ -82,6 +82,16 @@ def test_parse_run_command() -> None:
     assert run.text == "build training pipeline"
 
 
+def test_parse_new_command() -> None:
+    new = parse_command_from_update(
+        update=_wrap("/new"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert new is not None
+    assert new.kind == "new"
+
+
 def test_parse_plan_and_review_commands() -> None:
     plan = parse_command_from_update(
         update=_wrap("/plan explore memory architecture"),

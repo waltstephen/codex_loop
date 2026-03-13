@@ -105,6 +105,11 @@ def main() -> None:
         print("Sent: run")
         raise SystemExit(0)
 
+    if args.subcommand == "new":
+        publish(command_bus, "new", "", source="terminal")
+        print("Sent: new")
+        raise SystemExit(0)
+
     if args.subcommand == "btw":
         payload = read_status(status_path)
         if payload is None:
@@ -192,6 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="subcommand", required=True)
     run = sub.add_parser("run", help="Start a run objective.")
     run.add_argument("text", help="Objective text.")
+    sub.add_parser("new", help="Force the next run to start in a fresh main session.")
     btw = sub.add_parser("btw", help="Ask the read-only BTW side-agent a project question.")
     btw.add_argument("text", help="Question text.")
     inject = sub.add_parser("inject", help="Inject instruction to active run.")

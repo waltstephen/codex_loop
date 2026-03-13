@@ -2,6 +2,11 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
+from codex_autoloop.apps.daemon_app import (
+    consume_force_new_session_next_run,
+    read_force_new_session_next_run,
+    write_force_new_session_next_run,
+)
 from codex_autoloop.telegram_daemon import build_child_command, resolve_saved_session_id
 
 
@@ -78,3 +83,12 @@ def test_resolve_saved_session_id(tmp_path: Path) -> None:
     state_file = tmp_path / "last_state.json"
     state_file.write_text(json.dumps({"session_id": "thread-abc"}), encoding="utf-8")
     assert resolve_saved_session_id(str(state_file)) == "thread-abc"
+
+
+def test_force_new_session_flag_roundtrip(tmp_path: Path) -> None:
+    path = tmp_path / "next_run_new_session.flag"
+    assert read_force_new_session_next_run(path) is False
+    write_force_new_session_next_run(path, True)
+    assert read_force_new_session_next_run(path) is True
+    assert consume_force_new_session_next_run(path) is True
+    assert read_force_new_session_next_run(path) is False

@@ -494,6 +494,11 @@ class LoopEngine:
                 f"- Main instruction: {plan.main_instruction}\n\n"
             )
         prompt += (
+            "Do not reply with a generic role acknowledgment or a promise to start later.\n"
+            "Your first response in this turn must reflect concrete execution progress in the repository.\n"
+            "Before finishing this turn, do at least one concrete repo action such as reading key files, running a read-only inspection command, or making a targeted code change.\n"
+            "If the task is still unclear, first inspect the repository and state what you found, instead of asking the user what to do.\n"
+            "Your final message must include specific evidence of action taken in this turn.\n\n"
             "At the end, output a concise execution summary:\n"
             "- DONE:\n- REMAINING:\n- BLOCKERS:\n"
         )
@@ -529,6 +534,9 @@ class LoopEngine:
                 f"- Main instruction: {plan.main_instruction}\n\n"
             )
         prompt += (
+            "Do not reply with a generic role acknowledgment or a promise to start later.\n"
+            "In this turn, perform concrete work or concrete inspection in the repository before you finish.\n"
+            "Your final message must include evidence of what you actually did in this turn.\n"
             f"{check_instruction}\n"
             "Execute concrete work now. Do not stop at guidance-only output.\n"
             "End your response with updated DONE/REMAINING/BLOCKERS."
@@ -553,6 +561,9 @@ class LoopEngine:
         if operator_messages:
             prompt += "Operator messages visible to you:\n" + "\n".join(f"- {item}" for item in operator_messages) + "\n\n"
         prompt += (
+            "Do not reply with a generic role acknowledgment or a promise to start later.\n"
+            "You must begin concrete follow-up work immediately in this turn.\n"
+            "Your final message must include evidence of what changed or what was inspected.\n"
             "Execute concrete work now. Do not stop at guidance-only output.\n"
             "End your response with updated DONE/REMAINING/BLOCKERS."
         )
@@ -582,6 +593,9 @@ class LoopEngine:
                 f"- Main instruction: {plan.main_instruction}\n\n"
             )
         prompt += (
+            "Do not reply with a generic role acknowledgment or a promise to start later.\n"
+            "After receiving this override, take concrete action in the repository within this turn.\n"
+            "Your final message must include evidence of actual work done or files inspected.\n"
             "Execute concrete work now and continue until completion gates are met.\n"
             "End with DONE/REMAINING/BLOCKERS."
         )

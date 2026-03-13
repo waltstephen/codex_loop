@@ -386,6 +386,8 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return TelegramCommand(kind="btw", text=content[len("/btw ") :].strip())
     if lowered == "/btw":
         return None
+    if lowered in {"/new", "/fresh"}:
+        return TelegramCommand(kind="new", text="")
     if lowered.startswith("/plan "):
         return TelegramCommand(kind="plan", text=content[len("/plan ") :].strip())
     if lowered == "/plan":

@@ -30,6 +30,7 @@ class TelegramDaemonApp:
         self.bus_dir.mkdir(parents=True, exist_ok=True)
         self.events_log = self.logs_dir / "daemon-events.jsonl"
         self.status_path = self.bus_dir / "daemon_status.json"
+        self.next_run_new_session_flag_path = self.bus_dir / "next_run_new_session.flag"
         preset = get_preset(args.run_model_preset) if getattr(args, "run_model_preset", None) else None
 
         self.token_lock: TokenLock | None = None
@@ -87,7 +88,7 @@ class TelegramDaemonApp:
         self.notifier.send_message(
             "[daemon] online\n"
             "Send /run <objective> to start a new run.\n"
-            "Commands: /status /mode /btw /plan /review /show-plan /show-plan-context /show-review /show-review-context /stop /help"
+            "Commands: /status /new /mode /btw /plan /review /show-plan /show-plan-context /show-review /show-review-context /stop /help"
         )
         self._log_event(
             "daemon.started",
@@ -165,6 +166,16 @@ class TelegramDaemonApp:
         if command.kind == "help":
             self._send_reply(command.source, help_text())
             return
+        if command.kind == "new":
+            write_force_new_session_next_run(self.next_run_new_session_flag_path, True)
+            self._log_event("daemon.new_session_requested", source=command.source)
+            self._send_reply(
+                command.source,
+                "[daemon] next /run will start the main agent in a fresh session. "
+                "If a run is active now, this applies after it finishes or after you stop it.",
+            )
+            self._write_status()
+            return
         if command.kind == "mode-menu":
             self._send_reply(command.source, format_mode_menu(getattr(self.args, "run_plan_mode", "auto")))
             return
@@ -206,6 +217,7 @@ class TelegramDaemonApp:
                     child_started_at=self.child_started_at,
                     default_plan_mode=getattr(self.args, "run_plan_mode", "auto"),
                     btw_status=self.btw_agent.status_snapshot(),
+                    force_new_session_next_run=read_force_new_session_next_run(self.next_run_new_session_flag_path),
                     last_session_id=resolve_saved_session_id(self.args.run_state_file),
                 ),
             )
@@ -325,7 +337,12 @@ class TelegramDaemonApp:
         messages_path = self.logs_dir / f"run-{timestamp}-operator_messages.md"
         plan_overview_path = self.logs_dir / f"run-{timestamp}-plan_overview.md"
         review_summaries_dir = self.logs_dir / f"run-{timestamp}-review"
-        resume_session_id = resolve_saved_session_id(self.args.run_state_file) if self.args.run_resume_last_session else None
+        force_new_session = consume_force_new_session_next_run(self.next_run_new_session_flag_path)
+        resume_session_id = (
+            None
+            if force_new_session
+            else resolve_saved_session_id(self.args.run_state_file) if self.args.run_resume_last_session else None
+        )
         self.child_control_bus = JsonlCommandBus(control_path)
         cmd = build_child_command(
             args=self.args,
@@ -336,6 +353,7 @@ class TelegramDaemonApp:
             plan_overview_file=str(plan_overview_path),
             review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
+            force_new_session=force_new_session,
         )
         log_file = log_path.open("w", encoding="utf-8")
         self.child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=self.run_cwd)
@@ -361,6 +379,7 @@ class TelegramDaemonApp:
             plan_overview_file=str(plan_overview_path),
             review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
+            force_new_session=force_new_session,
         )
         self._write_status()
 
@@ -413,6 +432,7 @@ class TelegramDaemonApp:
                 "daemon_running": not self._stopping,
                 "running": running,
                 "default_plan_mode": getattr(self.args, "run_plan_mode", "auto"),
+                "force_new_session_next_run": read_force_new_session_next_run(self.next_run_new_session_flag_path),
                 "run_check": list(getattr(self.args, "run_check", [])),
                 "child_pid": self.child.pid if running and self.child else None,
                 "child_objective": self.child_objective,
@@ -480,6 +500,7 @@ def build_child_command(
     plan_overview_file: str,
     review_summaries_dir: str,
     resume_session_id: str | None,
+    force_new_session: bool = False,
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
     main_model = preset.main_model if preset is not None else args.run_main_model
@@ -580,6 +601,7 @@ def format_status(
     child_started_at: dt.datetime | None,
     default_plan_mode: str,
     btw_status,
+    force_new_session_next_run: bool = False,
     last_session_id: str | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
@@ -587,6 +609,7 @@ def format_status(
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
         base += f"\ndefault_plan_mode={default_plan_mode}"
+        base += f"\nforce_new_session_next_run={force_new_session_next_run}"
         base += f"\nbtw_busy={btw_status.busy}"
         base += f"\nbtw_session_id={btw_status.session_id}"
         if child_plan_overview_path:
@@ -605,6 +628,7 @@ def format_status(
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
         f"default_plan_mode={default_plan_mode}\n"
+        f"force_new_session_next_run={force_new_session_next_run}\n"
         f"btw_busy={btw_status.busy}\n"
         f"btw_session_id={btw_status.session_id}\n"
         f"last_session_id={last_session_id}\n"
@@ -632,6 +656,7 @@ def help_text() -> str:
     return (
         "[daemon] commands\n"
         "/run <objective> - start a new codex-autoloop run\n"
+        "/new - force the next /run to start in a fresh main session\n"
         "/inject <instruction> - inject instruction to active run (or run if idle)\n"
         "/mode - show a mode selection menu\n"
         "/mode <off|auto|record> - hot-switch daemon default mode and active child mode\n"
@@ -670,6 +695,35 @@ def _read_text_file(path: str | Path | None) -> str | None:
         return p.read_text(encoding="utf-8")
     except OSError:
         return None
+
+
+def read_force_new_session_next_run(path: str | Path) -> bool:
+    p = Path(path)
+    if not p.exists():
+        return False
+    try:
+        return p.read_text(encoding="utf-8").strip() == "1"
+    except OSError:
+        return False
+
+
+def write_force_new_session_next_run(path: str | Path, value: bool) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if value:
+        p.write_text("1", encoding="utf-8")
+    else:
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            return
+
+
+def consume_force_new_session_next_run(path: str | Path) -> bool:
+    value = read_force_new_session_next_run(path)
+    if value:
+        write_force_new_session_next_run(path, False)
+    return value
 
 
 def render_plan_context(

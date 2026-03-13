@@ -302,7 +302,15 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
                 "[autoloop] /run is available in daemon mode.\n"
                 "Current loop is already active; use /inject, /status, or /stop.",
             )
-
+            return
+        if command.kind == "new":
+            reply_to_source(
+                command.source,
+                "[autoloop] /new is available in daemon mode.\n"
+                "Use it there to force the next /run to start in a fresh main session.",
+            )
+            return
+            
     for channel in control_channels:
         channel.start(on_control_command)
 
