@@ -286,7 +286,7 @@ class TelegramCommandPoller:
         try:
             with urllib.request.urlopen(req, timeout=self.long_poll_timeout_seconds + 10) as resp:
                 raw = resp.read().decode("utf-8")
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except Exception as exc:
             self._emit_error(f"telegram getUpdates network error: {exc}")
             return None
 

@@ -1,8 +1,10 @@
 import json
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 
 from codex_autoloop.apps.daemon_app import (
+    TelegramDaemonApp,
     consume_force_new_session_next_run,
     read_force_new_session_next_run,
     write_force_new_session_next_run,
@@ -94,3 +96,12 @@ def test_force_new_session_flag_roundtrip(tmp_path: Path) -> None:
     assert read_force_new_session_next_run(path) is True
     assert consume_force_new_session_next_run(path) is True
     assert read_force_new_session_next_run(path) is False
+
+
+def test_send_reply_logs_failure_when_telegram_send_fails() -> None:
+    app = TelegramDaemonApp.__new__(TelegramDaemonApp)
+    app.notifier = SimpleNamespace(send_message=lambda message: False)
+    events: list[tuple[str, dict]] = []
+    app._log_event = lambda event_type, **kwargs: events.append((event_type, kwargs))
+    app._send_reply("telegram", "[btw] answer")
+    assert events == [("reply.failed", {"source": "telegram", "message": "[btw] answer"})]

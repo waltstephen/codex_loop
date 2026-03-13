@@ -51,13 +51,13 @@ class TelegramNotifier:
             return
         self.send_message(message)
 
-    def send_message(self, message: str) -> None:
+    def send_message(self, message: str) -> bool:
         payload = {
             "chat_id": self.config.chat_id,
             "text": message[:3900],
             "disable_web_page_preview": True,
         }
-        self._post_form(self.send_message_url, payload)
+        return self._post_form(self.send_message_url, payload)
 
     def send_typing(self) -> None:
         payload = {

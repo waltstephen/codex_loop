@@ -108,3 +108,15 @@ def test_send_local_file_uses_document_for_non_images(tmp_path: Path) -> None:
     file_path.write_text("hello", encoding="utf-8")
     assert notifier.send_local_file(file_path, caption="report") is True
     assert calls[0]["field_name"] == "document"
+
+
+def test_send_message_returns_post_result() -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    notifier._post_form = lambda url, payload: False  # type: ignore[attr-defined]
+    assert notifier.send_message("hello") is False

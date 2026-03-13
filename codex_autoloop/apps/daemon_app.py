@@ -396,9 +396,13 @@ class TelegramDaemonApp:
     def _send_reply(self, source: str, message: str) -> None:
         if source == "telegram":
             assert self.notifier is not None
-            self.notifier.send_message(message)
-        else:
-            print(message, file=sys.stdout)
+            sent = self.notifier.send_message(message)
+            if sent:
+                self._log_event("reply.sent", source=source, message=message[:700])
+            else:
+                self._log_event("reply.failed", source=source, message=message[:700])
+            return
+        print(message, file=sys.stdout)
         self._log_event("reply.sent", source=source, message=message[:700])
 
     def _forward_to_child(self, kind: str, text: str, source: str) -> bool:
