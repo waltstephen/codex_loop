@@ -27,21 +27,31 @@ Behavior:
 - After `init`, run `argusbot` to attach monitor.
 - In attach console, terminal control works directly:
   - `/run <objective>`
+  - `/new`
   - `/inject <instruction>`
-  - `/status`, `/stop`, `/disable` (same as `/daemon-stop`), `/daemon-stop`
+  - `/mode <off|auto|record>`
+  - `/btw <question>`
+  - `/plan <direction>`
+  - `/review <criteria>`
+  - `/show-main-prompt`
+  - `/show-plan`
+  - `/show-plan-context`
+  - `/show-review [round]`
+  - `/show-review-context`
+  - `/status`, `/stop`, `/daemon-stop`
   - plain text: running => inject, idle => run
 
-Play Mode:
-- `execute-only`: only execute user commands, no plan agent.
-- `fully-plan` (default): 10 minutes after run completion, daemon proposes next request; if not overridden within another 10 minutes, it auto-runs.
-- `record-only`: plan agent only writes markdown table records; reviewer remains unchanged.
+Planner Mode:
+- `off`: disable plan agent behavior for daemon-launched runs.
+- `auto` (default): planner stays enabled and daemon may propose or auto-run the next request.
+- `record`: planner records markdown only without automatic follow-up execution.
 
 Daemon-launched runs use `--yolo` by default.
 
 Disable daemon quickly:
 
 ```bash
-argusbot disable
+argusbot daemon-stop
 ```
 
 ## 3) Run (basic)

@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="plan_mode",
         default="auto",
         choices=["off", "auto", "record"],
-        help="Plan agent mode: off, auto follow-up, or record-only.",
+        help="Planner mode: off, auto, or record.",
     )
     parser.add_argument(
         "--planner",
