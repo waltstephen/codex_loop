@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 .codexhome/
 .codex_daemon/
+.argusbot/
 *.egg-info/
 *.log
