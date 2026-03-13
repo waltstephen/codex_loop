@@ -25,4 +25,4 @@ Thanks for your interest in improving `codex-autoloop`.
 
 ## Acknowledgements
 
-Special thanks to Microsoft Asia for supporting this project.
+Special thanks to Microsoft Research Asia for supporting this project.

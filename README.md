@@ -18,6 +18,34 @@ Current defaults:
 - Daemon child model defaults now inherit Codex CLI global settings unless you explicitly set a preset/override.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
+## Quick Start (24/7 Telegram Control)
+
+If you want to control your main project from Telegram 24/7 with an always-on daemon, use this flow:
+
+1. Clone this repo and install it in editable mode.
+2. Go to your target project directory (the repo you actually want to operate on).
+3. Run `codexloop init` and complete Telegram/model setup prompts.
+4. After setup, daemon starts in background and keeps running.
+5. Chat with your Telegram bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
+
+Example:
+
+```bash
+# 1) clone + install codex-autoloop
+git clone https://github.com/waltstephen/codex_loop.git
+cd codex_loop
+python -m pip install -e .
+
+# 2) go to your main project
+cd ..
+cd <your_main_project>
+
+# 3) initialize daemon config in this project
+codexloop init
+```
+
+During `codexloop init`, enter your Telegram bot token/chat id and the wizard will persist config under `.codex_daemon/` in your main project.
+
 ## Current Feature Snapshot
 
 - Persistent main-agent loop with reviewer gating (`done/continue/blocked`).
