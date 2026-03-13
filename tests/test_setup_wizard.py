@@ -59,7 +59,28 @@ def test_stop_existing_daemon_tolerates_probe_timeout(monkeypatch, tmp_path: Pat
 
 def test_prompt_model_choice_default(monkeypatch) -> None:
     monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "")
-    assert setup_wizard.prompt_model_choice() == "quality"
+    assert setup_wizard.prompt_model_choice() == "cheap"
+
+
+def test_resolve_run_model_settings_prefers_explicit_overrides() -> None:
+    args = SimpleNamespace(
+        run_main_model="gpt-5.4",
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort="xhigh",
+        run_plan_model="gpt-5.1-codex",
+        run_plan_reasoning_effort=None,
+    )
+    preset = setup_wizard.get_preset("cheap")
+    assert preset is not None
+    assert setup_wizard.resolve_run_model_settings(args=args, preset=preset) == (
+        "gpt-5.4",
+        "medium",
+        "gpt-5-codex-mini",
+        "xhigh",
+        "gpt-5.1-codex",
+        "low",
+    )
 
 
 def test_build_parser_accepts_plan_args() -> None:

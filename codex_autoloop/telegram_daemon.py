@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from .model_catalog import MODEL_PRESETS
 from .apps.daemon_app import build_child_command, format_status, help_text, resolve_saved_session_id, run_telegram_daemon
 from .token_lock import default_token_lock_dir
 
@@ -75,7 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-model-preset",
         default="cheap",
-        help="Model preset name for child runs (cheap, balanced, strong, max).",
+        help=f"Model preset name for child runs ({', '.join(item.name for item in MODEL_PRESETS)}).",
     )
     parser.add_argument(
         "--run-plan-mode",

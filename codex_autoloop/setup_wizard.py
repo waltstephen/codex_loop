@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .apps.shell_utils import looks_like_bot_token
 from .daemon_bus import read_status
-from .model_catalog import MODEL_PRESETS, get_preset
+from .model_catalog import MODEL_PRESETS, ModelPreset, get_preset
 from .telegram_notifier import resolve_chat_id
 from .token_lock import acquire_token_lock, default_token_lock_dir
 
@@ -66,51 +66,41 @@ def main() -> None:
     if preset_name and preset_name.lower() != "custom" and resolved_preset is None:
         print(f"Unknown model preset: {preset_name}", file=sys.stderr)
         raise SystemExit(2)
-    if resolved_preset is not None:
-        main_model = resolved_preset.main_model
-        main_reasoning_effort = resolved_preset.main_reasoning_effort
-        reviewer_model = resolved_preset.reviewer_model
-        reviewer_reasoning_effort = resolved_preset.reviewer_reasoning_effort
-        plan_model = resolved_preset.plan_model
-        plan_reasoning_effort = resolved_preset.plan_reasoning_effort
+    if resolved_preset is not None or _has_explicit_run_model_override(args):
+        (
+            main_model,
+            main_reasoning_effort,
+            reviewer_model,
+            reviewer_reasoning_effort,
+            plan_model,
+            plan_reasoning_effort,
+        ) = resolve_run_model_settings(args=args, preset=resolved_preset)
     else:
-        if (
-            args.run_main_model is not None
-            or args.run_reviewer_model is not None
-            or args.run_plan_model is not None
-        ):
-            main_model = args.run_main_model
-            main_reasoning_effort = args.run_main_reasoning_effort
-            reviewer_model = args.run_reviewer_model
-            reviewer_reasoning_effort = args.run_reviewer_reasoning_effort
-            plan_model = args.run_plan_model
-            plan_reasoning_effort = args.run_plan_reasoning_effort
-        else:
-            try:
-                main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
-                main_reasoning_effort = normalize_reasoning_effort(
-                    prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default=""),
-                    field_name="Main agent reasoning effort",
-                )
-                reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
-                reviewer_reasoning_effort = normalize_reasoning_effort(
-                    prompt_input(
-                        "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
-                        default="",
-                    ),
-                    field_name="Reviewer agent reasoning effort",
-                )
-                plan_model = prompt_input("Plan agent model (optional): ", default="").strip() or None
-                plan_reasoning_effort = normalize_reasoning_effort(
-                    prompt_input(
-                        "Plan agent reasoning effort (low/medium/high/xhigh, optional): ",
-                        default="",
-                    ),
-                    field_name="Plan agent reasoning effort",
-                )
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                raise SystemExit(2)
+        try:
+            main_model = prompt_input("Main agent model (optional): ", default="").strip() or None
+            main_reasoning_effort = normalize_reasoning_effort(
+                prompt_input("Main agent reasoning effort (low/medium/high/xhigh, optional): ", default=""),
+                field_name="Main agent reasoning effort",
+            )
+            reviewer_model = prompt_input("Reviewer agent model (optional): ", default="").strip() or None
+            reviewer_reasoning_effort = normalize_reasoning_effort(
+                prompt_input(
+                    "Reviewer agent reasoning effort (low/medium/high/xhigh, optional): ",
+                    default="",
+                ),
+                field_name="Reviewer agent reasoning effort",
+            )
+            plan_model = prompt_input("Plan agent model (optional): ", default="").strip() or None
+            plan_reasoning_effort = normalize_reasoning_effort(
+                prompt_input(
+                    "Plan agent reasoning effort (low/medium/high/xhigh, optional): ",
+                    default="",
+                ),
+                field_name="Plan agent reasoning effort",
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(2)
 
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -190,19 +180,28 @@ def main() -> None:
         daemon_cmd.extend(["--run-check", check_cmd])
     if resolved_preset is not None:
         daemon_cmd.extend(["--run-model-preset", resolved_preset.name])
-    else:
-        if main_model:
-            daemon_cmd.extend(["--run-main-model", main_model])
-        if main_reasoning_effort:
-            daemon_cmd.extend(["--run-main-reasoning-effort", main_reasoning_effort])
-        if reviewer_model:
-            daemon_cmd.extend(["--run-reviewer-model", reviewer_model])
-        if reviewer_reasoning_effort:
-            daemon_cmd.extend(["--run-reviewer-reasoning-effort", reviewer_reasoning_effort])
-        if plan_model:
-            daemon_cmd.extend(["--run-plan-model", plan_model])
-        if plan_reasoning_effort:
-            daemon_cmd.extend(["--run-plan-reasoning-effort", plan_reasoning_effort])
+    daemon_main_model = args.run_main_model if resolved_preset is not None else main_model
+    daemon_main_reasoning_effort = args.run_main_reasoning_effort if resolved_preset is not None else main_reasoning_effort
+    daemon_reviewer_model = args.run_reviewer_model if resolved_preset is not None else reviewer_model
+    daemon_reviewer_reasoning_effort = (
+        args.run_reviewer_reasoning_effort if resolved_preset is not None else reviewer_reasoning_effort
+    )
+    daemon_plan_model = args.run_plan_model if resolved_preset is not None else plan_model
+    daemon_plan_reasoning_effort = (
+        args.run_plan_reasoning_effort if resolved_preset is not None else plan_reasoning_effort
+    )
+    if daemon_main_model:
+        daemon_cmd.extend(["--run-main-model", daemon_main_model])
+    if daemon_main_reasoning_effort:
+        daemon_cmd.extend(["--run-main-reasoning-effort", daemon_main_reasoning_effort])
+    if daemon_reviewer_model:
+        daemon_cmd.extend(["--run-reviewer-model", daemon_reviewer_model])
+    if daemon_reviewer_reasoning_effort:
+        daemon_cmd.extend(["--run-reviewer-reasoning-effort", daemon_reviewer_reasoning_effort])
+    if daemon_plan_model:
+        daemon_cmd.extend(["--run-plan-model", daemon_plan_model])
+    if daemon_plan_reasoning_effort:
+        daemon_cmd.extend(["--run-plan-reasoning-effort", daemon_plan_reasoning_effort])
     if args.run_skip_git_repo_check:
         daemon_cmd.append("--run-skip-git-repo-check")
     if args.run_full_auto:
@@ -272,25 +271,31 @@ def main() -> None:
     print(f"  {ctl_hint} --bus-dir {bus_dir} plan \"把后续方向转向记忆系统设计\"")
     print(f"  {ctl_hint} --bus-dir {bus_dir} review \"验收必须包含测试和运行结果\"")
     print(f"  {ctl_hint} --bus-dir {bus_dir} btw \"这个项目的 manager 和 consumer 是怎么配合的？\"")
+    print(f"  {ctl_hint} --bus-dir {bus_dir} show-main-prompt")
     print(f"  {ctl_hint} --bus-dir {bus_dir} show-plan")
     print(f"  {ctl_hint} --bus-dir {bus_dir} show-plan-context")
     print(f"  {ctl_hint} --bus-dir {bus_dir} show-review")
     print(f"  {ctl_hint} --bus-dir {bus_dir} show-review-context")
     print(f"  {ctl_hint} --bus-dir {bus_dir} status")
     print(f"  {ctl_hint} --bus-dir {bus_dir} stop")
+    print(f"  {ctl_hint} --bus-dir {bus_dir} daemon-stop")
     print("")
     print("Telegram control examples:")
     print("  /run <objective>")
+    print("  /new")
     print("  /inject <instruction>")
     print("  /btw <question>")
     print("  /plan <direction>")
     print("  /review <criteria>")
+    print("  /show-main-prompt")
     print("  /show-plan")
     print("  /show-plan-context")
     print("  /show-review [round]")
     print("  /show-review-context")
     print("  /status")
     print("  /stop")
+    print("  /daemon-stop")
+    print("  /help")
 
 
 def check_codex_binary(codex_bin: str) -> bool:
@@ -584,14 +589,59 @@ def prompt_model_choice() -> str:
             f"plan={preset.plan_model}/{preset.plan_reasoning_effort}"
         )
     print(f"  {len(MODEL_PRESETS) + 1}. custom")
-    raw = prompt_input("Preset number: ", default="1").strip()
+    raw = prompt_input("Preset number: ", default=str(_default_preset_index())).strip()
     try:
         index = int(raw)
     except ValueError:
-        return "quality"
+        return _default_preset_name()
     if 1 <= index <= len(MODEL_PRESETS):
         return MODEL_PRESETS[index - 1].name
     return "custom"
+
+
+def resolve_run_model_settings(
+    *,
+    args: argparse.Namespace,
+    preset: ModelPreset | None,
+) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None]:
+    return (
+        args.run_main_model or (preset.main_model if preset is not None else None),
+        args.run_main_reasoning_effort or (preset.main_reasoning_effort if preset is not None else None),
+        args.run_reviewer_model or (preset.reviewer_model if preset is not None else None),
+        args.run_reviewer_reasoning_effort or (
+            preset.reviewer_reasoning_effort if preset is not None else None
+        ),
+        args.run_plan_model or (preset.plan_model if preset is not None else None),
+        args.run_plan_reasoning_effort or (preset.plan_reasoning_effort if preset is not None else None),
+    )
+
+
+def _has_explicit_run_model_override(args: argparse.Namespace) -> bool:
+    return any(
+        getattr(args, field, None) is not None
+        for field in (
+            "run_main_model",
+            "run_main_reasoning_effort",
+            "run_reviewer_model",
+            "run_reviewer_reasoning_effort",
+            "run_plan_model",
+            "run_plan_reasoning_effort",
+        )
+    )
+
+
+def _default_preset_name() -> str:
+    if any(item.name == "cheap" for item in MODEL_PRESETS):
+        return "cheap"
+    return MODEL_PRESETS[0].name if MODEL_PRESETS else "cheap"
+
+
+def _default_preset_index() -> int:
+    target = _default_preset_name()
+    for idx, preset in enumerate(MODEL_PRESETS, start=1):
+        if preset.name == target:
+            return idx
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:

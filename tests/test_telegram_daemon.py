@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from codex_autoloop.apps.daemon_app import (
     TelegramDaemonApp,
     consume_force_new_session_next_run,
+    help_text,
     read_force_new_session_next_run,
     write_force_new_session_next_run,
 )
+from codex_autoloop import telegram_daemon
 from codex_autoloop.telegram_daemon import build_child_command, resolve_saved_session_id
 
 
@@ -215,3 +217,15 @@ def test_build_child_command_falls_back_to_preset_for_unset_fields() -> None:
     assert option_value("--reviewer-reasoning-effort") == "high"
     assert option_value("--plan-model") == "gpt-5-codex-mini"
     assert option_value("--plan-reasoning-effort") == "low"
+
+
+def test_daemon_parser_preset_help_matches_real_presets() -> None:
+    parser = telegram_daemon.build_parser()
+    action = next(item for item in parser._actions if item.dest == "run_model_preset")
+    assert "quality-xhigh" in action.help
+    assert "codex-xhigh" in action.help
+    assert "strong" not in action.help
+
+
+def test_help_text_mentions_daemon_stop() -> None:
+    assert "/daemon-stop" in help_text()

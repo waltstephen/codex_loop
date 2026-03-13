@@ -89,7 +89,7 @@ class TelegramDaemonApp:
         self.notifier.send_message(
             "[daemon] online\n"
             "Send /run <objective> to start a new run.\n"
-            "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /help"
+            "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
         )
         self._log_event(
             "daemon.started",
