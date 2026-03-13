@@ -62,7 +62,7 @@ LOCAL_REPO_ROOT = Path(__file__).resolve().parent.parent
 def resolve_autoloop_command(command: str) -> list[str]:
     parts = shlex.split(command) if command else []
     if not parts:
-        raise ValueError("codex-autoloop command cannot be empty")
+        raise ValueError("ArgusBot command cannot be empty")
     return parts
 
 
@@ -104,7 +104,7 @@ def main() -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     bus_dir.mkdir(parents=True, exist_ok=True)
     events_log = logs_dir / "daemon-events.jsonl"
-    run_archive_log = logs_dir / "codexloop-run-archive.jsonl"
+    run_archive_log = logs_dir / "argusbot-run-archive.jsonl"
     operator_messages_path = logs_dir / "operator_messages.md"
 
     token_lock: TokenLock | None = None
@@ -1490,7 +1490,7 @@ def help_text() -> str:
 def build_parser() -> argparse.ArgumentParser:
     preset_names = ", ".join(p.name for p in MODEL_PRESETS)
     parser = argparse.ArgumentParser(
-        prog="codex-autoloop-telegram-daemon",
+        prog="argusbot-daemon",
         description="Keep an ArgusBot Telegram command daemon online and launch runs on demand.",
     )
     parser.add_argument("--telegram-bot-token", required=True, help="Telegram bot token.")
@@ -1506,7 +1506,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Timeout for chat id auto resolution.",
     )
     parser.add_argument(
-        "--codex-autoloop-bin",
+        "--argusbot-bin",
+        dest="codex_autoloop_bin",
         default=DEFAULT_CODEX_AUTOLOOP_CMD,
         help=(
             "Executable or command used to launch child runs. "
@@ -1533,17 +1534,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--logs-dir",
-        default=".codex_daemon/logs",
+        default=".argusbot/logs",
         help="Directory for child run logs.",
     )
     parser.add_argument(
         "--bus-dir",
-        default=".codex_daemon/bus",
+        default=".argusbot/bus",
         help="Directory for daemon control bus files.",
     )
     parser.add_argument(
         "--token-lock-dir",
-        default="/tmp/codex-autoloop-token-locks",
+        default="/tmp/argusbot-token-locks",
         help="Global lock directory to enforce one daemon per Telegram token.",
     )
     parser.add_argument(
@@ -1643,7 +1644,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-state-file",
-        default=".codex_daemon/last_state.json",
+        default=".argusbot/last_state.json",
         help="Child --state-file value.",
     )
     parser.add_argument(

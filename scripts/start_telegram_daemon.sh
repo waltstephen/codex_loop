@@ -6,18 +6,18 @@ if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
   exit 2
 fi
 
-LOG_DIR="${CODEX_DAEMON_LOG_DIR:-.codex_daemon}"
-BUS_DIR="${CODEX_DAEMON_BUS_DIR:-${LOG_DIR}/bus}"
-RUN_CD="${CODEX_DAEMON_RUN_CD:-$PWD}"
-TOKEN_LOCK_DIR="${CODEX_DAEMON_TOKEN_LOCK_DIR:-/tmp/codex-autoloop-token-locks}"
-HOME_DIR="${CODEX_DAEMON_HOME_DIR:-${LOG_DIR}}"
+LOG_DIR="${ARGUSBOT_LOG_DIR:-${CODEX_DAEMON_LOG_DIR:-.argusbot}}"
+BUS_DIR="${ARGUSBOT_BUS_DIR:-${CODEX_DAEMON_BUS_DIR:-${LOG_DIR}/bus}}"
+RUN_CD="${ARGUSBOT_RUN_CD:-${CODEX_DAEMON_RUN_CD:-$PWD}}"
+TOKEN_LOCK_DIR="${ARGUSBOT_TOKEN_LOCK_DIR:-${CODEX_DAEMON_TOKEN_LOCK_DIR:-/tmp/argusbot-token-locks}}"
+HOME_DIR="${ARGUSBOT_HOME_DIR:-${CODEX_DAEMON_HOME_DIR:-${LOG_DIR}}}"
 mkdir -p "${LOG_DIR}"
 mkdir -p "${BUS_DIR}"
 
 PID_FILE="${HOME_DIR}/daemon.pid"
 if [[ -f "${PID_FILE}" ]]; then
-  if command -v codex-autoloop-daemon-ctl >/dev/null 2>&1; then
-    codex-autoloop-daemon-ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
+  if command -v argusbot-daemon-ctl >/dev/null 2>&1; then
+    argusbot-daemon-ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
   else
     python -m codex_autoloop.daemon_ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
   fi
@@ -32,8 +32,8 @@ if [[ -f "${PID_FILE}" ]]; then
   rm -f "${PID_FILE}"
 fi
 
-if command -v codex-autoloop-telegram-daemon >/dev/null 2>&1; then
-  DAEMON_CMD=(codex-autoloop-telegram-daemon)
+if command -v argusbot-daemon >/dev/null 2>&1; then
+  DAEMON_CMD=(argusbot-daemon)
 else
   DAEMON_CMD=(python -m codex_autoloop.telegram_daemon)
 fi
@@ -80,11 +80,11 @@ nohup "${DAEMON_CMD[@]}" \
 
 echo "$!" > "${PID_FILE}"
 
-echo "Started codex-autoloop-telegram-daemon in background."
+echo "Started ArgusBot daemon in background."
 echo "PID: $!"
 echo "Log: ${LOG_DIR}/daemon.out"
 echo "Bus dir: ${BUS_DIR}"
 echo "Use terminal control:"
-echo "  codex-autoloop-daemon-ctl --bus-dir ${BUS_DIR} status"
+echo "  argusbot-daemon-ctl --bus-dir ${BUS_DIR} status"
 echo "Live logs:"
 echo "  ./scripts/watch_daemon_logs.sh ${LOG_DIR%/logs}"

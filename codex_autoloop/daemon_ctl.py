@@ -212,12 +212,12 @@ def _print_error(message: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="codex-autoloop-daemon-ctl",
+        prog="argusbot-daemon-ctl",
         description="Send terminal commands to the ArgusBot Telegram daemon.",
     )
     parser.add_argument(
         "--bus-dir",
-        default=".codex_daemon/bus",
+        default=".argusbot/bus",
         help="Daemon bus directory.",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)

@@ -146,7 +146,7 @@ def main() -> None:
         token,
         "--telegram-chat-id",
         chat_id,
-        "--codex-autoloop-bin",
+        "--argusbot-bin",
         DEFAULT_CODEX_AUTOLOOP_CMD,
         "--run-cd",
         str(Path(args.run_cd).resolve()),
@@ -280,14 +280,14 @@ def resolve_daemon_launch_prefix() -> list[str]:
         return shlex.split(override)
     if _detect_local_repo_root(Path.cwd()) or _detect_local_repo_root(Path(__file__).resolve().parent):
         return [sys.executable, "-m", "codex_autoloop.telegram_daemon"]
-    daemon_bin = shutil.which("codex-autoloop-telegram-daemon")
+    daemon_bin = shutil.which("argusbot-daemon")
     if daemon_bin:
         return [daemon_bin]
     return [sys.executable, "-m", "codex_autoloop.telegram_daemon"]
 
 
 def resolve_daemon_ctl_hint() -> str:
-    ctl_bin = shutil.which("codex-autoloop-daemon-ctl")
+    ctl_bin = shutil.which("argusbot-daemon-ctl")
     if ctl_bin:
         return ctl_bin
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
@@ -302,7 +302,7 @@ def _detect_local_repo_root(start: Path) -> Path | None:
             text = pyproject.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if 'name = "codex-autoloop"' in text or "name = 'codex-autoloop'" in text:
+        if 'name = "ArgusBot"' in text or "name = 'ArgusBot'" in text:
             return parent
     return None
 
@@ -318,7 +318,7 @@ def stop_existing_daemon(*, home_dir: Path, bus_dir: Path) -> None:
     if not daemon_running:
         return
 
-    ctl_bin = shutil.which("codex-autoloop-daemon-ctl")
+    ctl_bin = shutil.which("argusbot-daemon-ctl")
     if ctl_bin:
         _run_quiet(
             [ctl_bin, "--bus-dir", str(bus_dir), "daemon-stop"],
@@ -493,12 +493,12 @@ def prompt_planner_mode_choice() -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="codex-autoloop-setup",
+        prog="argusbot-setup",
         description="Interactive ArgusBot setup: verify codex, collect Telegram token, and launch daemon in background.",
     )
     parser.add_argument(
         "--home-dir",
-        default=".codex_daemon",
+        default=".argusbot",
         help="Directory to store daemon config/log/pid/bus files.",
     )
     parser.add_argument(
@@ -560,7 +560,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--token-lock-dir",
-        default="/tmp/codex-autoloop-token-locks",
+        default="/tmp/argusbot-token-locks",
         help="Global lock directory to enforce one daemon per Telegram token.",
     )
     parser.add_argument(

@@ -39,8 +39,8 @@ class TokenLock:
 
 def default_token_lock_dir() -> str:
     candidates = [
-        Path(tempfile.gettempdir()) / "codex-autoloop-token-locks",
-        Path.cwd() / ".codex-autoloop-token-locks",
+        Path(tempfile.gettempdir()) / "argusbot-token-locks",
+        Path.cwd() / ".argusbot-token-locks",
     ]
     for candidate in candidates:
         if _can_prepare_dir(candidate):

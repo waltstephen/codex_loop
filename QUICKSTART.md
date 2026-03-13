@@ -11,20 +11,20 @@ pip install -e .
 ## 2) One-word entrypoint (recommended)
 
 ```bash
-codexloop
+argusbot
 ```
 
 Show supported features/commands:
 
 ```bash
-codexloop help
+argusbot help
 ```
 
 Behavior:
-- First run: prompts for Telegram token/chat id, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
+- First run: prompts for Telegram token/chat id, uses current shell directory as run working directory, writes `.argusbot/daemon_config.json`, starts daemon.
 - Later runs: auto-reuse previous config, auto-start daemon if needed, and attach to live logs.
-- `codexloop init`: stop all current codexloop daemons, prompt token/chat id/model preset/play mode, start a fresh daemon in background, and exit.
-- After `init`, run `codexloop` to attach monitor.
+- `argusbot init`: stop all current ArgusBot daemons, prompt token/chat id/model preset/play mode, start a fresh daemon in background, and exit.
+- After `init`, run `argusbot` to attach monitor.
 - In attach console, terminal control works directly:
   - `/run <objective>`
   - `/inject <instruction>`
@@ -41,13 +41,13 @@ Daemon-launched runs use `--yolo` by default.
 Disable daemon quickly:
 
 ```bash
-codexloop disable
+argusbot disable
 ```
 
 ## 3) Run (basic)
 
 ```bash
-codex-autoloop \
+argusbot-run \
   --max-rounds 500 \
   "帮我在这个文件夹写一下pipeline"
 ```
@@ -57,7 +57,7 @@ codex-autoloop \
 ```bash
 export TELEGRAM_BOT_TOKEN='123456789:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 
-codex-autoloop \
+argusbot-run \
   --max-rounds 500 \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
   --telegram-events "loop.started,round.review.completed,loop.completed" \
@@ -80,7 +80,7 @@ Control examples from Telegram Web:
 ## 6) Keep Telegram online even when no run is active
 
 ```bash
-codex-autoloop-telegram-daemon \
+argusbot-daemon \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
   --telegram-chat-id auto
 ```
@@ -94,11 +94,11 @@ Then from Telegram Web:
 ## 7) Interactive setup + background daemon
 
 ```bash
-codex-autoloop-setup --run-cd .
+argusbot-setup --run-cd .
 ```
 
 If the command is missing, use:
-Get-Process | Where-Object { $_.ProcessName -like 'codex-autoloop*' } | Stop-Process -Force
+Get-Process | Where-Object { $_.ProcessName -like 'argusbot*' } | Stop-Process -Force
 ```bash
   .\.venv\Scripts\Activate.ps1                                                                                   
                                    
@@ -116,10 +116,10 @@ Auto Planner follow-up countdown defaults to 10 minutes.
 Then terminal control (same daemon, no restart needed):
 
 ```bash
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus run "实现一个长程目标"
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "切换到更保守的方案并先跑测试"
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
+argusbot-daemon-ctl --bus-dir .argusbot/bus run "实现一个长程目标"
+argusbot-daemon-ctl --bus-dir .argusbot/bus inject "切换到更保守的方案并先跑测试"
+argusbot-daemon-ctl --bus-dir .argusbot/bus status
+argusbot-daemon-ctl --bus-dir .argusbot/bus stop
 ```
 
 Defaults:
@@ -127,9 +127,9 @@ Defaults:
 - Default check command is optional (leave empty for no forced check).
 - Idle daemon tries to resume from the last saved `session_id`.
 - One Telegram token can only be used by one active daemon.
-- Operator messages are recorded into per-run markdown files in `.codex_daemon/logs/`.
+- Operator messages are recorded into per-run markdown files in `.argusbot/logs/`.
 - Daemon child model preset defaults to `codex-xhigh`.
-- Re-running setup/start will stop the previous daemon for the same `.codex_daemon` before starting a new one.
+- Re-running setup/start will stop the previous daemon for the same `.argusbot` before starting a new one.
 
 One-click kill:
 
@@ -140,19 +140,19 @@ One-click kill:
 Realtime log mirror:
 
 ```bash
-./scripts/watch_daemon_logs.sh .codex_daemon
+./scripts/watch_argusbot_logs.sh .argusbot
 ```
 
 If command is missing, use:
 
 ```bash
-python -m codex_autoloop.daemon_ctl --bus-dir .codex_daemon/bus status
+python -m codex_autoloop.daemon_ctl --bus-dir .argusbot/bus status
 ```
 
 ## 4) Optional dashboard
 
 ```bash
-codex-autoloop \
+argusbot-run \
   --dashboard \
   --dashboard-host 127.0.0.1 \
   --dashboard-port 8787 \

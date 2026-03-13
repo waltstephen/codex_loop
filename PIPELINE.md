@@ -107,7 +107,7 @@ flowchart TD
 ## 7. 最小使用示例
 
 ```bash
-codex-autoloop \
+argusbot-run \
   --max-rounds 10 \
   --check "pytest -q" \
   "帮我在这个文件夹写一下pipeline"

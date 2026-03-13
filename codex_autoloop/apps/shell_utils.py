@@ -173,4 +173,4 @@ def _resolve_artifact_dir(
         return Path(state_file).resolve().parent
     if default_root:
         return Path(default_root).resolve()
-    return Path(".").resolve() / ".codex_autoloop"
+    return Path(".").resolve() / ".argusbot"

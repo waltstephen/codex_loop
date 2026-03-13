@@ -71,7 +71,7 @@ def main() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="codex-autoloop",
+        prog="argusbot-run",
         description=(
             "Run ArgusBot in an automatic supervisor loop. "
             "A reviewer sub-agent gates completion and can force additional rounds."

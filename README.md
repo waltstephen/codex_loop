@@ -24,13 +24,13 @@ If you want to control your main project from Telegram 24/7 with an always-on da
 
 Prerequisites and cost notes:
 
-- You must have Codex CLI installed and authenticated first (make sure `codex` works before running `codexloop init`).
+- You must have Codex CLI installed and authenticated first (make sure `codex` works before running `argusbot init`).
 - For 24/7 daemon operation, choosing `high` or `xhigh` reasoning can lead to token usage close to running one Codex session continuously for 24 hours. Plan budget carefully.
 - `medium` reasoning is usually a good quality/cost tradeoff for long-running background control.
 
 1. Clone this repo and install it in editable mode.
 2. Go to your target project directory (the repo you actually want to operate on).
-3. Run `codexloop init` and complete Telegram/model setup prompts.
+3. Run `argusbot init` and complete Telegram/model setup prompts.
 4. After setup, daemon starts in background and keeps running.
 5. Chat with your Telegram bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
 
@@ -47,10 +47,10 @@ cd ..
 cd <your_main_project>
 
 # 3) initialize daemon config in this project
-codexloop init
+argusbot init
 ```
 
-During `codexloop init`, enter your Telegram bot token/chat id and the wizard will persist config under `.codex_daemon/` in your main project.
+During `argusbot init`, enter your Telegram bot token/chat id and the wizard will persist config under `.argusbot/` in your main project.
 
 ## Current Feature Snapshot
 
@@ -63,8 +63,8 @@ During `codexloop init`, enter your Telegram bot token/chat id and the wizard wi
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
 - Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
 - Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
-- Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
-- Single-word operator entrypoint: `codexloop` (first run setup, later auto-attach monitor).
+- Dual control channels for daemon: Telegram and terminal (`argusbot-daemon-ctl`).
+- Single-word operator entrypoint: `argusbot` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
 - Run archive persisted as JSONL with date/workspace/session metadata for resume continuity.
@@ -82,26 +82,26 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## One-word operator workflow (`codexloop`)
+## One-word operator workflow (`argusbot`)
 
 Run:
 
 ```bash
-codexloop
+argusbot
 ```
 
 List supported features/commands:
 
 ```bash
-codexloop help
+argusbot help
 ```
 
 Behavior:
 
-- First run: asks for Telegram token/chat id, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
+- First run: asks for Telegram token/chat id, uses current shell directory as run working directory, writes `.argusbot/daemon_config.json`, starts daemon.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
-- `codexloop init`: stops all current codexloop daemons, prompts token/chat id/model selection/play mode, starts daemon in background, then exits.
-- After `init`, run `codexloop` to attach monitor to that background daemon.
+- `argusbot init`: stops all current ArgusBot daemons, prompts token/chat id/model selection/play mode, starts daemon in background, then exits.
+- After `init`, run `argusbot` to attach monitor to that background daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
   - `/inject <instruction>`
@@ -121,20 +121,20 @@ YOLO policy:
 Directly disable daemon from terminal:
 
 ```bash
-codexloop disable
+argusbot disable
 ```
 
 You can still use low-level commands when needed:
 
 ```bash
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "先修测试再继续"
+argusbot-daemon-ctl --bus-dir .argusbot/bus status
+argusbot-daemon-ctl --bus-dir .argusbot/bus inject "先修测试再继续"
 ```
 
 ## Run
 
 ```bash
-codex-autoloop \
+argusbot-run \
   --max-rounds 10 \
   --check "pytest -q" \
   "Implement feature X and keep iterating until tests pass"
@@ -239,7 +239,7 @@ Constraints:
 Example with live dashboard:
 
 ```bash
-codex-autoloop \
+argusbot-run \
   --dashboard \
   --dashboard-host 0.0.0.0 \
   --dashboard-port 8787 \
@@ -255,7 +255,7 @@ If phone and server are not in the same network, do not expose dashboard publicl
 Use Telegram push notifications instead:
 
 ```bash
-codex-autoloop \
+argusbot-run \
   --max-rounds 12 \
   --check "pytest -q" \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
@@ -314,7 +314,7 @@ Troubleshooting:
 If you want Telegram to trigger runs when no loop process is active, run:
 
 ```bash
-codex-autoloop-telegram-daemon \
+argusbot-daemon \
   --telegram-bot-token "$TELEGRAM_BOT_TOKEN" \
   --telegram-chat-id auto \
   --run-check "pytest -q"
@@ -322,7 +322,7 @@ codex-autoloop-telegram-daemon \
 
 Daemon commands from Telegram:
 
-- `/run <objective>`: start a new `codex-autoloop` run
+- `/run <objective>`: start a new `ArgusBot` run
 - `/status`: daemon/child status
 - `/stop`: stop active run
 - `/help`
@@ -344,7 +344,7 @@ Recommendation: prefer `systemd` or supervisor over raw `nohup` for production r
 Run once:
 
 ```bash
-codex-autoloop-setup --run-cd .
+argusbot-setup --run-cd .
 ```
 
 If command is not found in your environment, use:
@@ -359,7 +359,7 @@ The wizard will:
 2. Prompt for Telegram bot token/chat id.
 3. Prompt optional default check command (empty means no forced check command).
 4. Prompt for planner mode after model selection.
-5. Start daemon in background and save config under `.codex_daemon/`.
+5. Start daemon in background and save config under `.argusbot/`.
 
 Default behavior for daemon-launched runs:
 
@@ -371,18 +371,18 @@ Default behavior for daemon-launched runs:
 - In daemon mode, only daemon polls Telegram updates; child runs receive control via daemon bus (avoids getUpdates 409 conflicts).
 - If daemon detects `invalid encrypted content` from a resumed run, it raises a warning and auto-arms fresh session for the next run.
 - Inside a running child loop, `invalid_encrypted_content` now triggers an immediate in-loop fresh-session retry instead of spinning reviewer `continue` loops.
-- Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.codex_daemon/logs/operator_messages.md` so reviewer can see global inject history across runs.
-- Each run also appends start/finish records into `.codex_daemon/logs/codexloop-run-archive.jsonl` (includes date + workspace + session metadata) for continuity and auditing.
+- Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.argusbot/logs/operator_messages.md` so reviewer can see global inject history across runs.
+- Each run also appends start/finish records into `.argusbot/logs/argusbot-run-archive.jsonl` (includes date + workspace + session metadata) for continuity and auditing.
 - Re-running setup or start script will stop the previous daemon under the same `home-dir` before launching the new one.
 
 After setup, use terminal control:
 
 ```bash
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus run "帮我在这个文件夹写一下pipeline"
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus inject "先修测试再继续"
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus status
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus stop
-codex-autoloop-daemon-ctl --bus-dir .codex_daemon/bus daemon-stop
+argusbot-daemon-ctl --bus-dir .argusbot/bus run "帮我在这个文件夹写一下pipeline"
+argusbot-daemon-ctl --bus-dir .argusbot/bus inject "先修测试再继续"
+argusbot-daemon-ctl --bus-dir .argusbot/bus status
+argusbot-daemon-ctl --bus-dir .argusbot/bus stop
+argusbot-daemon-ctl --bus-dir .argusbot/bus daemon-stop
 ```
 
 One-click kill script:
@@ -394,15 +394,15 @@ One-click kill script:
 Realtime log mirror:
 
 ```bash
-./scripts/watch_daemon_logs.sh .codex_daemon
+./scripts/watch_argusbot_logs.sh .argusbot
 ```
 
 This mirrors:
 
-- `.codex_daemon/daemon.out`
-- `.codex_daemon/logs/daemon-events.jsonl` (Telegram/terminal control interactions)
+- `.argusbot/daemon.out`
+- `.argusbot/logs/daemon-events.jsonl` (Telegram/terminal control interactions)
 
-If `codex-autoloop-daemon-ctl` is not found, replace it with:
+If `argusbot-daemon-ctl` is not found, replace it with:
 
 ```bash
 python -m codex_autoloop.daemon_ctl
@@ -459,16 +459,16 @@ python -m pip install -e "$LOOP_REPO"
 # First-time setup (interactive)
 python -m codex_autoloop.setup_wizard \
   --run-cd "$TARGET_REPO" \
-  --home-dir "$TARGET_REPO/.codex_daemon"
+  --home-dir "$TARGET_REPO/.argusbot"
 ```
 
 After setup:
 
 ```bash
 # Terminal control (same running daemon)
-python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" status
-python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" run "run 100-step smoke and validate checkpoint+infer"
-python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" inject "fix test failures first, then continue"
+python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.argusbot/bus" status
+python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.argusbot/bus" run "run 100-step smoke and validate checkpoint+infer"
+python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.argusbot/bus" inject "fix test failures first, then continue"
 ```
 
 Telegram control in parallel:
@@ -485,7 +485,7 @@ You can add a shell function so `codex --autoloop ...` routes to this plugin.
 ```bash
 codex() {
   if [[ " $* " == *" --autoloop "* ]]; then
-    /data/yijia/codexloop/scripts/codex_autoloop_shim.sh "$@"
+    /data/yijia/ArgusBot/scripts/argusbot_shim.sh "$@"
   else
     command codex "$@"
   fi

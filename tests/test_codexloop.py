@@ -64,20 +64,20 @@ def test_build_parser_supports_init_subcommand() -> None:
 
 def test_supported_features_text_contains_core_commands() -> None:
     text = codexloop.supported_features_text()
-    assert "codexloop help" in text
-    assert "codexloop disable" in text
-    assert "codexloop fresh" in text
-    assert "codexloop init" in text
+    assert "argusbot help" in text
+    assert "argusbot disable" in text
+    assert "argusbot fresh" in text
+    assert "argusbot init" in text
     assert "/disable" in text
     assert "/fresh" in text
 
 
 def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(sys, "argv", ["codexloop", "help"])
+    monkeypatch.setattr(sys, "argv", ["argusbot", "help"])
     monkeypatch.setattr(codexloop.shutil, "which", lambda name: None)
     codexloop.main()
     captured = capsys.readouterr()
-    assert "codexloop supported features" in captured.out
+    assert "ArgusBot supported features" in captured.out
 
 
 def test_is_config_usable_requires_token_and_run_cd() -> None:
@@ -92,7 +92,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
-    config = codexloop.run_interactive_config(home_dir=tmp_path / ".codex_daemon", run_cd=tmp_path)
+    config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
     assert config["run_model_preset"] is None
     assert config["run_plan_mode"] == "fully-plan"
@@ -123,7 +123,7 @@ def test_prompt_model_choice_default_inherits_codex(monkeypatch) -> None:
 
 
 def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path, capsys) -> None:
-    home_dir = tmp_path / ".codex_daemon"
+    home_dir = tmp_path / ".argusbot"
     config = {
         "telegram_bot_token": "123:abc",
         "telegram_chat_id": "auto",
@@ -146,7 +146,7 @@ def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path,
         "logs_dir": str(home_dir / "logs"),
     }
 
-    monkeypatch.setattr(sys, "argv", ["codexloop", "--home-dir", str(home_dir), "init"])
+    monkeypatch.setattr(sys, "argv", ["argusbot", "--home-dir", str(home_dir), "init"])
     monkeypatch.setattr(codexloop.shutil, "which", lambda name: "/usr/bin/codex")
     monkeypatch.setattr(codexloop, "load_config", lambda path: None)
     monkeypatch.setattr(codexloop, "run_interactive_config", lambda **kwargs: config)
@@ -158,7 +158,7 @@ def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path,
     codexloop.main()
     captured = capsys.readouterr()
     assert "Daemon running in background. pid=4321" in captured.out
-    assert "Use `codexloop` to attach monitor" in captured.out
+    assert "Use `argusbot` to attach monitor" in captured.out
 
 
 def test_parse_pid_supports_int_and_digit_string() -> None:
@@ -170,7 +170,7 @@ def test_parse_pid_supports_int_and_digit_string() -> None:
 
 def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
-    home_dir = tmp_path / ".codex_daemon"
+    home_dir = tmp_path / ".argusbot"
     config = {
         "telegram_bot_token": "123:abc",
         "telegram_chat_id": "auto",
@@ -208,7 +208,7 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
 
 def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
-    home_dir = tmp_path / ".codex_daemon"
+    home_dir = tmp_path / ".argusbot"
     config = {
         "telegram_bot_token": "123:abc",
         "telegram_chat_id": "auto",
@@ -230,7 +230,7 @@ def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_stop_all_codexloop_loops_workspace_only_stops_current_home(monkeypatch, tmp_path: Path, capsys) -> None:
-    home_dir = tmp_path / ".codex_daemon"
+    home_dir = tmp_path / ".argusbot"
     calls: list[str] = []
 
     def fake_stop_current_home_daemon(*, home_dir: Path, config: dict | None) -> bool:
@@ -249,4 +249,4 @@ def test_stop_all_codexloop_loops_workspace_only_stops_current_home(monkeypatch,
     codexloop.stop_all_codexloop_loops(home_dir=home_dir, config=None, token_lock_dir="/tmp/token-locks")
     captured = capsys.readouterr()
     assert calls == ["home"]
-    assert "Stopped 1 codexloop daemon process." in captured.out
+    assert "Stopped 1 ArgusBot daemon process." in captured.out

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Usage:
-#   codex_autoloop_shim.sh --autoloop "<objective>"
-#   codex_autoloop_shim.sh --autoloop --yolo -- "<objective>"
+#   argusbot_shim.sh --autoloop "<objective>"
+#   argusbot_shim.sh --autoloop --yolo -- "<objective>"
 # Without --autoloop, it delegates to the original codex binary.
 
 if [[ $# -eq 0 ]]; then
@@ -162,11 +162,11 @@ if [[ "${AUTOLOOP}" -eq 0 ]]; then
 fi
 
 if [[ "${#OBJECTIVE[@]}" -eq 0 ]]; then
-  echo "autoloop objective missing. Example: codex --autoloop \"fix flaky tests\"" >&2
+  echo "ArgusBot objective missing. Example: codex --autoloop \"fix flaky tests\"" >&2
   exit 2
 fi
 
-CMD=(codex-autoloop)
+CMD=(argusbot-run)
 if [[ -n "${MODEL}" ]]; then
   CMD+=(--main-model "${MODEL}" --reviewer-model "${MODEL}")
 fi

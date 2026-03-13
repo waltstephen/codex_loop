@@ -27,7 +27,7 @@ from codex_autoloop.telegram_daemon import (
 
 def test_build_child_command_includes_core_args() -> None:
     args = Namespace(
-        codex_autoloop_bin="codex-autoloop",
+        codex_autoloop_bin="argusbot-run",
         run_max_rounds=8,
         run_model_preset="quality",
         run_main_model=None,
@@ -52,7 +52,7 @@ def test_build_child_command_includes_core_args() -> None:
         run_check=["pytest -q", "python -m compileall ."],
         run_stall_soft_idle_seconds=1200,
         run_stall_hard_idle_seconds=10800,
-        run_state_file=".codex_daemon/last_state.json",
+        run_state_file=".argusbot/last_state.json",
         run_resume_last_session=True,
         run_no_dashboard=True,
     )
@@ -66,7 +66,7 @@ def test_build_child_command_includes_core_args() -> None:
         plan_todo_file="/tmp/todo.md",
         resume_session_id="thread123",
     )
-    assert cmd[0] == "codex-autoloop"
+    assert cmd[0] == "argusbot-run"
     assert "--telegram-bot-token" in cmd
     assert "--telegram-chat-id" in cmd
     assert "--no-telegram-control" in cmd
@@ -100,7 +100,7 @@ def test_resolve_saved_session_id(tmp_path: Path) -> None:
 
 
 def test_resolve_last_session_id_from_archive_prefers_latest_finished_row(tmp_path: Path) -> None:
-    archive_file = tmp_path / "codexloop-run-archive.jsonl"
+    archive_file = tmp_path / "argusbot-run-archive.jsonl"
     rows = [
         {"event": "run.started", "resume_session_id": "thread-old"},
         {"event": "run.finished", "session_id": "thread-new"},
@@ -112,14 +112,14 @@ def test_resolve_last_session_id_from_archive_prefers_latest_finished_row(tmp_pa
 
 
 def test_resolve_resume_session_id_falls_back_to_archive(tmp_path: Path) -> None:
-    archive_file = tmp_path / "codexloop-run-archive.jsonl"
+    archive_file = tmp_path / "argusbot-run-archive.jsonl"
     archive_file.write_text(json.dumps({"session_id": "thread-archive"}) + "\n", encoding="utf-8")
     assert resolve_resume_session_id(str(tmp_path / "missing-state.json"), archive_file) == "thread-archive"
 
 
 def test_resolve_resume_session_id_prefers_state_over_archive(tmp_path: Path) -> None:
     state_file = tmp_path / "last_state.json"
-    archive_file = tmp_path / "codexloop-run-archive.jsonl"
+    archive_file = tmp_path / "argusbot-run-archive.jsonl"
     state_file.write_text(json.dumps({"session_id": "thread-state"}), encoding="utf-8")
     archive_file.write_text(json.dumps({"session_id": "thread-archive"}) + "\n", encoding="utf-8")
     assert resolve_resume_session_id(str(state_file), archive_file) == "thread-state"

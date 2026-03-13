@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOME_DIR="${CODEX_DAEMON_HOME_DIR:-.codex_daemon}"
+HOME_DIR="${ARGUSBOT_HOME_DIR:-${CODEX_DAEMON_HOME_DIR:-.argusbot}}"
 PID_FILE="${HOME_DIR}/daemon.pid"
-BUS_DIR="${CODEX_DAEMON_BUS_DIR:-${HOME_DIR}/bus}"
+BUS_DIR="${ARGUSBOT_BUS_DIR:-${CODEX_DAEMON_BUS_DIR:-${HOME_DIR}/bus}}"
 
-if command -v codex-autoloop-daemon-ctl >/dev/null 2>&1; then
-  codex-autoloop-daemon-ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
+if command -v argusbot-daemon-ctl >/dev/null 2>&1; then
+  argusbot-daemon-ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
 else
   python -m codex_autoloop.daemon_ctl --bus-dir "${BUS_DIR}" daemon-stop >/dev/null 2>&1 || true
 fi
@@ -23,9 +23,9 @@ if [[ -f "${PID_FILE}" ]]; then
   rm -f "${PID_FILE}"
 fi
 
-echo "Daemon stop requested. Check status:"
-if command -v codex-autoloop-daemon-ctl >/dev/null 2>&1; then
-  codex-autoloop-daemon-ctl --bus-dir "${BUS_DIR}" status || true
+echo "ArgusBot daemon stop requested. Check status:"
+if command -v argusbot-daemon-ctl >/dev/null 2>&1; then
+  argusbot-daemon-ctl --bus-dir "${BUS_DIR}" status || true
 else
   python -m codex_autoloop.daemon_ctl --bus-dir "${BUS_DIR}" status || true
 fi

@@ -675,7 +675,7 @@ def resolve_saved_session_id(state_file: str | None) -> str | None:
 def help_text() -> str:
     return (
         "[daemon] commands\n"
-        "/run <objective> - start a new codex-autoloop run\n"
+        "/run <objective> - start a new ArgusBot run\n"
         "/new - force the next /run to start in a fresh main session\n"
         "/inject <instruction> - inject instruction to active run (or run if idle)\n"
         "/mode - show a mode selection menu\n"

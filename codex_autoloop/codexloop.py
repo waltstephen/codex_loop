@@ -17,8 +17,8 @@ from typing import Any
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
 from .model_catalog import MODEL_PRESETS
 
-DEFAULT_HOME_DIR = ".codex_daemon"
-DEFAULT_TOKEN_LOCK_DIR = "/tmp/codex-autoloop-token-locks"
+DEFAULT_HOME_DIR = ".argusbot"
+DEFAULT_TOKEN_LOCK_DIR = "/tmp/argusbot-token-locks"
 DEFAULT_MAX_ROUNDS = 500
 
 
@@ -80,7 +80,7 @@ def main() -> None:
         print(f"Saved config: {config_path}")
         pid = ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=args.token_lock_dir)
         print(f"Daemon running in background. pid={pid}")
-        print("Use `codexloop` to attach monitor and terminal control.")
+        print("Use `argusbot` to attach monitor and terminal control.")
         return
     if args.reconfigure or config is None or not is_config_usable(config):
         if args.reconfigure:
@@ -128,7 +128,7 @@ def main() -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="codexloop",
+        prog="argusbot",
         description=(
             "Single-word entrypoint for the ArgusBot daemon. "
             "First run configures + starts daemon, later runs attach and monitor."
@@ -162,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="subcommand")
-    sub.add_parser("help", help="Show supported codexloop features and commands.")
+    sub.add_parser("help", help="Show supported ArgusBot features and commands.")
     sub.add_parser("init", help="Stop current workspace daemon, reconfigure, and restart fresh daemon.")
     sub.add_parser("status", help="Show daemon status JSON.")
     run = sub.add_parser("run", help="Start a run objective.")
@@ -171,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     inject.add_argument("text", nargs="+", help="Instruction text.")
     sub.add_parser("stop", help="Stop active run.")
     sub.add_parser("fresh", help="Force next run to start with a fresh session (no resume).")
-    sub.add_parser("disable", help="Disable codexloop daemon (alias of daemon-stop).")
+    sub.add_parser("disable", help="Disable the ArgusBot daemon (alias of daemon-stop).")
     sub.add_parser("daemon-stop", help="Stop daemon process.")
     return parser
 
@@ -179,28 +179,28 @@ def build_parser() -> argparse.ArgumentParser:
 def supported_features_text() -> str:
     return "\n".join(
         [
-            "codexloop supported features",
+            "ArgusBot supported features",
             "",
             "Top-level commands:",
-            "  codexloop",
+            "  argusbot",
             "      Attach monitor; auto-start daemon if needed.",
-            "  codexloop help",
+            "  argusbot help",
             "      Show this feature list.",
-            "  codexloop init",
+            "  argusbot init",
             "      Stop current workspace daemon, collect new config, and restart daemon in background.",
-            "  codexloop status",
+            "  argusbot status",
             "      Print daemon status JSON.",
-            "  codexloop run <objective>",
+            "  argusbot run <objective>",
             "      Start a new run objective.",
-            "  codexloop inject <instruction>",
+            "  argusbot inject <instruction>",
             "      Inject instruction into active run.",
-            "  codexloop stop",
+            "  argusbot stop",
             "      Stop active run only.",
-            "  codexloop fresh",
+            "  argusbot fresh",
             "      Mark next run as fresh session (ignore saved session_id).",
-            "  codexloop disable",
-            "      Stop daemon process (alias of codexloop daemon-stop).",
-            "  codexloop daemon-stop",
+            "  argusbot disable",
+            "      Stop daemon process (alias of argusbot daemon-stop).",
+            "  argusbot daemon-stop",
             "      Stop daemon process.",
             "",
             "Attached monitor console commands:",
@@ -236,7 +236,7 @@ def save_config(path: Path, payload: dict[str, Any]) -> None:
 
 def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     run_cd = run_cd.resolve()
-    print("codexloop first-time setup")
+    print("ArgusBot first-time setup")
     token = prompt_token()
     chat_id = prompt_chat_id()
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
@@ -356,7 +356,7 @@ def looks_like_chat_id(value: str) -> bool:
 
 
 def resolve_daemon_launch_prefix() -> list[str]:
-    daemon_bin = shutil.which("codex-autoloop-telegram-daemon")
+    daemon_bin = shutil.which("argusbot-daemon")
     if daemon_bin:
         return [daemon_bin]
     return [sys.executable, "-m", "codex_autoloop.telegram_daemon"]
@@ -433,7 +433,7 @@ def stop_all_codexloop_loops(*, home_dir: Path, config: dict[str, Any] | None, t
     _ = token_lock_dir
     stopped = stop_current_home_daemon(home_dir=home_dir, config=config)
     if stopped:
-        print("Stopped 1 codexloop daemon process.")
+        print("Stopped 1 ArgusBot daemon process.")
 
 
 def stop_current_home_daemon(*, home_dir: Path, config: dict[str, Any] | None) -> bool:
@@ -623,7 +623,7 @@ def run_monitor_console(
     events_log = logs_dir / "daemon-events.jsonl"
     status_path = bus_dir / "daemon_status.json"
 
-    print("Attached to codexloop daemon.")
+    print("Attached to ArgusBot daemon.")
     print(
         "Commands: /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /exit"
     )

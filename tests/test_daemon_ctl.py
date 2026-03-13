@@ -67,7 +67,7 @@ def test_show_plan_rejects_stale_daemon_status(monkeypatch, tmp_path: Path, caps
             updated_at=datetime.now(timezone.utc),
         ),
     )
-    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "show-plan"])
+    monkeypatch.setattr(sys, "argv", ["argusbot-daemon-ctl", "--bus-dir", str(bus_dir), "show-plan"])
     with pytest.raises(SystemExit) as exc:
         daemon_ctl.main()
     assert exc.value.code == 1
@@ -89,7 +89,7 @@ def test_show_main_prompt_rejects_missing_child_path(monkeypatch, tmp_path: Path
             updated_at=datetime.now(timezone.utc),
         ),
     )
-    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "show-main-prompt"])
+    monkeypatch.setattr(sys, "argv", ["argusbot-daemon-ctl", "--bus-dir", str(bus_dir), "show-main-prompt"])
     with pytest.raises(SystemExit) as exc:
         daemon_ctl.main()
     assert exc.value.code == 1
@@ -111,7 +111,7 @@ def test_status_command_prints_offline_state_without_online_misreport(monkeypatc
             updated_at=datetime.now(timezone.utc),
         ),
     )
-    monkeypatch.setattr(sys, "argv", ["codex-autoloop-daemon-ctl", "--bus-dir", str(bus_dir), "status"])
+    monkeypatch.setattr(sys, "argv", ["argusbot-daemon-ctl", "--bus-dir", str(bus_dir), "status"])
     with pytest.raises(SystemExit) as exc:
         daemon_ctl.main()
     assert exc.value.code == 0
