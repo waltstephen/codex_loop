@@ -1,5 +1,8 @@
 # codex-autoloop
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
+
 `codex-autoloop` is a Python supervisor plugin for Codex CLI:
 
 - Main agent executes the task (`codex exec` or `codex exec resume`)
@@ -471,3 +474,15 @@ Safety stop conditions:
 - `max_rounds` reached
 - repeated no-progress rounds
 - reviewer returns `blocked`
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, attribution, and acknowledgement details.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=waltstephen/codex_loop&type=Date)](https://www.star-history.com/#waltstephen/codex_loop&Date)
