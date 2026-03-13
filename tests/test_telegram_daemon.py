@@ -4,7 +4,6 @@ from argparse import Namespace
 from pathlib import Path
 
 from codex_autoloop.telegram_daemon import (
-    PLAN_MODE_FULLY_PLAN,
     append_plan_record_row,
     build_parser,
     build_child_command,
@@ -150,8 +149,8 @@ def test_log_contains_invalid_encrypted_content(tmp_path: Path) -> None:
 
 
 def test_normalize_plan_mode_defaults_to_fully_plan() -> None:
-    assert normalize_plan_mode(None) == PLAN_MODE_FULLY_PLAN
-    assert normalize_plan_mode("unknown") == PLAN_MODE_FULLY_PLAN
+    assert normalize_plan_mode(None) == "fully-plan"
+    assert normalize_plan_mode("unknown") == "fully-plan"
     assert normalize_plan_mode("execute-only") == "execute-only"
 
 
@@ -278,12 +277,13 @@ def test_format_status_includes_plan_fields_when_idle() -> None:
         child_log_path=None,
         child_started_at=None,
         last_session_id="thread-1",
-        plan_mode="fully-plan",
+        plan_mode="auto",
+        default_planner_mode="auto",
         pending_plan_request="继续推进目标",
         pending_plan_auto_execute_at=dt.datetime(2026, 1, 1, 0, 10, 0),
         scheduled_plan_request_at=dt.datetime(2026, 1, 1, 0, 0, 0),
     )
-    assert "plan_mode=fully-plan" in rendered
+    assert "planner_mode=auto" in rendered
     assert "pending_plan_request=继续推进目标" in rendered
     assert "plan_auto_execute_at=" in rendered
 

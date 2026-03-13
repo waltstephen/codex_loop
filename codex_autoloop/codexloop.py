@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .apps.daemon_app import render_plan_context, render_review_context
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
 from .model_catalog import MODEL_PRESETS
 
@@ -31,25 +32,29 @@ class TerminalCommand:
 @dataclass(frozen=True)
 class PlayMode:
     name: str
+    planner_mode: str
     run_plan_mode: str
     note: str
 
 
 PLAY_MODES: list[PlayMode] = [
     PlayMode(
-        name="execute-only",
+        name="off",
+        planner_mode="off",
         run_plan_mode="execute-only",
-        note="Only execute user command; no plan agent.",
+        note="Disable the plan agent.",
     ),
     PlayMode(
-        name="fully-plan",
+        name="auto",
+        planner_mode="auto",
         run_plan_mode="fully-plan",
-        note="Default: full plan agent; propose in 10m and auto-run in another 10m if unchanged.",
+        note="Enable planner updates and daemon follow-up automation.",
     ),
     PlayMode(
-        name="record-only",
+        name="record",
+        planner_mode="record",
         run_plan_mode="record-only",
-        note="Plan agent degrades to table recorder; reviewer remains unchanged.",
+        note="Planner records markdown only; no automatic follow-up execution.",
     ),
 ]
 
@@ -112,17 +117,64 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return
 
-    if args.subcommand in {"run", "inject", "fresh"}:
+    if args.subcommand in {"run", "inject", "new", "mode", "plan", "review", "btw", "daemon-stop"}:
         ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=args.token_lock_dir)
 
-    if args.subcommand == "disable":
-        kind = "daemon-stop"
-    elif args.subcommand == "fresh":
-        kind = "fresh-session"
+    if args.subcommand == "show-plan":
+        payload = read_status(bus_dir / "daemon_status.json") or {}
+        plan_path = payload.get("child_plan_report_path") or payload.get("child_plan_overview_path")
+        if not isinstance(plan_path, str) or not plan_path.strip():
+            raise SystemExit("No plan markdown available.")
+        print(Path(plan_path).read_text(encoding="utf-8"))
+        return
+    if args.subcommand == "show-main-prompt":
+        payload = read_status(bus_dir / "daemon_status.json") or {}
+        prompt_path = payload.get("child_main_prompt_path")
+        if not isinstance(prompt_path, str) or not prompt_path.strip():
+            raise SystemExit("No main prompt markdown available.")
+        print(Path(prompt_path).read_text(encoding="utf-8"))
+        return
+    if args.subcommand == "show-review":
+        payload = read_status(bus_dir / "daemon_status.json") or {}
+        review_dir = payload.get("child_review_summaries_dir")
+        if not isinstance(review_dir, str) or not review_dir.strip():
+            raise SystemExit("No review markdown available.")
+        base = Path(review_dir)
+        target = base / "index.md"
+        if getattr(args, "text", ""):
+            target = base / f"round-{int(args.text):03d}.md"
+        print(target.read_text(encoding="utf-8"))
+        return
+    if args.subcommand == "show-plan-context":
+        payload = read_status(bus_dir / "daemon_status.json") or {}
+        print(
+            render_plan_context(
+                operator_messages_path=payload.get("child_operator_messages_path") or payload.get("operator_messages_file"),
+                plan_overview_path=payload.get("child_plan_report_path") or payload.get("child_plan_overview_path"),
+                plan_mode=str(payload.get("default_plan_mode") or payload.get("plan_mode") or "auto"),
+            )
+        )
+        return
+    if args.subcommand == "show-review-context":
+        payload = read_status(bus_dir / "daemon_status.json") or {}
+        print(
+            render_review_context(
+                operator_messages_path=payload.get("child_operator_messages_path") or payload.get("operator_messages_file"),
+                review_summaries_dir=payload.get("child_review_summaries_dir"),
+                state_file=payload.get("run_state_file"),
+                check_commands=list(payload.get("run_check", [])) if isinstance(payload.get("run_check"), list) else [],
+            )
+        )
+        return
+
+    kind = "fresh-session" if args.subcommand == "new" else str(args.subcommand)
+    raw_text = getattr(args, "text", "")
+    if isinstance(raw_text, list):
+        text = " ".join(raw_text).strip()
     else:
-        kind = str(args.subcommand)
-    text = " ".join(args.text).strip() if hasattr(args, "text") else ""
-    publish_command(bus_dir=bus_dir, kind=kind, text=text, source="terminal")
+        text = str(raw_text).strip()
+    publish_kind = "mode-menu" if args.subcommand == "mode" and not text else kind
+    publish_command(bus_dir=bus_dir, kind=publish_kind, text=text, source="terminal")
     print(f"Sent: {args.subcommand}")
 
 
@@ -167,11 +219,25 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Show daemon status JSON.")
     run = sub.add_parser("run", help="Start a run objective.")
     run.add_argument("text", nargs="+", help="Objective text.")
+    new = sub.add_parser("new", help="Force the next run to start in a fresh main session.")
+    new.add_argument("text", nargs="*", help=argparse.SUPPRESS)
     inject = sub.add_parser("inject", help="Inject instruction into active run.")
     inject.add_argument("text", nargs="+", help="Instruction text.")
+    mode = sub.add_parser("mode", help="Hot-switch planner mode: off, auto, or record.")
+    mode.add_argument("text", nargs="?", default="", help="Planner mode.")
+    btw = sub.add_parser("btw", help="Ask the BTW side-agent a read-only project question.")
+    btw.add_argument("text", nargs="+", help="Question text.")
+    plan = sub.add_parser("plan", help="Send direction to the plan agent only.")
+    plan.add_argument("text", nargs="+", help="Plan direction.")
+    review = sub.add_parser("review", help="Send audit criteria to the reviewer only.")
+    review.add_argument("text", nargs="+", help="Review criteria.")
+    sub.add_parser("show-main-prompt", help="Print the latest main prompt markdown.")
+    sub.add_parser("show-plan", help="Print the latest plan markdown.")
+    sub.add_parser("show-plan-context", help="Ask daemon to print current plan directions and inputs.")
+    show_review = sub.add_parser("show-review", help="Print reviewer summary markdown.")
+    show_review.add_argument("text", nargs="?", default="", help="Optional round number.")
+    sub.add_parser("show-review-context", help="Ask daemon to print current review direction, checks, and criteria.")
     sub.add_parser("stop", help="Stop active run.")
-    sub.add_parser("fresh", help="Force next run to start with a fresh session (no resume).")
-    sub.add_parser("disable", help="Disable the ArgusBot daemon (alias of daemon-stop).")
     sub.add_parser("daemon-stop", help="Stop daemon process.")
     return parser
 
@@ -192,23 +258,39 @@ def supported_features_text() -> str:
             "      Print daemon status JSON.",
             "  argusbot run <objective>",
             "      Start a new run objective.",
+            "  argusbot new",
+            "      Force the next run to start in a fresh main session.",
             "  argusbot inject <instruction>",
             "      Inject instruction into active run.",
+            "  argusbot mode <off|auto|record>",
+            "      Hot-switch daemon default planner mode.",
+            "  argusbot btw <question>",
+            "      Ask the read-only BTW side-agent a project question.",
+            "  argusbot plan <direction>",
+            "      Send direction to the plan agent only.",
+            "  argusbot review <criteria>",
+            "      Send audit criteria to the reviewer only.",
+            "  argusbot show-main-prompt",
+            "      Print the latest main prompt markdown.",
+            "  argusbot show-plan",
+            "      Print the latest plan markdown.",
+            "  argusbot show-plan-context",
+            "      Print current plan directions and inputs.",
+            "  argusbot show-review [round]",
+            "      Print reviewer summary markdown.",
+            "  argusbot show-review-context",
+            "      Print current reviewer direction, checks, and criteria.",
             "  argusbot stop",
             "      Stop active run only.",
-            "  argusbot fresh",
-            "      Mark next run as fresh session (ignore saved session_id).",
-            "  argusbot disable",
-            "      Stop daemon process (alias of argusbot daemon-stop).",
             "  argusbot daemon-stop",
             "      Stop daemon process.",
             "",
             "Attached monitor console commands:",
-            "  /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /help /exit",
+            "  /run /inject /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review [round] /show-review-context /status /stop /daemon-stop /help /new /exit",
             "  Plain text routes to /inject when running, else to /run.",
             "",
-            "Play Mode:",
-            "  1) execute-only  2) fully-plan (default)  3) record-only",
+            "Planner Mode:",
+            "  1) off  2) auto (default)  3) record",
             "",
             "Run working directory:",
             "  By default, uses the shell current working directory when config is created.",
@@ -252,6 +334,7 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_skip_git_repo_check": False,
         "run_full_auto": False,
         "run_yolo": True,
+        "run_planner_mode": play_mode.planner_mode,
         "run_plan_mode": play_mode.run_plan_mode,
         "run_plan_request_delay_seconds": 600,
         "run_plan_auto_execute_delay_seconds": 600,
@@ -324,12 +407,12 @@ def prompt_model_choice() -> str | None:
 
 
 def prompt_play_mode() -> PlayMode:
-    print("Choose Play Mode:")
+    print("Choose Planner Mode:")
     for idx, mode in enumerate(PLAY_MODES, start=1):
         print(f"  {idx}. {mode.name}: {mode.note}")
-    default_index = next((idx for idx, mode in enumerate(PLAY_MODES, start=1) if mode.name == "fully-plan"), 1)
+    default_index = next((idx for idx, mode in enumerate(PLAY_MODES, start=1) if mode.name == "auto"), 1)
     while True:
-        raw = prompt_input("Play Mode number: ", default=str(default_index)).strip()
+        raw = prompt_input("Planner Mode number: ", default=str(default_index)).strip()
         try:
             index = int(raw)
         except ValueError:
@@ -547,6 +630,8 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         str((home_dir / "last_state.json").resolve()),
         "--token-lock-dir",
         token_lock_dir,
+        "--run-planner-mode",
+        str(config.get("run_planner_mode") or "auto"),
         "--run-plan-mode",
         str(config.get("run_plan_mode") or "fully-plan"),
         "--run-plan-request-delay-seconds",
@@ -625,7 +710,7 @@ def run_monitor_console(
 
     print("Attached to ArgusBot daemon.")
     print(
-        "Commands: /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /exit"
+        "Commands: /run /inject /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review [round] /show-review-context /status /stop /daemon-stop /help /new /exit"
     )
     print("Plain text: running -> inject, idle -> run")
     print("")
@@ -680,7 +765,7 @@ def run_monitor_console(
             return
         if parsed.kind == "help":
             print(
-                "Commands: /status /run <objective> /inject <instruction> /stop /fresh /disable /daemon-stop /exit\n"
+                "Commands: /run /inject /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review [round] /show-review-context /status /stop /daemon-stop /help /new /exit\n"
                 "Plain text routes to inject when running, else run."
             )
             continue
@@ -690,6 +775,55 @@ def run_monitor_console(
                 print("No daemon status found.")
             else:
                 print(json.dumps(payload, ensure_ascii=True, indent=2))
+            continue
+        if parsed.kind == "show-main-prompt":
+            payload = read_status(status_path) or {}
+            prompt_path = payload.get("child_main_prompt_path")
+            if isinstance(prompt_path, str) and prompt_path.strip():
+                print(Path(prompt_path).read_text(encoding="utf-8"))
+            else:
+                print("No main prompt markdown available.")
+            continue
+        if parsed.kind == "show-plan":
+            payload = read_status(status_path) or {}
+            plan_path = payload.get("child_plan_report_path") or payload.get("child_plan_overview_path")
+            if isinstance(plan_path, str) and plan_path.strip():
+                print(Path(plan_path).read_text(encoding="utf-8"))
+            else:
+                print("No plan markdown available.")
+            continue
+        if parsed.kind == "show-review":
+            payload = read_status(status_path) or {}
+            review_dir = payload.get("child_review_summaries_dir")
+            if isinstance(review_dir, str) and review_dir.strip():
+                base = Path(review_dir)
+                target = base / "index.md"
+                if parsed.text:
+                    target = base / f"round-{int(parsed.text):03d}.md"
+                print(target.read_text(encoding="utf-8"))
+            else:
+                print("No review markdown available.")
+            continue
+        if parsed.kind == "show-plan-context":
+            payload = read_status(status_path) or {}
+            print(
+                render_plan_context(
+                    operator_messages_path=payload.get("child_operator_messages_path") or payload.get("operator_messages_file"),
+                    plan_overview_path=payload.get("child_plan_report_path") or payload.get("child_plan_overview_path"),
+                    plan_mode=str(payload.get("default_plan_mode") or payload.get("plan_mode") or "auto"),
+                )
+            )
+            continue
+        if parsed.kind == "show-review-context":
+            payload = read_status(status_path) or {}
+            print(
+                render_review_context(
+                    operator_messages_path=payload.get("child_operator_messages_path") or payload.get("operator_messages_file"),
+                    review_summaries_dir=payload.get("child_review_summaries_dir"),
+                    state_file=payload.get("run_state_file"),
+                    check_commands=list(payload.get("run_check", [])) if isinstance(payload.get("run_check"), list) else [],
+                )
+            )
             continue
         if parsed.kind in {"run", "inject"}:
             ensure_daemon_running(config=config, home_dir=home_dir, token_lock_dir=token_lock_dir)
@@ -755,10 +889,32 @@ def parse_terminal_command(raw: str, *, running: bool) -> TerminalCommand | None
         return TerminalCommand(kind="status")
     if text in {"/stop", "stop"}:
         return TerminalCommand(kind="stop")
-    if text in {"/fresh", "fresh", "/fresh-session", "fresh-session", "/new-session", "new-session"}:
+    if text in {"/new", "new", "/fresh", "fresh", "/fresh-session", "fresh-session", "/new-session", "new-session"}:
         return TerminalCommand(kind="fresh-session")
-    if text in {"/disable", "disable", "/daemon-stop", "daemon-stop"}:
+    if text in {"/daemon-stop", "daemon-stop", "/disable", "disable"}:
         return TerminalCommand(kind="daemon-stop")
+    if text in {"/mode", "mode"}:
+        return TerminalCommand(kind="mode-menu", text="")
+    if text.startswith("/mode "):
+        return TerminalCommand(kind="mode", text=text[len("/mode ") :].strip())
+    if text.startswith("/btw "):
+        return TerminalCommand(kind="btw", text=text[len("/btw ") :].strip())
+    if text.startswith("/plan "):
+        return TerminalCommand(kind="plan", text=text[len("/plan ") :].strip())
+    if text.startswith("/review "):
+        return TerminalCommand(kind="review", text=text[len("/review ") :].strip())
+    if text in {"/show-main-prompt", "show-main-prompt"}:
+        return TerminalCommand(kind="show-main-prompt")
+    if text in {"/show-plan", "show-plan"}:
+        return TerminalCommand(kind="show-plan")
+    if text in {"/show-plan-context", "show-plan-context"}:
+        return TerminalCommand(kind="show-plan-context")
+    if text.startswith("/show-review "):
+        return TerminalCommand(kind="show-review", text=text[len("/show-review ") :].strip())
+    if text in {"/show-review", "show-review"}:
+        return TerminalCommand(kind="show-review")
+    if text in {"/show-review-context", "show-review-context"}:
+        return TerminalCommand(kind="show-review-context")
     if text.startswith("/run "):
         objective = text[len("/run ") :].strip()
         if not objective:

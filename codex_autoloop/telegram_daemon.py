@@ -149,6 +149,7 @@ def main() -> None:
     child_control_path: Path | None = None
     child_resume_session_id: str | None = None
     plan_mode = normalize_plan_mode(args.run_plan_mode)
+    planner_mode = str(args.run_planner_mode)
     plan_request_delay_seconds = max(0, int(args.run_plan_request_delay_seconds))
     plan_auto_execute_delay_seconds = max(0, int(args.run_plan_auto_execute_delay_seconds))
     pending_plan_request: str | None = None
@@ -244,7 +245,7 @@ def main() -> None:
                 "run_archive_log": str(run_archive_log),
                 "operator_messages_file": str(operator_messages_path),
                 "child_operator_messages_path": str(operator_messages_path),
-                "plan_mode": plan_mode,
+                "plan_mode": planner_mode,
                 "default_plan_mode": args.run_planner_mode,
                 "btw_busy": btw_agent.status_snapshot().busy,
                 "btw_session_id": btw_agent.status_snapshot().session_id,
@@ -465,7 +466,7 @@ def main() -> None:
                     child_started_at=child_started_at,
                     last_session_id=last_session_id,
                     force_fresh_session=is_force_fresh_session_requested(args.run_state_file),
-                    plan_mode=plan_mode,
+                    plan_mode=planner_mode,
                     default_planner_mode=str(args.run_planner_mode),
                     btw_busy=btw_agent.status_snapshot().busy,
                     btw_session_id=btw_agent.status_snapshot().session_id,
@@ -687,7 +688,7 @@ def main() -> None:
                 exit_code=exit_code,
             )
             notifier.send_message(
-                "[daemon] plan mode=record-only\n"
+                "[daemon] planner mode=record\n"
                 f"Recorded run summary to table: {record_file}"
             )
             clear_planner_state(reason="record_only")
@@ -707,7 +708,7 @@ def main() -> None:
                 exit_code=exit_code,
             )
             notifier.send_message(
-                "[daemon] plan mode=fully-plan\n"
+                "[daemon] planner mode=auto\n"
                 f"Skip auto-plan ({skip_reason or 'unknown'}). "
                 "Please fix blockers and run again via /run or terminal."
             )
@@ -732,7 +733,7 @@ def main() -> None:
             exit_code=exit_code,
         )
         notifier.send_message(
-            "[daemon] plan mode=fully-plan\n"
+            "[daemon] planner mode=auto\n"
             f"Will generate next request in {plan_request_delay_seconds}s."
         )
 
@@ -1070,7 +1071,7 @@ def format_status(
     scheduled_plan_request_at: dt.datetime | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
-        base = f"[daemon] status=idle\nplan_mode={plan_mode}\ndefault_planner_mode={default_planner_mode}"
+        base = f"[daemon] status=idle\nplanner_mode={default_planner_mode}"
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
         if force_fresh_session:
@@ -1098,8 +1099,7 @@ def format_status(
         elapsed = f"{elapsed_seconds}s"
     return (
         "[daemon] status=running\n"
-        f"plan_mode={plan_mode}\n"
-        f"default_planner_mode={default_planner_mode}\n"
+        f"planner_mode={default_planner_mode}\n"
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
         f"last_session_id={last_session_id}\n"
@@ -1477,13 +1477,12 @@ def help_text() -> str:
         "/show-review-context - print current reviewer direction, checks, and criteria\n"
         "/status - daemon + child status\n"
         "/stop - stop active run\n"
-        "/fresh - force next run to use a fresh session (ignore saved session_id)\n"
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
         "When planner proposes a next session, use the Telegram buttons to execute, reject, or modify it.\n"
         "Plain text message is treated as /run when idle.\n"
         "Voice/audio message will be transcribed by Whisper when enabled.\n"
-        "In fully-plan mode, daemon may auto-propose and auto-run next request unless overridden."
+        "In auto mode, daemon may auto-propose and auto-run the next request unless overridden."
     )
 
 
@@ -1657,24 +1656,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-plan-mode",
         default=PLAN_MODE_FULLY_PLAN,
         choices=sorted(PLAN_MODES),
-        help="Plan mode: execute-only, fully-plan (default), or record-only.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--run-plan-request-delay-seconds",
         type=int,
         default=600,
-        help="In fully-plan mode, delay before generating next planner request after child completion.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--run-plan-auto-execute-delay-seconds",
         type=int,
         default=600,
-        help="In fully-plan mode, auto-execute planner request after this delay unless user overrides it.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--run-plan-record-file",
         default=None,
-        help="Optional markdown table file path used by record-only mode. Defaults to logs_dir/plan-agent-records.md.",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--run-no-dashboard",

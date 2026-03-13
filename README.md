@@ -104,15 +104,25 @@ Behavior:
 - After `init`, run `argusbot` to attach monitor to that background daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
+  - `/new`
   - `/inject <instruction>`
-  - `/status`, `/stop`, `/fresh`, `/disable` (alias of `/daemon-stop`), `/daemon-stop`
+  - `/mode <off|auto|record>`
+  - `/btw <question>`
+  - `/plan <direction>`
+  - `/review <criteria>`
+  - `/show-main-prompt`
+  - `/show-plan`
+  - `/show-plan-context`
+  - `/show-review [round]`
+  - `/show-review-context`
+  - `/status`, `/stop`, `/daemon-stop`
   - plain text auto-routes: running => inject, idle => run
 
-Play Mode semantics:
+Planner mode semantics:
 
-- `execute-only`: only execute user commands, no plan agent.
-- `fully-plan` (default): after a run finishes, daemon generates next request after 10 minutes; if not overridden within another 10 minutes, it auto-runs that request.
-- `record-only`: plan agent degrades to markdown table recorder; reviewer behavior stays unchanged.
+- `off`: disable plan agent behavior for daemon-launched runs.
+- `auto` (default): planner stays enabled and daemon may propose/auto-run the next request.
+- `record`: planner records markdown only; no automatic follow-up execution.
 
 YOLO policy:
 
@@ -121,7 +131,7 @@ YOLO policy:
 Directly disable daemon from terminal:
 
 ```bash
-argusbot disable
+argusbot daemon-stop
 ```
 
 You can still use low-level commands when needed:

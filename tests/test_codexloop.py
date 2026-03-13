@@ -22,14 +22,14 @@ def test_parse_terminal_command_explicit_commands() -> None:
     run = codexloop.parse_terminal_command("/run build dashboard", running=True)
     inject = codexloop.parse_terminal_command("/inject tweak prompt", running=False)
     stop = codexloop.parse_terminal_command("/stop", running=False)
-    fresh = codexloop.parse_terminal_command("/fresh", running=False)
-    disable = codexloop.parse_terminal_command("/disable", running=False)
+    new = codexloop.parse_terminal_command("/new", running=False)
+    mode = codexloop.parse_terminal_command("/mode auto", running=False)
     status = codexloop.parse_terminal_command("/status", running=False)
     assert run is not None and run.kind == "run" and run.text == "build dashboard"
     assert inject is not None and inject.kind == "inject" and inject.text == "tweak prompt"
     assert stop is not None and stop.kind == "stop"
-    assert fresh is not None and fresh.kind == "fresh-session"
-    assert disable is not None and disable.kind == "daemon-stop"
+    assert new is not None and new.kind == "fresh-session"
+    assert mode is not None and mode.kind == "mode" and mode.text == "auto"
     assert status is not None and status.kind == "status"
 
 
@@ -38,16 +38,16 @@ def test_parse_terminal_command_rejects_empty_payload() -> None:
     assert codexloop.parse_terminal_command("/inject   ", running=True) is None
 
 
-def test_build_parser_supports_disable_subcommand() -> None:
+def test_build_parser_supports_daemon_stop_subcommand() -> None:
     parser = codexloop.build_parser()
-    args = parser.parse_args(["disable"])
-    assert args.subcommand == "disable"
+    args = parser.parse_args(["daemon-stop"])
+    assert args.subcommand == "daemon-stop"
 
 
-def test_build_parser_supports_fresh_subcommand() -> None:
+def test_build_parser_supports_new_subcommand() -> None:
     parser = codexloop.build_parser()
-    args = parser.parse_args(["fresh"])
-    assert args.subcommand == "fresh"
+    args = parser.parse_args(["new"])
+    assert args.subcommand == "new"
 
 
 def test_build_parser_supports_help_subcommand() -> None:
@@ -65,11 +65,11 @@ def test_build_parser_supports_init_subcommand() -> None:
 def test_supported_features_text_contains_core_commands() -> None:
     text = codexloop.supported_features_text()
     assert "argusbot help" in text
-    assert "argusbot disable" in text
-    assert "argusbot fresh" in text
+    assert "argusbot new" in text
+    assert "argusbot mode <off|auto|record>" in text
     assert "argusbot init" in text
-    assert "/disable" in text
-    assert "/fresh" in text
+    assert "/daemon-stop" in text
+    assert "/new" in text
 
 
 def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:
@@ -95,6 +95,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
     assert config["run_model_preset"] is None
+    assert config["run_planner_mode"] == "auto"
     assert config["run_plan_mode"] == "fully-plan"
     assert config["run_plan_request_delay_seconds"] == 600
     assert config["run_plan_auto_execute_delay_seconds"] == 600
@@ -106,7 +107,7 @@ def test_prompt_play_mode_selection(monkeypatch) -> None:
     answers = iter(["3"])
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
     mode = codexloop.prompt_play_mode()
-    assert mode.name == "record-only"
+    assert mode.name == "record"
     assert mode.run_plan_mode == "record-only"
 
 
@@ -133,6 +134,7 @@ def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path,
         "run_skip_git_repo_check": False,
         "run_full_auto": False,
         "run_yolo": True,
+        "run_planner_mode": "auto",
         "run_plan_mode": "fully-plan",
         "run_plan_request_delay_seconds": 600,
         "run_plan_auto_execute_delay_seconds": 600,
@@ -180,6 +182,7 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "run_skip_git_repo_check": True,
         "run_full_auto": False,
         "run_yolo": True,
+        "run_planner_mode": "auto",
         "run_plan_mode": "fully-plan",
         "run_plan_request_delay_seconds": 600,
         "run_plan_auto_execute_delay_seconds": 600,
@@ -218,6 +221,7 @@ def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
         "run_skip_git_repo_check": False,
         "run_full_auto": False,
         "run_yolo": False,
+        "run_planner_mode": "off",
         "run_plan_mode": "execute-only",
         "run_resume_last_session": True,
         "run_model_preset": "quality",
