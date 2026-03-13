@@ -30,6 +30,9 @@ def test_build_child_command_includes_core_args() -> None:
         run_stall_soft_idle_seconds=1200,
         run_stall_hard_idle_seconds=10800,
         run_state_file=".codex_daemon/last_state.json",
+        run_telegram_events="loop.started,round.main.completed,round.review.completed,plan.completed,loop.completed",
+        run_telegram_live_updates=True,
+        run_telegram_live_interval_seconds=5,
         run_resume_last_session=True,
         run_no_dashboard=True,
     )
@@ -63,6 +66,10 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--skip-git-repo-check" in cmd
     assert "--no-dashboard" in cmd
     assert "--telegram-control-whisper" in cmd
+    assert "--no-telegram-control" in cmd
+    assert "--telegram-live-updates" in cmd
+    assert "--telegram-live-interval-seconds" in cmd
+    assert "--telegram-events" in cmd
     assert "--telegram-control-whisper-model" in cmd
     assert cmd[-1] == "do work"
 

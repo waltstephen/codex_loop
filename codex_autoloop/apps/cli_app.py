@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import sys
 from argparse import Namespace
+from pathlib import Path
 from typing import Any
 
 from ..adapters.control_channels import LocalBusControlChannel, TelegramControlChannel
 from ..adapters.event_sinks import CompositeEventSink, DashboardEventSink, TelegramEventSink, TerminalEventSink
+from ..btw_agent import BtwAgent, BtwConfig
 from ..codex_runner import CodexRunner
 from ..core.engine import LoopConfig, LoopEngine
 from ..core.state_store import LoopStateStore
@@ -16,8 +18,10 @@ from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_i
 from .shell_utils import (
     control_help_text,
     format_control_status,
+    format_mode_menu,
     looks_like_bot_token,
     parse_telegram_events,
+    resolve_btw_messages_file,
     resolve_plan_overview_file,
     resolve_review_summaries_dir,
     resolve_operator_messages_file,
@@ -47,12 +51,19 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         control_file=args.control_file,
         state_file=args.state_file,
     )
+    btw_messages_file = resolve_btw_messages_file(
+        explicit_path=None,
+        operator_messages_file=operator_messages_file,
+        control_file=args.control_file,
+        state_file=args.state_file,
+    )
     state_store = LoopStateStore(
         objective=objective,
         state_file=args.state_file,
         operator_messages_file=operator_messages_file,
         plan_overview_file=plan_overview_file,
         review_summaries_dir=review_summaries_dir,
+        check_commands=args.check or [],
         plan_mode=args.plan_mode,
     )
     state_store.record_message(text=objective, source="operator", kind="initial-objective")
@@ -162,6 +173,38 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             return
         print(message, file=sys.stderr)
 
+    btw_agent = BtwAgent(
+        runner=CodexRunner(codex_bin=args.codex_bin),
+        config=BtwConfig(
+            working_dir=str(Path.cwd()),
+            model=args.plan_model or args.reviewer_model or args.main_model,
+            reasoning_effort=args.plan_reasoning_effort or args.reviewer_reasoning_effort or args.main_reasoning_effort,
+            messages_file=btw_messages_file,
+        ),
+    )
+
+    def start_btw(question: str, source: str) -> None:
+        normalized = question.strip()
+        if not normalized:
+            reply_to_source(source, "[btw] missing question.")
+            return
+
+        def on_busy() -> None:
+            reply_to_source(source, "[btw] side-agent is busy. Wait for the current answer to finish.")
+
+        def on_complete(result) -> None:
+            reply_to_source(source, result.answer)
+            if source == "telegram" and telegram_notifier is not None and result.attachments:
+                for item in result.attachments:
+                    telegram_notifier.send_local_file(item.path, caption=item.reason)
+            elif result.attachments:
+                attachment_lines = ["[btw] attachments:"] + [f"- {item.path}" for item in result.attachments]
+                reply_to_source(source, "\n".join(attachment_lines))
+
+        started = btw_agent.start_async(question=normalized, on_complete=on_complete, on_busy=on_busy)
+        if started:
+            reply_to_source(source, "[btw] side-agent started. It will reply when ready.")
+
     def on_control_command(command) -> None:
         if command.kind == "inject":
             state_store.request_inject(command.text, source=command.source)
@@ -183,6 +226,15 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
                     command.source,
                     f"[autoloop] control ack\nAction: mode\nplan_mode={updated_mode}",
                 )
+            return
+        if command.kind == "mode-menu":
+            reply_to_source(command.source, format_mode_menu(state_store.current_plan_mode()))
+            return
+        if command.kind == "mode-invalid":
+            reply_to_source(command.source, "[autoloop] invalid selection. Reply with 1, 2, or 3.")
+            return
+        if command.kind == "btw":
+            start_btw(command.text, command.source)
             return
         if command.kind == "plan":
             state_store.request_plan_direction(command.text, source=command.source)
@@ -237,6 +289,12 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
                 command.source,
                 doc or "[autoloop] no reviewer summary markdown available for that request.",
             )
+            return
+        if command.kind == "show-plan-context":
+            reply_to_source(command.source, state_store.render_plan_context_markdown())
+            return
+        if command.kind == "show-review-context":
+            reply_to_source(command.source, state_store.render_review_context_markdown())
             return
         if command.kind == "run":
             reply_to_source(

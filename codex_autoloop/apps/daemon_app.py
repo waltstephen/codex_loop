@@ -10,10 +10,13 @@ import time
 from pathlib import Path
 
 from ..adapters.control_channels import LocalBusControlChannel, TelegramControlChannel
+from ..btw_agent import BtwAgent, BtwConfig
+from ..codex_runner import CodexRunner
 from ..daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from ..model_catalog import get_preset
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from ..token_lock import TokenLock, acquire_token_lock
+from .shell_utils import format_mode_menu
 
 
 class TelegramDaemonApp:
@@ -27,6 +30,7 @@ class TelegramDaemonApp:
         self.bus_dir.mkdir(parents=True, exist_ok=True)
         self.events_log = self.logs_dir / "daemon-events.jsonl"
         self.status_path = self.bus_dir / "daemon_status.json"
+        preset = get_preset(args.run_model_preset) if getattr(args, "run_model_preset", None) else None
 
         self.token_lock: TokenLock | None = None
         self.notifier: TelegramNotifier | None = None
@@ -34,10 +38,34 @@ class TelegramDaemonApp:
         self.child: subprocess.Popen[str] | None = None
         self.child_objective: str | None = None
         self.child_log_path: Path | None = None
+        self.child_operator_messages_path: Path | None = None
         self.child_plan_overview_path: Path | None = None
         self.child_review_summaries_dir: Path | None = None
         self.child_started_at: dt.datetime | None = None
         self.child_control_bus: JsonlCommandBus | None = None
+        self.btw_agent = BtwAgent(
+            runner=CodexRunner(),
+            config=BtwConfig(
+                working_dir=str(self.run_cwd),
+                model=(
+                    getattr(args, "run_plan_model", None)
+                    or (preset.plan_model if preset is not None else None)
+                    or getattr(args, "run_reviewer_model", None)
+                    or (preset.reviewer_model if preset is not None else None)
+                    or getattr(args, "run_main_model", None)
+                    or (preset.main_model if preset is not None else None)
+                ),
+                reasoning_effort=(
+                    getattr(args, "run_plan_reasoning_effort", None)
+                    or (preset.plan_reasoning_effort if preset is not None else None)
+                    or getattr(args, "run_reviewer_reasoning_effort", None)
+                    or (preset.reviewer_reasoning_effort if preset is not None else None)
+                    or getattr(args, "run_main_reasoning_effort", None)
+                    or (preset.main_reasoning_effort if preset is not None else None)
+                ),
+                messages_file=str(self.logs_dir / "btw_messages.md"),
+            ),
+        )
         self._stopping = False
 
     def run(self) -> None:
@@ -59,7 +87,7 @@ class TelegramDaemonApp:
         self.notifier.send_message(
             "[daemon] online\n"
             "Send /run <objective> to start a new run.\n"
-            "Commands: /status /mode /plan /review /show-plan /show-review /stop /help"
+            "Commands: /status /mode /btw /plan /review /show-plan /show-plan-context /show-review /show-review-context /stop /help"
         )
         self._log_event(
             "daemon.started",
@@ -137,6 +165,12 @@ class TelegramDaemonApp:
         if command.kind == "help":
             self._send_reply(command.source, help_text())
             return
+        if command.kind == "mode-menu":
+            self._send_reply(command.source, format_mode_menu(getattr(self.args, "run_plan_mode", "auto")))
+            return
+        if command.kind == "mode-invalid":
+            self._send_reply(command.source, "[daemon] invalid selection. Reply with 1, 2, or 3.")
+            return
         if command.kind == "mode":
             updated_mode = _normalize_plan_mode(command.text)
             if updated_mode is None:
@@ -165,11 +199,13 @@ class TelegramDaemonApp:
                 format_status(
                     child=self.child,
                     child_objective=self.child_objective,
+                    child_operator_messages_path=self.child_operator_messages_path,
                     child_log_path=self.child_log_path,
                     child_plan_overview_path=self.child_plan_overview_path,
                     child_review_summaries_dir=self.child_review_summaries_dir,
                     child_started_at=self.child_started_at,
                     default_plan_mode=getattr(self.args, "run_plan_mode", "auto"),
+                    btw_status=self.btw_agent.status_snapshot(),
                     last_session_id=resolve_saved_session_id(self.args.run_state_file),
                 ),
             )
@@ -177,6 +213,16 @@ class TelegramDaemonApp:
         if command.kind == "show-plan":
             doc = _read_text_file(self.child_plan_overview_path)
             self._send_reply(command.source, doc or "[daemon] no plan overview markdown available.")
+            return
+        if command.kind == "show-plan-context":
+            self._send_reply(
+                command.source,
+                render_plan_context(
+                    operator_messages_path=self.child_operator_messages_path,
+                    plan_overview_path=self.child_plan_overview_path,
+                    plan_mode=getattr(self.args, "run_plan_mode", "auto"),
+                ),
+            )
             return
         if command.kind == "show-review":
             target = self.child_review_summaries_dir / "index.md" if self.child_review_summaries_dir else None
@@ -192,6 +238,17 @@ class TelegramDaemonApp:
                 target = self.child_review_summaries_dir / f"round-{round_index:03d}.md"
             doc = _read_text_file(target)
             self._send_reply(command.source, doc or "[daemon] no reviewer summary markdown available.")
+            return
+        if command.kind == "show-review-context":
+            self._send_reply(
+                command.source,
+                render_review_context(
+                    operator_messages_path=self.child_operator_messages_path,
+                    review_summaries_dir=self.child_review_summaries_dir,
+                    state_file=getattr(self.args, "run_state_file", None),
+                    check_commands=getattr(self.args, "run_check", []),
+                ),
+            )
             return
         if command.kind in {"run", "inject"}:
             objective = command.text.strip()
@@ -218,6 +275,32 @@ class TelegramDaemonApp:
                 self._send_reply(command.source, f"[daemon] {command.kind} forwarded to active run.")
             else:
                 self._send_reply(command.source, "[daemon] active run exists but child control bus unavailable.")
+            return
+        if command.kind == "btw":
+            question = command.text.strip()
+            if not question:
+                self._send_reply(command.source, "[btw] missing question.")
+                return
+
+            def on_busy() -> None:
+                self._send_reply(command.source, "[btw] side-agent is busy. Wait for the current answer to finish.")
+
+            def on_complete(result) -> None:
+                self._send_reply(command.source, result.answer)
+                if command.source == "telegram" and self.notifier is not None and result.attachments:
+                    for item in result.attachments:
+                        self.notifier.send_local_file(item.path, caption=item.reason)
+                elif result.attachments:
+                    self._send_reply(
+                        command.source,
+                        "[btw] attachments:\n" + "\n".join(f"- {item.path}" for item in result.attachments),
+                    )
+                self._write_status()
+
+            started = self.btw_agent.start_async(question=question, on_complete=on_complete, on_busy=on_busy)
+            if started:
+                self._send_reply(command.source, "[btw] side-agent started. It will reply when ready.")
+                self._write_status()
             return
         if command.kind == "stop":
             if not self._child_running():
@@ -258,6 +341,7 @@ class TelegramDaemonApp:
         self.child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=self.run_cwd)
         self.child_objective = objective
         self.child_log_path = log_path
+        self.child_operator_messages_path = messages_path
         self.child_plan_overview_path = plan_overview_path
         self.child_review_summaries_dir = review_summaries_dir
         self.child_started_at = dt.datetime.utcnow()
@@ -329,15 +413,23 @@ class TelegramDaemonApp:
                 "daemon_running": not self._stopping,
                 "running": running,
                 "default_plan_mode": getattr(self.args, "run_plan_mode", "auto"),
+                "run_check": list(getattr(self.args, "run_check", [])),
                 "child_pid": self.child.pid if running and self.child else None,
                 "child_objective": self.child_objective,
+                "child_operator_messages_path": (
+                    str(self.child_operator_messages_path) if self.child_operator_messages_path else None
+                ),
                 "child_log_path": str(self.child_log_path) if self.child_log_path else None,
                 "child_plan_overview_path": str(self.child_plan_overview_path) if self.child_plan_overview_path else None,
                 "child_review_summaries_dir": (
                     str(self.child_review_summaries_dir) if self.child_review_summaries_dir else None
                 ),
                 "child_started_at": self.child_started_at.isoformat() + "Z" if self.child_started_at else None,
+                "btw_busy": self.btw_agent.status_snapshot().busy,
+                "btw_session_id": self.btw_agent.status_snapshot().session_id,
+                "btw_messages_file": self.btw_agent.status_snapshot().messages_file,
                 "last_session_id": resolve_saved_session_id(self.args.run_state_file),
+                "run_state_file": getattr(self.args, "run_state_file", None),
                 "run_cwd": str(self.run_cwd),
                 "logs_dir": str(self.logs_dir),
                 "bus_dir": str(self.bus_dir),
@@ -411,6 +503,10 @@ def build_child_command(
         args.telegram_bot_token,
         "--telegram-chat-id",
         chat_id,
+        "--telegram-events",
+        args.run_telegram_events,
+        "--telegram-live-interval-seconds",
+        str(args.run_telegram_live_interval_seconds),
         "--control-file",
         control_file,
         "--operator-messages-file",
@@ -444,6 +540,11 @@ def build_child_command(
         cmd.append("--telegram-control-whisper")
     else:
         cmd.append("--no-telegram-control-whisper")
+    cmd.append("--no-telegram-control")
+    if args.run_telegram_live_updates:
+        cmd.append("--telegram-live-updates")
+    else:
+        cmd.append("--no-telegram-live-updates")
     if args.telegram_control_whisper_api_key:
         cmd.extend(["--telegram-control-whisper-api-key", args.telegram_control_whisper_api_key])
     if resume_session_id:
@@ -472,11 +573,13 @@ def format_status(
     *,
     child: subprocess.Popen[str] | None,
     child_objective: str | None,
+    child_operator_messages_path: Path | None,
     child_log_path: Path | None,
     child_plan_overview_path: Path | None,
     child_review_summaries_dir: Path | None,
     child_started_at: dt.datetime | None,
     default_plan_mode: str,
+    btw_status,
     last_session_id: str | None = None,
 ) -> str:
     if child is None or child.poll() is not None:
@@ -484,8 +587,12 @@ def format_status(
         if last_session_id:
             base += f"\nlast_session_id={last_session_id}"
         base += f"\ndefault_plan_mode={default_plan_mode}"
+        base += f"\nbtw_busy={btw_status.busy}"
+        base += f"\nbtw_session_id={btw_status.session_id}"
         if child_plan_overview_path:
             base += f"\nplan_overview={child_plan_overview_path}"
+        if child_operator_messages_path:
+            base += f"\noperator_messages={child_operator_messages_path}"
         if child_review_summaries_dir:
             base += f"\nreview_summaries_dir={child_review_summaries_dir}"
         return base
@@ -498,8 +605,11 @@ def format_status(
         f"pid={child.pid}\n"
         f"elapsed={elapsed}\n"
         f"default_plan_mode={default_plan_mode}\n"
+        f"btw_busy={btw_status.busy}\n"
+        f"btw_session_id={btw_status.session_id}\n"
         f"last_session_id={last_session_id}\n"
         f"objective={str(child_objective or '')[:700]}\n"
+        f"operator_messages={child_operator_messages_path}\n"
         f"log={child_log_path}\n"
         f"plan_overview={child_plan_overview_path}\n"
         f"review_summaries_dir={child_review_summaries_dir}"
@@ -523,11 +633,15 @@ def help_text() -> str:
         "[daemon] commands\n"
         "/run <objective> - start a new codex-autoloop run\n"
         "/inject <instruction> - inject instruction to active run (or run if idle)\n"
+        "/mode - show a mode selection menu\n"
         "/mode <off|auto|record> - hot-switch daemon default mode and active child mode\n"
+        "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
         "/plan <direction> - send direction to the active plan agent only\n"
         "/review <criteria> - send audit criteria to the active reviewer only\n"
         "/show-plan - print the latest plan overview markdown\n"
+        "/show-plan-context - print current plan directions and inputs\n"
         "/show-review [round] - print reviewer summary markdown\n"
+        "/show-review-context - print current reviewer direction, checks, and criteria\n"
         "/status - daemon + child status\n"
         "/stop - stop active run\n"
         "/daemon-stop - stop daemon process\n"
@@ -556,3 +670,128 @@ def _read_text_file(path: str | Path | None) -> str | None:
         return p.read_text(encoding="utf-8")
     except OSError:
         return None
+
+
+def render_plan_context(
+    *,
+    operator_messages_path: str | Path | None,
+    plan_overview_path: str | Path | None,
+    plan_mode: str,
+) -> str:
+    plan_messages, broadcast_messages, _ = _extract_operator_messages(operator_messages_path)
+    plan_overview = _read_text_file(plan_overview_path)
+    lines = [
+        "# Plan Context",
+        "",
+        f"- Plan mode: `{plan_mode}`",
+        "",
+        "## Plan-Only Directions",
+        "",
+    ]
+    if plan_messages:
+        lines.extend(plan_messages)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Broadcast Inputs", ""])
+    if broadcast_messages:
+        lines.extend(broadcast_messages)
+    else:
+        lines.append("- none")
+    if plan_overview:
+        lines.extend(["", "## Current Plan Overview", "", plan_overview.strip()])
+    return "\n".join(lines).strip() + "\n"
+
+
+def render_review_context(
+    *,
+    operator_messages_path: str | Path | None,
+    review_summaries_dir: str | Path | None,
+    state_file: str | Path | None,
+    check_commands: list[str],
+) -> str:
+    _, broadcast_messages, review_messages = _extract_operator_messages(operator_messages_path)
+    completion_summary = _read_text_file(Path(review_summaries_dir) / "completion.md" if review_summaries_dir else None)
+    latest_review = _read_latest_review_from_state_file(state_file)
+    lines = [
+        "# Review Context",
+        "",
+    ]
+    if latest_review:
+        lines.extend(
+            [
+                f"- Latest review status: `{latest_review.get('review_status', '-')}`",
+                f"- Latest review reason: `{latest_review.get('review_reason', '-')}`",
+                f"- Latest review next action: `{latest_review.get('review_next_action', '-')}`",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+        "## Acceptance Checks",
+        "",
+    ]
+    )
+    if check_commands:
+        for item in check_commands:
+            lines.append(f"- `{item}`")
+    else:
+        lines.append("- none configured")
+    lines.extend(["", "## Review-Only Criteria", ""])
+    if review_messages:
+        lines.extend(review_messages)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Broadcast Inputs", ""])
+    if broadcast_messages:
+        lines.extend(broadcast_messages)
+    else:
+        lines.append("- none")
+    if completion_summary:
+        lines.extend(["", "## Latest Review Completion Summary", "", completion_summary.strip()])
+    return "\n".join(lines).strip() + "\n"
+
+
+def _extract_operator_messages(path: str | Path | None) -> tuple[list[str], list[str], list[str]]:
+    raw = _read_text_file(path)
+    if not raw:
+        return [], [], []
+    plan_messages: list[str] = []
+    broadcast_messages: list[str] = []
+    review_messages: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        if "`plan`:" in stripped or "`plan` " in stripped:
+            plan_messages.append(stripped)
+        elif "`review`:" in stripped or "`review` " in stripped:
+            review_messages.append(stripped)
+        elif "`broadcast`:" in stripped or "`broadcast` " in stripped:
+            broadcast_messages.append(stripped)
+    return plan_messages, broadcast_messages, review_messages
+
+
+def _read_latest_review_from_state_file(path: str | Path | None) -> dict[str, str] | None:
+    raw = _read_text_file(path)
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    rounds = payload.get("rounds")
+    if not isinstance(rounds, list) or not rounds:
+        return None
+    last = rounds[-1]
+    if not isinstance(last, dict):
+        return None
+    review = last.get("review")
+    if not isinstance(review, dict):
+        return None
+    return {
+        "review_status": str(review.get("status", "-")),
+        "review_reason": str(review.get("reason", "-")),
+        "review_next_action": str(review.get("next_action", "-")),
+    }

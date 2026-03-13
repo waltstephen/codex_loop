@@ -120,6 +120,9 @@
   - 广播式中断 / 更新，作用于主循环。
 - `/mode <off|auto|record>`
   - 对当前 active loop 进行 plan mode 热切换。
+- `/btw <question>`
+  - 发给一个独立的只读 side-agent。
+  - 只用于回答当前项目里的简单问题，不改代码，也不打断主 loop。
 - `/status`
   - 查看当前 loop 状态。
 - `/stop`
@@ -144,6 +147,8 @@
   - 用于扩展方向、任务重心调整、长期规划输入。
 - `/show-plan`
   - 返回当前 planner 写出的 markdown 总结。
+- `/show-plan-context`
+  - 返回当前 plan 方向和 plan-only / broadcast 输入。
 - `/plan-md`
   - `/show-plan` 的别名。
 
@@ -160,6 +165,8 @@
   - 返回 review summary 的索引 markdown。
 - `/show-review <round>`
   - 返回指定轮次的 review markdown。
+- `/show-review-context`
+  - 返回当前 review 方向、acceptance checks 和 review-only criteria。
 - `/review-md`
   - `/show-review` 的别名。
 
@@ -175,14 +182,21 @@
 - `/mode <off|auto|record>`
   - 更新 daemon 未来 run 的默认 mode。
   - 如果当前 child 正在运行，也会同时转发给 active child。
+- `/btw <question>`
+  - 调用一个独立的只读 side-agent。
+  - 这个 agent 的记忆只包含当前项目和 `/btw` 对话，不会打断主执行链。
 - `/plan <direction>`
   - 转发给当前 child 的 Plan Agent。
 - `/review <criteria>`
   - 转发给当前 child 的 Review Agent。
 - `/show-plan`
   - 读取最新的 plan overview markdown。
+- `/show-plan-context`
+  - 读取当前 plan 方向和输入。
 - `/show-review [round]`
   - 读取最新的 review summary markdown。
+- `/show-review-context`
+  - 读取当前 review 方向、checks 和 criteria。
 - `/status`
   - 查看 daemon + child 状态。
 - `/stop`

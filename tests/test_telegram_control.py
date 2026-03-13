@@ -108,6 +108,34 @@ def test_parse_mode_command() -> None:
     assert mode.text == "record"
 
 
+def test_parse_mode_menu_and_case_insensitive_mode() -> None:
+    menu = parse_command_from_update(
+        update=_wrap("/mode"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    mixed = parse_command_from_update(
+        update=_wrap("/Mode Record"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert menu is not None
+    assert menu.kind == "mode-menu"
+    assert mixed is not None
+    assert mixed.kind == "mode"
+    assert mixed.text == "Record"
+
+
+def test_parse_btw_command() -> None:
+    btw = parse_command_from_update(
+        update=_wrap("/btw 这个仓库的 manager 和 consumer 是怎么配合的"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert btw is not None
+    assert btw.kind == "btw"
+
+
 def test_parse_show_plan_and_show_review_commands() -> None:
     show_plan = parse_command_from_update(
         update=_wrap("/show-plan"),
@@ -122,6 +150,21 @@ def test_parse_show_plan_and_show_review_commands() -> None:
     assert show_plan is not None and show_plan.kind == "show-plan"
     assert show_review is not None and show_review.kind == "show-review"
     assert show_review.text == "3"
+
+
+def test_parse_show_context_commands() -> None:
+    plan_context = parse_command_from_update(
+        update=_wrap("/show-plan-context"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    review_context = parse_command_from_update(
+        update=_wrap("/show-review-context"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert plan_context is not None and plan_context.kind == "show-plan-context"
+    assert review_context is not None and review_context.kind == "show-review-context"
 
 
 def test_ignore_other_chat() -> None:

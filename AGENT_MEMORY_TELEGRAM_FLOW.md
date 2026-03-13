@@ -120,6 +120,9 @@ Available during an active loop:
   - Broadcast interrupt/update for the main loop.
 - `/mode <off|auto|record>`
   - Hot-switch the current plan mode for the active loop.
+- `/btw <question>`
+  - Sends a question to a separate read-only side-agent.
+  - It answers simple current-project questions without modifying code or interrupting the main loop.
 - `/status`
   - Current loop status.
 - `/stop`
@@ -144,6 +147,8 @@ Available now:
   - Used for extensions, direction shifts, or long-horizon steering.
 - `/show-plan`
   - Returns the current planner markdown summary.
+- `/show-plan-context`
+  - Returns the current plan direction plus plan-only and broadcast inputs.
 - `/plan-md`
   - Alias for `/show-plan`.
 
@@ -160,6 +165,8 @@ Available now:
   - Returns the review summary index markdown.
 - `/show-review <round>`
   - Returns a specific round review markdown.
+- `/show-review-context`
+  - Returns the current review direction, configured checks, and review-only criteria.
 - `/review-md`
   - Alias for `/show-review`.
 
@@ -175,14 +182,21 @@ Available through the Telegram daemon when idle or active:
 - `/mode <off|auto|record>`
   - Updates daemon default mode for future runs.
   - If a child run is active, also forwards the mode switch to the active child.
+- `/btw <question>`
+  - Calls a separate read-only side-agent.
+  - Its memory is limited to the current project and prior `/btw` turns.
 - `/plan <direction>`
   - Forward to active child plan agent.
 - `/review <criteria>`
   - Forward to active child review agent.
 - `/show-plan`
   - Read latest plan overview markdown.
+- `/show-plan-context`
+  - Read current plan direction and inputs.
 - `/show-review [round]`
   - Read latest review summary markdown.
+- `/show-review-context`
+  - Read current review direction, checks, and criteria.
 - `/status`
   - Daemon + child status.
 - `/stop`

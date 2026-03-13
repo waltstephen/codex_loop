@@ -41,3 +41,33 @@ def test_build_parser_accepts_plan_args() -> None:
     assert args.run_plan_mode == "record"
     assert args.run_plan_model == "gpt-5.4"
     assert args.run_plan_reasoning_effort == "high"
+
+
+def test_resolve_effective_chat_id_returns_explicit() -> None:
+    assert setup_wizard.resolve_effective_chat_id(
+        bot_token="123:abc",
+        requested_chat_id="8533505134",
+        timeout_seconds=5,
+    ) == "8533505134"
+
+
+def test_resolve_effective_chat_id_resolves_auto(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "resolve_chat_id", lambda **kwargs: "8533505134")
+    assert setup_wizard.resolve_effective_chat_id(
+        bot_token="123:abc",
+        requested_chat_id="auto",
+        timeout_seconds=5,
+    ) == "8533505134"
+    assert setup_wizard.resolve_effective_chat_id(
+        bot_token="123:abc",
+        requested_chat_id="1",
+        timeout_seconds=5,
+    ) == "8533505134"
+
+
+def test_resolve_codex_autoloop_bin_creates_shim_when_missing(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(setup_wizard.shutil, "which", lambda name: None)
+    path = setup_wizard.resolve_codex_autoloop_bin(tmp_path)
+    assert Path(path).exists()
+    content = Path(path).read_text(encoding="utf-8")
+    assert "codex_autoloop.cli" in content

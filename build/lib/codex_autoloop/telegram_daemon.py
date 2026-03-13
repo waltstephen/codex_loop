@@ -139,23 +139,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Child --state-file value.",
     )
     parser.add_argument(
-        "--run-telegram-events",
-        default="loop.started,round.main.completed,round.review.completed,plan.completed,loop.completed",
-        help="Telegram events forwarded by daemon-launched child runs.",
-    )
-    parser.add_argument(
-        "--run-telegram-live-updates",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Enable/disable child Telegram live agent message updates.",
-    )
-    parser.add_argument(
-        "--run-telegram-live-interval-seconds",
-        type=int,
-        default=5,
-        help="Push interval for child Telegram live updates.",
-    )
-    parser.add_argument(
         "--run-resume-last-session",
         action=argparse.BooleanOptionalAction,
         default=True,

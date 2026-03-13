@@ -27,6 +27,7 @@ class LoopStateStore:
         operator_messages_file: str | None = None,
         plan_overview_file: str | None = None,
         review_summaries_dir: str | None = None,
+        check_commands: list[str] | None = None,
         plan_mode: PlanMode = "off",
     ) -> None:
         self._lock = threading.Lock()
@@ -35,6 +36,7 @@ class LoopStateStore:
         self._operator_messages_file = operator_messages_file
         self._plan_overview_file = plan_overview_file
         self._review_summaries_dir = review_summaries_dir
+        self._check_commands = list(check_commands or [])
         self._plan_mode = plan_mode
         self._interrupt_reason: str | None = None
         self._pending_instruction: str | None = None
@@ -287,6 +289,75 @@ class LoopStateStore:
             return self._latest_plan.overview_markdown
         path_text = self.read_plan_overview_markdown()
         return path_text or ""
+
+    def render_plan_context_markdown(self) -> str:
+        with self._lock:
+            plan_messages = [item for item in self._messages if item.audience == "plan"]
+            broadcast_messages = [item for item in self._messages if item.audience == "broadcast"]
+            lines = [
+                "# Plan Context",
+                "",
+                f"- Plan mode: `{self._plan_mode}`",
+                f"- Latest next explore: `{self._latest_plan.next_explore if self._latest_plan else '-'}`",
+                f"- Follow-up required: `{self._latest_plan.follow_up_required if self._latest_plan else '-'}`",
+                "",
+                "## Plan-Only Directions",
+                "",
+            ]
+            if plan_messages:
+                for item in plan_messages:
+                    lines.append(f"- `{item.ts}` `{item.source}` `{item.kind}`: {item.text}")
+            else:
+                lines.append("- none")
+            lines.extend(["", "## Broadcast Inputs", ""])
+            if broadcast_messages:
+                for item in broadcast_messages:
+                    lines.append(f"- `{item.ts}` `{item.source}` `{item.kind}`: {item.text}")
+            else:
+                lines.append("- none")
+            return "\n".join(lines).strip() + "\n"
+
+    def render_review_context_markdown(self) -> str:
+        with self._lock:
+            review_messages = [item for item in self._messages if item.audience == "review"]
+            broadcast_messages = [item for item in self._messages if item.audience == "broadcast"]
+            lines = [
+                "# Review Context",
+                "",
+                f"- Latest review status: `{self._latest_review.status if self._latest_review else '-'}`",
+                f"- Latest review reason: `{self._latest_review.reason if self._latest_review else '-'}`",
+                f"- Latest review next action: `{self._latest_review.next_action if self._latest_review else '-'}`",
+                "",
+                "## Acceptance Checks",
+                "",
+            ]
+            if self._check_commands:
+                for item in self._check_commands:
+                    lines.append(f"- `{item}`")
+            else:
+                lines.append("- none configured")
+            lines.extend(["", "## Review-Only Criteria", ""])
+            if review_messages:
+                for item in review_messages:
+                    lines.append(f"- `{item.ts}` `{item.source}` `{item.kind}`: {item.text}")
+            else:
+                lines.append("- none")
+            lines.extend(["", "## Broadcast Inputs", ""])
+            if broadcast_messages:
+                for item in broadcast_messages:
+                    lines.append(f"- `{item.ts}` `{item.source}` `{item.kind}`: {item.text}")
+            else:
+                lines.append("- none")
+            if self._latest_review and self._latest_review.completion_summary_markdown.strip():
+                lines.extend(
+                    [
+                        "",
+                        "## Latest Review Completion Summary",
+                        "",
+                        self._latest_review.completion_summary_markdown.strip(),
+                    ]
+                )
+            return "\n".join(lines).strip() + "\n"
 
     def _write_state_locked(self) -> None:
         if not self._state_file:

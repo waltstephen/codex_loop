@@ -119,3 +119,52 @@ def test_state_store_writes_plan_and_review_docs(tmp_path) -> None:
     assert (review_dir / "round-001.md").exists()
     assert (review_dir / "completion.md").exists()
     assert "Round 1" in (review_dir / "index.md").read_text(encoding="utf-8")
+
+
+def test_state_store_renders_plan_and_review_context(tmp_path) -> None:
+    state = LoopStateStore(
+        objective="ship feature",
+        operator_messages_file=str(tmp_path / "operator_messages.md"),
+        check_commands=["python -m compileall ."],
+        plan_mode="auto",
+    )
+    state.record_message(text="shared context", source="operator", kind="initial-objective", audience="broadcast")
+    state.request_plan_direction("focus on data pipeline", source="telegram")
+    state.request_review_criteria("must pass compileall", source="telegram")
+    state.record_plan(
+        PlanDecision(
+            follow_up_required=True,
+            next_explore="pipeline",
+            main_instruction="inspect pipeline",
+            review_instruction="validate compileall",
+            overview_markdown="## Plan\n- pipeline\n",
+        ),
+        round_index=0,
+        session_id="thread-1",
+    )
+    review = ReviewDecision(
+        status="done",
+        confidence=1.0,
+        reason="good",
+        next_action="stop",
+        round_summary_markdown="round",
+        completion_summary_markdown="final completion",
+    )
+    state.record_round(
+        RoundSummary(
+            round_index=1,
+            thread_id="thread-1",
+            main_exit_code=0,
+            main_turn_completed=True,
+            main_turn_failed=False,
+            checks=[],
+            review=review,
+            main_last_message="done",
+        ),
+        session_id="thread-1",
+        current_review=review,
+    )
+    assert "Plan-Only Directions" in state.render_plan_context_markdown()
+    rendered_review = state.render_review_context_markdown()
+    assert "Acceptance Checks" in rendered_review
+    assert "must pass compileall" in rendered_review

@@ -29,3 +29,21 @@ def test_build_command_resume() -> None:
     assert command[:4] == ["codex", "exec", "resume", "--json"]
     assert "--output-schema" not in command
     assert command[-2:] == ["thread123", "continue"]
+
+
+def test_resolve_executable_uses_which_for_bare_command(monkeypatch) -> None:
+    monkeypatch.setattr("codex_autoloop.codex_runner.shutil.which", lambda name: "C:/Users/test/AppData/Roaming/npm/codex.CMD")
+    assert CodexRunner._resolve_executable("codex") == "C:/Users/test/AppData/Roaming/npm/codex.CMD"
+
+
+def test_resolve_executable_keeps_explicit_path(monkeypatch) -> None:
+    called = False
+
+    def fake_which(name: str) -> str | None:
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr("codex_autoloop.codex_runner.shutil.which", fake_which)
+    assert CodexRunner._resolve_executable(r".\tools\codex.cmd") == r".\tools\codex.cmd"
+    assert called is False
