@@ -48,12 +48,17 @@ def main() -> None:
             raise SystemExit(2)
 
     token = prompt_token()
+    home_dir = Path(args.home_dir).resolve()
+    bus_dir = home_dir / "bus"
+    logs_dir = home_dir / "logs"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    bus_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.restart_existing:
+        stop_existing_daemon(home_dir=home_dir, bus_dir=bus_dir)
+
     requested_chat_id = prompt_chat_id()
-    chat_id = resolve_effective_chat_id(
-        bot_token=token,
-        requested_chat_id=requested_chat_id,
-        timeout_seconds=120,
-    )
     check_cmd = prompt_input(
         "Default check command (optional, leave empty for none): ",
         default="",
@@ -97,16 +102,6 @@ def main() -> None:
     if planner_mode is None:
         planner_mode = prompt_planner_mode_choice()
 
-    home_dir = Path(args.home_dir).resolve()
-    bus_dir = home_dir / "bus"
-    logs_dir = home_dir / "logs"
-    home_dir.mkdir(parents=True, exist_ok=True)
-    bus_dir.mkdir(parents=True, exist_ok=True)
-    logs_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.restart_existing:
-        stop_existing_daemon(home_dir=home_dir, bus_dir=bus_dir)
-
     try:
         probe_lock = acquire_token_lock(
             token=token,
@@ -118,6 +113,12 @@ def main() -> None:
         raise SystemExit(2)
     else:
         probe_lock.release()
+
+    chat_id = resolve_effective_chat_id(
+        bot_token=token,
+        requested_chat_id=requested_chat_id,
+        timeout_seconds=120,
+    )
 
     config = {
         "telegram_bot_token": token,
