@@ -242,7 +242,10 @@ class ChildLogStreamFollower:
             self._current_lines = []
             return
         if not line.strip():
-            self._flush_block()
+            if self._current_actor is None:
+                return
+            # Preserve paragraph breaks inside a single agent message block.
+            self._current_lines.append("")
             return
         if self._current_actor is None:
             return

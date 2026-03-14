@@ -50,7 +50,25 @@ cd <your_main_project>
 codexloop init
 ```
 
-During `codexloop init`, the tool will persist local daemon config under `.codex_daemon/` in your main project. Telegram is now optional.
+During `codexloop init`, the tool will persist local daemon config under `.codex_daemon/` in your main project. Feishu/Telegram are optional.
+
+If you want remote bidirectional control from Feishu, `codexloop init` now supports:
+
+- `Feishu app id`
+- `Feishu app secret`
+- `Feishu chat id`
+
+Typical flow:
+
+1. Go to your target project directory.
+2. Run `codexloop init`.
+3. When prompted, enable Feishu bidirectional control and fill the three fields above.
+4. Start/attach with `codexloop`.
+5. Send commands from Feishu:
+   - `/run <objective>`
+   - `/inject <instruction>`
+   - `/status`
+   - `/stop`
 
 ## Current Feature Snapshot
 
@@ -58,12 +76,13 @@ During `codexloop init`, the tool will persist local daemon config under `.codex
 - Planner/manager agent with live plan snapshots, workstream table, and follow-up objective proposal.
 - Planner TODO board (`plan_todo.md`) and explorer backlog maintained across planning sweeps.
 - Stall watchdog with soft diagnosis and hard restart safety window.
-- Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
+- Live visibility: terminal streaming, dashboard, Feishu push, Telegram push, typing heartbeat.
+- Feishu inbound control during active run or daemon idle state: `/run`, `/inject`, `/status`, `/stop`.
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
 - Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
 - Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
-- Dual control channels for daemon: Telegram and terminal (`codex-autoloop-daemon-ctl`).
+- Dual control channels for daemon: Feishu/Telegram and terminal (`codex-autoloop-daemon-ctl`).
 - Single-word operator entrypoint: `codexloop` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
@@ -98,9 +117,9 @@ codexloop help
 
 Behavior:
 
-- First run: asks for Telegram token/chat id, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
+- First run: asks for local config, optional Feishu config, uses current shell directory as run working directory, writes `.codex_daemon/daemon_config.json`, starts daemon.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
-- `codexloop init`: stops all current codexloop daemons, prompts token/chat id/model selection/play mode, starts daemon in background, then exits.
+- `codexloop init`: stops all current codexloop daemons, prompts model/play mode plus optional Feishu config, starts daemon in background, then exits.
 - After `init`, run `codexloop` to attach monitor to that background daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
@@ -156,6 +175,7 @@ Common options:
 - `--dashboard`: launch a live local web dashboard
 - `--dashboard-host 0.0.0.0 --dashboard-port 8787`: expose dashboard to other devices in LAN
 - `--telegram-bot-token` + `--telegram-chat-id`: send progress to Telegram (recommended for cross-network access)
+- `--feishu-app-id` + `--feishu-app-secret` + `--feishu-chat-id`: send progress to Feishu and accept Feishu control commands
 - `--telegram-events`: choose which events are pushed (comma-separated)
 - `--telegram-live-interval-seconds 30`: push live agent message deltas every 30s (only when changed)
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
@@ -250,6 +270,42 @@ codex-autoloop \
 Then open `http://<your-machine-ip>:8787` on phone or browser.
 
 ## Safer cross-network monitoring (Telegram)
+
+## Feishu Bidirectional Control
+
+Feishu is the recommended remote control path for the current daemon workflow.
+
+Use `codexloop init` in your target project and enable Feishu when prompted, or launch the daemon directly:
+
+```bash
+codex-autoloop-telegram-daemon \
+  --feishu-app-id "$FEISHU_APP_ID" \
+  --feishu-app-secret "$FEISHU_APP_SECRET" \
+  --feishu-chat-id "$FEISHU_CHAT_ID" \
+  --run-check "pytest -q"
+```
+
+Feishu command examples:
+
+- `/run 先分析仓库结构并给出最小可运行路径`
+- `/inject 先别重构，先把启动错误修掉`
+- `/status`
+- `/stop`
+
+Current Feishu behavior:
+
+- Live updates are pushed only when there is new main-agent output.
+- Push interval is about 10 seconds.
+- Final result messages are intentionally short:
+  - `successful`
+  - `fail` plus one-line `reason=...`
+- Main-agent output is prioritized; daemon noise is minimized.
+
+Notes:
+
+- `chat_id` is the Feishu conversation id used by the message list/send APIs.
+- Current implementation uses Feishu polling APIs for command intake, so network stability depends on `open.feishu.cn`.
+- If you only need local control, you can leave Feishu disabled and use terminal/bus only.
 
 If phone and server are not in the same network, do not expose dashboard publicly by default.
 Use Telegram push notifications instead:
@@ -356,10 +412,11 @@ python -m codex_autoloop.setup_wizard --run-cd .
 The wizard will:
 
 1. Check `codex` CLI availability and basic auth probe.
-2. Prompt for Telegram bot token/chat id.
-3. Prompt optional default check command (empty means no forced check command).
-4. Prompt for planner mode after model selection.
-5. Start daemon in background and save config under `.codex_daemon/`.
+2. Prompt optional Feishu app id / app secret / chat id.
+3. Prompt optional Telegram bot token/chat id.
+4. Prompt optional default check command (empty means no forced check command).
+5. Prompt for planner mode after model selection.
+6. Start daemon in background and save config under `.codex_daemon/`.
 
 Default behavior for daemon-launched runs:
 
@@ -369,6 +426,7 @@ Default behavior for daemon-launched runs:
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - In daemon mode, only daemon polls Telegram updates; child runs receive control via daemon bus (avoids getUpdates 409 conflicts).
+- In Feishu mode, daemon polls Feishu message APIs and forwards commands through the same local child control bus.
 - If daemon detects `invalid encrypted content` from a resumed run, it raises a warning and auto-arms fresh session for the next run.
 - Inside a running child loop, `invalid_encrypted_content` now triggers an immediate in-loop fresh-session retry instead of spinning reviewer `continue` loops.
 - Operator messages (initial objective + terminal/Telegram injects) are appended to a shared `.codex_daemon/logs/operator_messages.md` so reviewer can see global inject history across runs.
@@ -400,7 +458,7 @@ Realtime log mirror:
 This mirrors:
 
 - `.codex_daemon/daemon.out`
-- `.codex_daemon/logs/daemon-events.jsonl` (Telegram/terminal control interactions)
+- `.codex_daemon/logs/daemon-events.jsonl` (Feishu/Telegram/terminal control interactions)
 
 If `codex-autoloop-daemon-ctl` is not found, replace it with:
 
@@ -471,7 +529,7 @@ python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" r
 python -m codex_autoloop.daemon_ctl --bus-dir "$TARGET_REPO/.codex_daemon/bus" inject "fix test failures first, then continue"
 ```
 
-Telegram control in parallel:
+Feishu/Telegram control in parallel:
 
 - `/run <objective>`
 - `/inject <instruction>`

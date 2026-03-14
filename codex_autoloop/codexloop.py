@@ -781,7 +781,7 @@ def filter_child_monitor_line(*, line: str, block_open: bool) -> tuple[bool, boo
     if stripped in {"[main agent]", "[reviewer agent]", "[planner agent]"}:
         return True, True
     if not stripped:
-        return (block_open, False)
+        return (block_open, block_open)
     if block_open:
         return True, True
     return False, False

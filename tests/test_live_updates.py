@@ -1,6 +1,8 @@
 import json
+from pathlib import Path
 
 from codex_autoloop.live_updates import (
+    ChildLogStreamFollower,
     GenericStreamReporter,
     TelegramStreamReporter,
     TelegramStreamReporterConfig,
@@ -119,3 +121,28 @@ def test_generic_reporter_can_omit_live_update_header() -> None:
     assert reporter.flush() is True
     assert notifier.messages[0].startswith("[main agent]\nhello")
     assert "live update" not in notifier.messages[0]
+
+
+def test_child_log_stream_follower_preserves_multiline_agent_message_with_blank_lines() -> None:
+    notifier = _FakeNotifier()
+    reporter = GenericStreamReporter(
+        notifier=notifier,
+        config=TelegramStreamReporterConfig(
+            interval_seconds=30,
+            max_chars=None,
+            max_item_chars=None,
+            compact_items=False,
+            header_template=None,
+        ),
+    )
+    follower = ChildLogStreamFollower(path=Path("/tmp/unused.log"), reporters=[reporter])
+
+    follower._consume_line("[main agent]")
+    follower._consume_line("主要是 4 个原因：")
+    follower._consume_line("")
+    follower._consume_line("1. 第一条")
+    follower._consume_line("2. 第二条")
+    follower._consume_line("[reviewer agent]")
+
+    assert reporter.flush() is True
+    assert notifier.messages[0] == "[main agent]\n主要是 4 个原因：\n\n1. 第一条\n2. 第二条"

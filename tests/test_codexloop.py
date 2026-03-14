@@ -33,6 +33,24 @@ def test_parse_terminal_command_explicit_commands() -> None:
     assert status is not None and status.kind == "status"
 
 
+def test_filter_child_monitor_line_preserves_blank_lines_inside_agent_block() -> None:
+    should_print, block_open = codexloop.filter_child_monitor_line(line="[main agent]", block_open=False)
+    assert should_print is True
+    assert block_open is True
+
+    should_print, block_open = codexloop.filter_child_monitor_line(line="第一段", block_open=block_open)
+    assert should_print is True
+    assert block_open is True
+
+    should_print, block_open = codexloop.filter_child_monitor_line(line="", block_open=block_open)
+    assert should_print is True
+    assert block_open is True
+
+    should_print, block_open = codexloop.filter_child_monitor_line(line="第二段", block_open=block_open)
+    assert should_print is True
+    assert block_open is True
+
+
 def test_parse_terminal_command_rejects_empty_payload() -> None:
     assert codexloop.parse_terminal_command("/run   ", running=False) is None
     assert codexloop.parse_terminal_command("/inject   ", running=True) is None
