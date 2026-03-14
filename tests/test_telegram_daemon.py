@@ -12,6 +12,7 @@ from codex_autoloop.telegram_daemon import (
     extract_suggested_next_objective_from_markdown,
     extract_latest_review,
     extract_latest_review_status,
+    format_external_run_result,
     format_status,
     is_force_fresh_session_requested,
     log_contains_invalid_encrypted_content,
@@ -41,6 +42,10 @@ def test_build_child_command_includes_core_args() -> None:
         run_plan_update_interval_seconds=1800,
         follow_up_auto_execute_seconds=3600,
         telegram_bot_token="123:abc",
+        feishu_app_id=None,
+        feishu_app_secret=None,
+        feishu_chat_id=None,
+        feishu_receive_id_type="chat_id",
         telegram_control_whisper=True,
         telegram_control_whisper_api_key=None,
         telegram_control_whisper_model="whisper-1",
@@ -91,6 +96,109 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--telegram-control-whisper" in cmd
     assert "--telegram-control-whisper-model" in cmd
     assert cmd[-1] == "do work"
+
+
+def test_build_child_command_omits_telegram_args_when_disabled() -> None:
+    args = Namespace(
+        codex_autoloop_bin="codex-autoloop",
+        run_max_rounds=8,
+        run_model_preset=None,
+        run_main_model="gpt-5",
+        run_main_reasoning_effort="medium",
+        run_reviewer_model="gpt-5",
+        run_reviewer_reasoning_effort="high",
+        run_planner_mode="off",
+        run_planner_model=None,
+        run_planner_reasoning_effort=None,
+        run_planner=False,
+        run_plan_update_interval_seconds=1800,
+        follow_up_auto_execute_seconds=3600,
+        telegram_bot_token=None,
+        feishu_app_id=None,
+        feishu_app_secret=None,
+        feishu_chat_id=None,
+        feishu_receive_id_type="chat_id",
+        telegram_control_whisper=False,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=None,
+        run_resume_last_session=False,
+        run_no_dashboard=False,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        plan_report_file="/tmp/plan.md",
+        plan_todo_file="/tmp/todo.md",
+        resume_session_id=None,
+    )
+    assert "--telegram-bot-token" not in cmd
+    assert "--telegram-chat-id" not in cmd
+    assert "--no-telegram-control" not in cmd
+    assert "--telegram-control-whisper" not in cmd
+    assert "--telegram-control-whisper-model" not in cmd
+
+
+def test_build_child_command_omits_feishu_args() -> None:
+    args = Namespace(
+        codex_autoloop_bin="codex-autoloop",
+        run_max_rounds=8,
+        run_model_preset=None,
+        run_main_model="gpt-5",
+        run_main_reasoning_effort="medium",
+        run_reviewer_model="gpt-5",
+        run_reviewer_reasoning_effort="high",
+        run_planner_mode="off",
+        run_planner_model=None,
+        run_planner_reasoning_effort=None,
+        run_planner=False,
+        run_plan_update_interval_seconds=1800,
+        follow_up_auto_execute_seconds=3600,
+        telegram_bot_token=None,
+        feishu_app_id="cli_xxx",
+        feishu_app_secret="secret",
+        feishu_chat_id="oc_123",
+        feishu_receive_id_type="chat_id",
+        telegram_control_whisper=False,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=None,
+        run_resume_last_session=False,
+        run_no_dashboard=False,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        plan_report_file="/tmp/plan.md",
+        plan_todo_file="/tmp/todo.md",
+        resume_session_id=None,
+    )
+    assert "--feishu-app-id" not in cmd
+    assert "--feishu-app-secret" not in cmd
+    assert "--feishu-chat-id" not in cmd
+    assert "--no-feishu-control" not in cmd
 
 
 def test_resolve_saved_session_id(tmp_path: Path) -> None:
@@ -289,5 +397,26 @@ def test_format_status_includes_plan_fields_when_idle() -> None:
 
 
 def test_build_parser_default_run_model_preset_is_none() -> None:
-    args = build_parser().parse_args(["--telegram-bot-token", "123:abc"])
+    args = build_parser().parse_args([])
     assert args.run_model_preset is None
+
+
+def test_format_external_run_result_success_is_compact() -> None:
+    message = format_external_run_result(exit_code=0, objective="hello", log_path=Path("/tmp/run.log"))
+    assert message == "successful"
+
+
+def test_format_external_run_result_failure_includes_log() -> None:
+    message = format_external_run_result(exit_code=2, objective="do work", log_path=Path("/tmp/run.log"))
+    assert message == "fail"
+
+
+def test_format_external_run_result_failure_prefers_review_reason() -> None:
+    message = format_external_run_result(
+        exit_code=2,
+        objective="very long objective",
+        log_path=Path("/tmp/run.log"),
+        review_reason="git push blocked: no remote configured",
+    )
+    assert "reason=git push blocked: no remote configured" in message
+    assert message.startswith("fail\n")

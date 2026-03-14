@@ -212,6 +212,9 @@ def supported_features_text() -> str:
             "",
             "Run working directory:",
             "  By default, uses the shell current working directory when config is created.",
+            "",
+            "Control mode:",
+            "  Local terminal + daemon bus only. Telegram is optional and not required.",
         ]
     )
 
@@ -237,15 +240,19 @@ def save_config(path: Path, payload: dict[str, Any]) -> None:
 def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     run_cd = run_cd.resolve()
     print("codexloop first-time setup")
-    token = prompt_token()
-    chat_id = prompt_chat_id()
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
     model_preset = prompt_model_choice()
     play_mode = prompt_play_mode()
+    feishu_enabled = prompt_yes_no("Enable Feishu bidirectional control?", default=False)
+    feishu_app_id = None
+    feishu_app_secret = None
+    feishu_chat_id = None
+    if feishu_enabled:
+        feishu_app_id = prompt_input("Feishu app id: ", default="").strip() or None
+        feishu_app_secret = prompt_secret("Feishu app secret: ").strip() or None
+        feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
     print(f"Run working directory: {run_cd}")
     return {
-        "telegram_bot_token": token,
-        "telegram_chat_id": chat_id,
         "run_cd": str(run_cd),
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": DEFAULT_MAX_ROUNDS,
@@ -262,15 +269,17 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_main_model": None,
         "run_reviewer_model": None,
         "run_model_preset": model_preset,
+        "feishu_app_id": feishu_app_id,
+        "feishu_app_secret": feishu_app_secret,
+        "feishu_chat_id": feishu_chat_id,
         "bus_dir": str((home_dir / "bus").resolve()),
         "logs_dir": str((home_dir / "logs").resolve()),
     }
 
 
 def is_config_usable(config: dict[str, Any]) -> bool:
-    token = str(config.get("telegram_bot_token") or "").strip()
     run_cd = str(config.get("run_cd") or "").strip()
-    return looks_like_token(token) and bool(run_cd)
+    return bool(run_cd)
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -282,6 +291,17 @@ def prompt_input(prompt: str, default: str) -> str:
 
 def prompt_secret(prompt: str) -> str:
     return getpass.getpass(prompt).strip()
+
+
+def prompt_yes_no(prompt: str, *, default: bool) -> bool:
+    default_text = "Y/n" if default else "y/N"
+    while True:
+        raw = prompt_input(f"{prompt} [{default_text}]: ", default=("y" if default else "n")).lower()
+        if raw in {"y", "yes"}:
+            return True
+        if raw in {"n", "no"}:
+            return False
+        print("Please answer y or n.", file=sys.stderr)
 
 
 def prompt_token() -> str:
@@ -522,19 +542,13 @@ def terminate_process_tree(pid: int) -> bool:
 
 
 def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_dir: str) -> list[str]:
-    token = str(config.get("telegram_bot_token") or "").strip()
-    if not token:
-        raise SystemExit("Missing telegram_bot_token in daemon config.")
     run_cd = str(config.get("run_cd") or ".")
-    chat_id = str(config.get("telegram_chat_id") or "auto")
+    token = str(config.get("telegram_bot_token") or "").strip()
+    chat_id = str(config.get("telegram_chat_id") or "auto").strip() or "auto"
     bus_dir = resolve_bus_dir(config, home_dir)
     logs_dir = resolve_logs_dir(config, home_dir)
     cmd = [
         *resolve_daemon_launch_prefix(),
-        "--telegram-bot-token",
-        token,
-        "--telegram-chat-id",
-        chat_id,
         "--run-cd",
         str(Path(run_cd).expanduser().resolve()),
         "--run-max-rounds",
@@ -554,6 +568,22 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         "--run-plan-auto-execute-delay-seconds",
         str(int(config.get("run_plan_auto_execute_delay_seconds", 600))),
     ]
+    if token:
+        cmd.extend(["--telegram-bot-token", token, "--telegram-chat-id", chat_id])
+    feishu_app_id = str(config.get("feishu_app_id") or "").strip()
+    feishu_app_secret = str(config.get("feishu_app_secret") or "").strip()
+    feishu_chat_id = str(config.get("feishu_chat_id") or "").strip()
+    if feishu_app_id and feishu_app_secret and feishu_chat_id:
+        cmd.extend(
+            [
+                "--feishu-app-id",
+                feishu_app_id,
+                "--feishu-app-secret",
+                feishu_app_secret,
+                "--feishu-chat-id",
+                feishu_chat_id,
+            ]
+        )
     run_check = config.get("run_check")
     if isinstance(run_check, str) and run_check.strip():
         cmd.extend(["--run-check", run_check.strip()])
@@ -619,8 +649,6 @@ def run_monitor_console(
 ) -> None:
     bus_dir = resolve_bus_dir(config, home_dir)
     logs_dir = resolve_logs_dir(config, home_dir)
-    daemon_out = home_dir / "daemon.out"
-    events_log = logs_dir / "daemon-events.jsonl"
     status_path = bus_dir / "daemon_status.json"
 
     print("Attached to codexloop daemon.")
@@ -632,6 +660,7 @@ def run_monitor_console(
 
     tracked_offsets: dict[Path, int] = {}
     file_labels: dict[Path, str] = {}
+    child_block_open = False
 
     def ensure_tracked(path: Path, label: str) -> None:
         if path in tracked_offsets:
@@ -643,9 +672,6 @@ def run_monitor_console(
         else:
             tracked_offsets[path] = 0
         file_labels[path] = label
-
-    ensure_tracked(daemon_out, "daemon")
-    ensure_tracked(events_log, "events")
 
     last_child_log: Path | None = None
     while True:
@@ -662,6 +688,13 @@ def run_monitor_console(
             tracked_offsets[path] = next_offset
             label = file_labels.get(path, "log")
             for line in lines:
+                if label == "child":
+                    should_print, child_block_open = filter_child_monitor_line(
+                        line=line,
+                        block_open=child_block_open,
+                    )
+                    if not should_print:
+                        continue
                 print(f"[{label}] {line}")
 
         line = read_input_line(timeout_seconds=0.5)
@@ -741,6 +774,17 @@ def read_input_line(*, timeout_seconds: float) -> str | None:
     if line == "":
         return "__EOF__"
     return line.rstrip("\n")
+
+
+def filter_child_monitor_line(*, line: str, block_open: bool) -> tuple[bool, bool]:
+    stripped = line.strip()
+    if stripped in {"[main agent]", "[reviewer agent]", "[planner agent]"}:
+        return True, True
+    if not stripped:
+        return (block_open, False)
+    if block_open:
+        return True, True
+    return False, False
 
 
 def parse_terminal_command(raw: str, *, running: bool) -> TerminalCommand | None:

@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from uuid import uuid4
 from typing import Any, Callable
 
+from .command_protocol import parse_control_text
+
 
 @dataclass
 class TelegramCommand:
@@ -375,34 +377,15 @@ def extract_audio_file_from_message(message: dict[str, Any]) -> TelegramAudioFil
 
 
 def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramCommand | None:
-    content = text.strip()
-    if not content:
+    if not plain_text_as_inject and not (text or "").strip().startswith("/"):
         return None
-    if content.startswith("/inject "):
-        return TelegramCommand(kind="inject", text=content[len("/inject ") :].strip())
-    if content == "/inject":
+    parsed = parse_control_text(
+        text=text,
+        plain_text_kind="inject",
+    )
+    if parsed is None:
         return None
-    if content.startswith("/interrupt "):
-        return TelegramCommand(kind="inject", text=content[len("/interrupt ") :].strip())
-    if content.startswith("/run "):
-        return TelegramCommand(kind="run", text=content[len("/run ") :].strip())
-    if content == "/run":
-        return None
-    if content in {"/stop", "/halt"}:
-        return TelegramCommand(kind="stop", text="")
-    if content in {"/daemon-stop", "/shutdown-daemon"}:
-        return TelegramCommand(kind="daemon-stop", text="")
-    if content in {"/status", "/stat"}:
-        return TelegramCommand(kind="status", text="")
-    if content in {"/fresh", "/fresh-session", "/new-session"}:
-        return TelegramCommand(kind="fresh-session", text="")
-    if content in {"/help", "/commands"}:
-        return TelegramCommand(kind="help", text="")
-    if content.startswith("/"):
-        return None
-    if plain_text_as_inject:
-        return TelegramCommand(kind="inject", text=content)
-    return None
+    return TelegramCommand(kind=parsed.kind, text=parsed.text)
 
 
 def _multipart_text_part(boundary: str, field: str, value: str) -> bytes:

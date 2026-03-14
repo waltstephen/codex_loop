@@ -19,6 +19,8 @@ from .orchestrator import AutoLoopConfig, AutoLoopOrchestrator
 from .planner import Planner
 from .planner_modes import PLANNER_MODE_AUTO, PLANNER_MODE_CHOICES, resolve_planner_mode
 from .reviewer import Reviewer
+from .discord_adapter import DiscordCommand, DiscordConfig, DiscordCommandPoller, DiscordNotifier
+from .feishu_adapter import FeishuCommand, FeishuConfig, FeishuCommandPoller, FeishuNotifier
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 
@@ -71,8 +73,12 @@ def main() -> None:
         state_file=args.state_file,
     )
     telegram_notifier: TelegramNotifier | None = None
+    discord_notifier: DiscordNotifier | None = None
+    feishu_notifier: FeishuNotifier | None = None
     telegram_stream_reporter: TelegramStreamReporter | None = None
     telegram_control_poller: TelegramCommandPoller | None = None
+    discord_control_poller: DiscordCommandPoller | None = None
+    feishu_control_poller: FeishuCommandPoller | None = None
     local_control_poller: LocalControlPoller | None = None
     control_state = LoopControlState(operator_messages_file=operator_messages_file)
     control_state.record_message(text=objective, source="operator", kind="initial-objective")
@@ -186,6 +192,77 @@ def main() -> None:
             telegram_control_poller.start()
             print("Telegram control channel enabled.", file=sys.stderr)
 
+    discord_requested = bool((args.discord_bot_token or "").strip() and (args.discord_channel_id or "").strip())
+    if discord_requested:
+        discord_notifier = DiscordNotifier(
+            DiscordConfig(
+                bot_token=args.discord_bot_token,
+                channel_id=args.discord_channel_id,
+                events=parse_telegram_events(args.discord_events),
+                timeout_seconds=args.discord_timeout_seconds,
+            ),
+            on_error=lambda msg: print(f"[discord] {msg}", file=sys.stderr),
+        )
+        print("Discord notifications enabled.", file=sys.stderr)
+        if args.discord_control:
+            def on_discord_command(command: DiscordCommand) -> None:
+                handle_external_command(
+                    kind=command.kind,
+                    text=command.text,
+                    source="discord",
+                    send_reply=discord_notifier.send_message,
+                )
+
+            discord_control_poller = DiscordCommandPoller(
+                bot_token=args.discord_bot_token,
+                channel_id=args.discord_channel_id,
+                on_command=on_discord_command,
+                on_error=lambda msg: print(f"[discord-control] {msg}", file=sys.stderr),
+                poll_interval_seconds=args.discord_control_poll_interval_seconds,
+                plain_text_kind=("inject" if args.discord_control_plain_text_inject else "run"),
+            )
+            discord_control_poller.start()
+            print("Discord control channel enabled.", file=sys.stderr)
+
+    feishu_requested = bool(
+        (args.feishu_app_id or "").strip()
+        and (args.feishu_app_secret or "").strip()
+        and (args.feishu_chat_id or "").strip()
+    )
+    if feishu_requested:
+        feishu_notifier = FeishuNotifier(
+            FeishuConfig(
+                app_id=args.feishu_app_id,
+                app_secret=args.feishu_app_secret,
+                chat_id=args.feishu_chat_id,
+                receive_id_type=args.feishu_receive_id_type,
+                events=parse_telegram_events(args.feishu_events),
+                timeout_seconds=args.feishu_timeout_seconds,
+            ),
+            on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
+        )
+        print("Feishu notifications enabled.", file=sys.stderr)
+        if args.feishu_control:
+            def on_feishu_command(command: FeishuCommand) -> None:
+                handle_external_command(
+                    kind=command.kind,
+                    text=command.text,
+                    source="feishu",
+                    send_reply=feishu_notifier.send_message,
+                )
+
+            feishu_control_poller = FeishuCommandPoller(
+                app_id=args.feishu_app_id,
+                app_secret=args.feishu_app_secret,
+                chat_id=args.feishu_chat_id,
+                on_command=on_feishu_command,
+                on_error=lambda msg: print(f"[feishu-control] {msg}", file=sys.stderr),
+                poll_interval_seconds=args.feishu_control_poll_interval_seconds,
+                plain_text_kind=("inject" if args.feishu_control_plain_text_inject else "run"),
+            )
+            feishu_control_poller.start()
+            print("Feishu control channel enabled.", file=sys.stderr)
+
     if args.control_file:
         def on_local_control(command: LocalControlCommand) -> None:
             if command.kind == "inject":
@@ -211,6 +288,36 @@ def main() -> None:
         )
         local_control_poller.start()
         print(f"Local control channel enabled: {args.control_file}", file=sys.stderr)
+
+    def handle_external_command(*, kind: str, text: str, source: str, send_reply) -> None:  # type: ignore[no-untyped-def]
+        if kind == "inject":
+            control_state.request_inject(text, source=source)
+            send_reply(
+                "[autoloop] control ack\n"
+                "Action: inject\n"
+                "Main agent will be interrupted and resumed with your new instruction."
+            )
+            return
+        if kind == "stop":
+            control_state.request_stop(source=source)
+            send_reply(
+                "[autoloop] control ack\n"
+                "Action: stop\n"
+                "Current run will be interrupted and loop will stop."
+            )
+            return
+        if kind == "status":
+            send_reply(format_control_status(control_runtime_state))
+            return
+        if kind == "help":
+            send_reply(control_help_text())
+            return
+        if kind == "run":
+            send_reply(
+                "[autoloop] /run is available in daemon mode.\n"
+                "Current loop is already active; use /inject, /status, or /stop."
+            )
+            return
 
     def on_event(stream: str, line: str) -> None:
         if dashboard_store is not None:
@@ -239,6 +346,10 @@ def main() -> None:
             dashboard_store.apply_loop_event(event)
         if telegram_notifier is not None:
             telegram_notifier.notify_event(event)
+        if discord_notifier is not None:
+            discord_notifier.notify_event(event)
+        if feishu_notifier is not None:
+            feishu_notifier.notify_event(event)
 
     orchestrator = AutoLoopOrchestrator(
         runner=runner,
@@ -320,8 +431,16 @@ def main() -> None:
             local_control_poller.stop()
         if telegram_control_poller is not None:
             telegram_control_poller.stop()
+        if discord_control_poller is not None:
+            discord_control_poller.stop()
+        if feishu_control_poller is not None:
+            feishu_control_poller.stop()
         if telegram_notifier is not None:
             telegram_notifier.close()
+        if discord_notifier is not None:
+            discord_notifier.close()
+        if feishu_notifier is not None:
+            feishu_notifier.close()
         if dashboard_server is not None:
             dashboard_server.stop()
 
@@ -560,6 +679,74 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=90,
         help="Timeout in seconds for Whisper transcription requests.",
+    )
+    parser.add_argument("--discord-bot-token", default=None, help="Discord bot token for control/notifications.")
+    parser.add_argument("--discord-channel-id", default=None, help="Discord channel id for control/notifications.")
+    parser.add_argument(
+        "--discord-events",
+        default="loop.started,round.review.completed,plan.finalized,loop.completed",
+        help="Comma-separated event names to send to Discord.",
+    )
+    parser.add_argument(
+        "--discord-timeout-seconds",
+        type=int,
+        default=10,
+        help="HTTP timeout for Discord API calls.",
+    )
+    parser.add_argument(
+        "--discord-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Discord inbound control commands.",
+    )
+    parser.add_argument(
+        "--discord-control-poll-interval-seconds",
+        type=int,
+        default=2,
+        help="Polling interval for Discord control command loop.",
+    )
+    parser.add_argument(
+        "--discord-control-plain-text-inject",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Treat plain text Discord messages as injected instruction updates.",
+    )
+    parser.add_argument("--feishu-app-id", default=None, help="Feishu app id for control/notifications.")
+    parser.add_argument("--feishu-app-secret", default=None, help="Feishu app secret for control/notifications.")
+    parser.add_argument("--feishu-chat-id", default=None, help="Feishu chat id for control/notifications.")
+    parser.add_argument(
+        "--feishu-receive-id-type",
+        default="chat_id",
+        help="Feishu receive_id_type used for outgoing messages.",
+    )
+    parser.add_argument(
+        "--feishu-events",
+        default="loop.started,round.review.completed,plan.finalized,loop.completed",
+        help="Comma-separated event names to send to Feishu.",
+    )
+    parser.add_argument(
+        "--feishu-timeout-seconds",
+        type=int,
+        default=10,
+        help="HTTP timeout for Feishu API calls.",
+    )
+    parser.add_argument(
+        "--feishu-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Feishu inbound control commands.",
+    )
+    parser.add_argument(
+        "--feishu-control-poll-interval-seconds",
+        type=int,
+        default=2,
+        help="Polling interval for Feishu control command loop.",
+    )
+    parser.add_argument(
+        "--feishu-control-plain-text-inject",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Treat plain text Feishu messages as injected instruction updates.",
     )
     parser.add_argument(
         "--live-terminal",
