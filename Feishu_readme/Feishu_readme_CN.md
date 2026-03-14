@@ -47,7 +47,7 @@ pip install -e .
 - `Feishu app secret`
 
 <div align="center">
-<img src="Feishu_readme/first.png" width="1000">
+<img src="first.png" width="1000">
 </div>
 
 <div align="center">
