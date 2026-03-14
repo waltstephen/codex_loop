@@ -1,9 +1,10 @@
 # ArgusBot
 
+![ArgusBot banner](Feishu_readme/cleaned_Gemini_Generated_Image_2ji5ho2ji5ho2ji5.png)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
 
-![ArgusBot banner](Feishu_readme/cleaned_Gemini_Generated_Image_2ji5ho2ji5ho2ji5.png)
 
 `ArgusBot` is a Python supervisor plugin for Codex CLI:
 
