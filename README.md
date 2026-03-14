@@ -198,6 +198,11 @@ Common optional parameters:
 - `--feishu-heartbeat-interval-seconds 600`
 - `--feishu-control`
 
+Feishu group command notes:
+
+- Commands can be sent directly as `/run`, `/inject`, `/stop`, etc.
+- Mention-prefixed commands in groups (for example `@bot /stop`) are normalized and parsed as commands.
+
 Minimal run example:
 
 ```bash
@@ -382,6 +387,7 @@ Daemon commands from Telegram:
 - `/run <objective>`: start a new `ArgusBot` run
 - `/status`: daemon/child status
 - `/stop`: stop active run
+- After `/stop`, use `/run <objective>` to continue. By default daemon resumes the last `session_id` when available.
 - `/help`
 - After a child run finishes, the daemon can offer a Telegram button to execute the planner's next suggested objective.
 - If the user does nothing, daemon auto-executes the planned next session after the follow-up countdown (default: 10 minutes).

@@ -21,6 +21,19 @@ def test_parse_feishu_command_text_plain_text_kind_is_configurable() -> None:
     assert parse_feishu_command_text(text="new task", plain_text_kind="run").kind == "run"  # type: ignore[union-attr]
 
 
+def test_parse_feishu_command_text_strips_leading_mentions_for_commands() -> None:
+    parsed = parse_feishu_command_text(text="@_user_1 /stop", plain_text_kind="run")
+    assert parsed is not None
+    assert parsed.kind == "stop"
+
+
+def test_parse_feishu_command_text_strips_leading_mentions_for_plain_text() -> None:
+    parsed = parse_feishu_command_text(text="@_user_1 晚上好 帮我跑测试", plain_text_kind="run")
+    assert parsed is not None
+    assert parsed.kind == "run"
+    assert parsed.text == "晚上好 帮我跑测试"
+
+
 def test_feishu_self_message_filter() -> None:
     assert is_feishu_self_message(
         {

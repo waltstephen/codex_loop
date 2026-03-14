@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import threading
 import time
@@ -12,6 +13,8 @@ from typing import Any, Callable
 
 from .telegram_control import normalize_command_prefix, parse_command_text, parse_mode_selection_text
 from .telegram_notifier import format_event_message
+
+_FEISHU_MENTION_PREFIX = re.compile(r"^(?:@[_\w-]+\s+)+")
 
 
 @dataclass
@@ -237,6 +240,7 @@ class FeishuCommandPoller:
 
 def parse_feishu_command_text(*, text: str, plain_text_kind: str) -> FeishuCommand | None:
     normalized = normalize_command_prefix(text.strip())
+    normalized = strip_leading_feishu_mentions(normalized)
     if not normalized:
         return None
     parsed = parse_command_text(
@@ -255,6 +259,18 @@ def parse_feishu_command_text(*, text: str, plain_text_kind: str) -> FeishuComma
     if plain_text_kind == "inject":
         return FeishuCommand(kind="inject", text=normalized)
     return None
+
+
+def strip_leading_feishu_mentions(text: str) -> str:
+    normalized = normalize_command_prefix((text or "").strip())
+    if not normalized:
+        return ""
+    previous = None
+    current = normalized
+    while current and current != previous:
+        previous = current
+        current = _FEISHU_MENTION_PREFIX.sub("", current).lstrip()
+    return current
 
 
 def extract_feishu_text(item: dict[str, Any]) -> str:
