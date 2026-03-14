@@ -53,6 +53,27 @@ def test_load_status_for_cli_keeps_clean_offline_status(monkeypatch, tmp_path: P
     assert status["running"] is False
 
 
+def test_load_status_for_cli_preserves_live_daemon_status(monkeypatch, tmp_path: Path) -> None:
+    status_path = tmp_path / "daemon_status.json"
+    payload = {"daemon_running": True, "running": True, "daemon_pid": 321}
+    monkeypatch.setattr(
+        daemon_ctl,
+        "inspect_daemon_status",
+        lambda *args, **kwargs: DaemonStatusInspection(
+            payload=payload,
+            is_live=True,
+            reason=None,
+            daemon_pid=321,
+            updated_at=datetime.now(timezone.utc),
+        ),
+    )
+    status = daemon_ctl.load_status_for_cli(status_path, require_live=False)
+    assert status["daemon_status_state"] == "live"
+    assert status["daemon_status_live"] is True
+    assert status["daemon_running"] is True
+    assert status["running"] is True
+
+
 def test_show_plan_rejects_stale_daemon_status(monkeypatch, tmp_path: Path, capsys) -> None:
     bus_dir = tmp_path / "bus"
     bus_dir.mkdir()

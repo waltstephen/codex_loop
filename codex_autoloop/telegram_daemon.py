@@ -224,6 +224,7 @@ def main() -> None:
             status_path,
             {
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
+                "daemon_pid": os.getpid(),
                 "daemon_running": True,
                 "running": running,
                 "child_pid": child.pid if running else None,
@@ -944,6 +945,7 @@ def main() -> None:
             status_path,
             {
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
+                "daemon_pid": os.getpid(),
                 "daemon_running": False,
                 "running": False,
             },

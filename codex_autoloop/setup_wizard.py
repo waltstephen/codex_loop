@@ -18,6 +18,7 @@ from .planner_modes import (
     planner_mode_description,
     planner_mode_label,
 )
+from .telegram_notifier import resolve_chat_id
 from .token_lock import acquire_token_lock
 
 
@@ -47,7 +48,12 @@ def main() -> None:
             raise SystemExit(2)
 
     token = prompt_token()
-    chat_id = prompt_chat_id()
+    requested_chat_id = prompt_chat_id()
+    chat_id = resolve_effective_chat_id(
+        bot_token=token,
+        requested_chat_id=requested_chat_id,
+        timeout_seconds=120,
+    )
     check_cmd = prompt_input(
         "Default check command (optional, leave empty for none): ",
         default="",
@@ -291,6 +297,24 @@ def resolve_daemon_ctl_hint() -> str:
     if ctl_bin:
         return ctl_bin
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
+
+
+def resolve_effective_chat_id(*, bot_token: str, requested_chat_id: str, timeout_seconds: int) -> str:
+    raw = (requested_chat_id or "").strip()
+    if raw.lower() not in {"", "auto", "none", "null"}:
+        return raw
+    print("Resolving Telegram chat_id from recent updates. Send /start or a message to your bot now...", file=sys.stderr)
+    resolved = resolve_chat_id(
+        bot_token=bot_token,
+        timeout_seconds=timeout_seconds,
+        poll_interval_seconds=2,
+        on_error=lambda msg: print(f"[setup] {msg}", file=sys.stderr),
+    )
+    if not resolved:
+        print("Unable to resolve Telegram chat_id automatically.", file=sys.stderr)
+        raise SystemExit(2)
+    print(f"Resolved Telegram chat_id={resolved}", file=sys.stderr)
+    return resolved
 
 
 def _detect_local_repo_root(start: Path) -> Path | None:
