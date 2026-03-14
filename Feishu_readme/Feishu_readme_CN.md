@@ -30,7 +30,7 @@ pip install -e .
 
 ## 1. 在飞书开放平台创建自建应用
 
-1. 打开飞书开放平台。
+1. 打开飞书开放平台[https://open.feishu.cn/app]。
 2. 进入“开发者后台”。
 3. 创建一个“自建应用”。
 4. 给应用起一个容易识别的名字，例如 `ArgusBot Control`。
@@ -46,17 +46,19 @@ pip install -e .
 - `Feishu app id`
 - `Feishu app secret`
 
-## 2. 给应用开启机器人能力
+<div align="center">
+<img src="Feishu_readme/first.png" width="1000">
+</div>
 
-在应用后台里找到“机器人”或“应用能力”相关配置，确保这个应用可以作为机器人向会话发消息。
+<div align="center">
+<img src="Feishu_readme/second.png" width="1000">
+</div>
 
-目标不是做群机器人 webhook，而是让这个仓库里的 daemon 用应用凭证主动调用飞书开放接口。因此核心是：
+<div align="center">
+<img src="Feishu_readme/third.png" width="1000">
+</div>
 
-- 应用已创建
-- 机器人能力可用
-- 后面要操作的群/会话允许这个应用机器人进入
-
-## 3. 准备一个专用飞书群
+## 2. 准备一个专用飞书群
 
 建议单独建一个群，专门给这个仓库使用，例如：
 
@@ -70,6 +72,26 @@ pip install -e .
 - 一个群对应一个 `chat_id`
 - 单独使用一个群最不容易串消息
 
+## 3. 拿到这个群的 `chat_id`
+
+你需要拿到刚才那个专用群的会话 ID。
+
+可行做法是：
+
+1.点开聊天群，点击右上角三个点
+2.拉至最底下，即可看见chat_id
+
+如果你拿到的是别的 ID 类型，这个项目后面会发不进群，也轮询不到命令。
+
+<div align="center">
+<img src="Feishu_readme/add_bot.png" width="1000">
+</div>
+
+
+<div align="center">
+<img src="Feishu_readme/find_chatid.png" width="100">
+</div>
+
 ## 4. 理解这里要的 `chat_id` 是什么
 
 这个项目里配置的 `Feishu chat id` 不是用户 ID，也不是 open_id。
@@ -82,18 +104,7 @@ pip install -e .
 oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-## 5. 拿到这个群的 `chat_id`
-
-你需要拿到刚才那个专用群的会话 ID。
-
-可行做法是：
-
-1.点开聊天群，点击右上角三个点
-2.拉至最底下，即可看见chat_id
-
-如果你拿到的是别的 ID 类型，这个项目后面会发不进群，也轮询不到命令。
-
-## 6. 在当前项目里执行 `codexloop init`
+## 5. 在当前项目里执行 `codexloop init`
 
 确认你当前就在目标项目目录下：
 
@@ -135,7 +146,7 @@ Feishu chat id:
 
 到这里，这份文档就结束。
 
-## 7. 你填完以后，配置会写到哪里
+## 6. 你填完以后，配置会写到哪里
 
 `codexloop init` 会把配置写到当前项目下的：
 
@@ -153,7 +164,7 @@ Feishu chat id:
 }
 ```
 
-## 8. 一个最短检查清单
+## 7. 一个最短检查清单
 
 在执行 `codexloop init` 之前，你只需要确认这 4 件事：
 
