@@ -16,6 +16,7 @@ from codex_autoloop.telegram_daemon import (
     log_contains_invalid_encrypted_content,
     normalize_plan_mode,
     resolve_last_session_id_from_archive,
+    resolve_autoloop_command,
     resolve_resume_session_id,
     resolve_saved_session_id,
     sanitize_follow_up_objective,
@@ -90,6 +91,65 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--telegram-control-whisper" in cmd
     assert "--telegram-control-whisper-model" in cmd
     assert cmd[-1] == "do work"
+
+
+def test_resolve_autoloop_command_keeps_windows_python_path(monkeypatch) -> None:
+    monkeypatch.setattr("codex_autoloop.telegram_daemon.os.name", "nt")
+    parts = resolve_autoloop_command(r'C:\Users\wen25\codex_loop\.venv\Scripts\python.exe -m codex_autoloop.cli')
+    assert parts == [
+        r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe",
+        "-m",
+        "codex_autoloop.cli",
+    ]
+
+
+def test_build_child_command_keeps_windows_python_path(monkeypatch) -> None:
+    monkeypatch.setattr("codex_autoloop.telegram_daemon.os.name", "nt")
+    args = Namespace(
+        codex_autoloop_bin=r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe -m codex_autoloop.cli",
+        run_max_rounds=8,
+        run_model_preset=None,
+        run_main_model=None,
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort=None,
+        run_planner_mode="auto",
+        run_planner_model=None,
+        run_planner_reasoning_effort=None,
+        run_planner=True,
+        run_plan_update_interval_seconds=1800,
+        follow_up_auto_execute_seconds=3600,
+        telegram_bot_token="123:abc",
+        telegram_control_whisper=True,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=".argusbot/last_state.json",
+        run_resume_last_session=True,
+        run_no_dashboard=True,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        plan_report_file="/tmp/plan.md",
+        plan_todo_file="/tmp/todo.md",
+        resume_session_id=None,
+    )
+    assert cmd[:3] == [
+        r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe",
+        "-m",
+        "codex_autoloop.cli",
+    ]
 
 
 def test_resolve_saved_session_id(tmp_path: Path) -> None:

@@ -60,10 +60,22 @@ LOCAL_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def resolve_autoloop_command(command: str) -> list[str]:
-    parts = shlex.split(command) if command else []
+    if not command:
+        raise ValueError("ArgusBot command cannot be empty")
+    if os.name == "nt":
+        parts = shlex.split(command, posix=False)
+        parts = [_strip_wrapping_quotes(item) for item in parts if item]
+    else:
+        parts = shlex.split(command)
     if not parts:
         raise ValueError("ArgusBot command cannot be empty")
     return parts
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
 
 
 def resolve_child_env() -> dict[str, str]:

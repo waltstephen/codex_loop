@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -17,6 +18,21 @@ from ..model_catalog import get_preset
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from ..token_lock import TokenLock, acquire_token_lock
 from .shell_utils import format_mode_menu
+
+
+def _split_autoloop_command(command: str) -> list[str]:
+    if not command:
+        raise ValueError("ArgusBot command cannot be empty")
+    if os.name == "nt":
+        parts = shlex.split(command, posix=False)
+        return [_strip_wrapping_quotes(item) for item in parts if item]
+    return shlex.split(command)
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
 
 
 class TelegramDaemonApp:
@@ -531,7 +547,7 @@ def build_child_command(
     )
     plan_mode = getattr(args, "run_plan_mode", "auto")
     cmd = [
-        args.codex_autoloop_bin,
+        *_split_autoloop_command(args.codex_autoloop_bin),
         "--max-rounds",
         str(args.run_max_rounds),
         "--telegram-bot-token",
