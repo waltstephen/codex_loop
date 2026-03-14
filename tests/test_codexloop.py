@@ -98,6 +98,7 @@ def test_is_config_usable_requires_token_and_run_cd() -> None:
 
 
 def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "telegram")
     monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
     monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
@@ -115,6 +116,31 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["run_plan_auto_execute_delay_seconds"] == 600
     assert config["run_yolo"] is True
     assert config["run_full_auto"] is False
+
+
+def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: Path) -> None:
+    answers = iter(["cli_xxx", "oc_123", ""])
+    monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "feishu")
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
+    monkeypatch.setattr(codexloop, "prompt_secret", lambda prompt: "secret")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
+    monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
+    assert config["telegram_bot_token"] is None
+    assert config["telegram_chat_id"] is None
+    assert config["feishu_app_id"] == "cli_xxx"
+    assert config["feishu_app_secret"] == "secret"
+    assert config["feishu_chat_id"] == "oc_123"
+
+
+def test_prompt_control_channel_default_is_telegram(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: default)
+    assert codexloop.prompt_control_channel() == "telegram"
+
+
+def test_prompt_control_channel_select_feishu(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "2")
+    assert codexloop.prompt_control_channel() == "feishu"
 
 
 def test_prompt_play_mode_selection(monkeypatch) -> None:

@@ -21,6 +21,8 @@ from .model_catalog import MODEL_PRESETS
 DEFAULT_HOME_DIR = ".argusbot"
 DEFAULT_TOKEN_LOCK_DIR = "/tmp/argusbot-token-locks"
 DEFAULT_MAX_ROUNDS = 500
+CHANNEL_TELEGRAM = "telegram"
+CHANNEL_FEISHU = "feishu"
 
 
 @dataclass
@@ -319,19 +321,22 @@ def save_config(path: Path, payload: dict[str, Any]) -> None:
 def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     run_cd = run_cd.resolve()
     print("ArgusBot first-time setup")
-    token = prompt_token()
-    chat_id = prompt_chat_id()
-    check_cmd = prompt_input("Default check command (optional): ", default="").strip()
-    model_preset = prompt_model_choice()
-    play_mode = prompt_play_mode()
-    feishu_enabled = prompt_yes_no("Enable Feishu bidirectional control?", default=False)
+    channel = prompt_control_channel(default=CHANNEL_TELEGRAM)
+    token = None
+    chat_id = None
     feishu_app_id = None
     feishu_app_secret = None
     feishu_chat_id = None
-    if feishu_enabled:
+    if channel == CHANNEL_TELEGRAM:
+        token = prompt_token()
+        chat_id = prompt_chat_id()
+    else:
         feishu_app_id = prompt_input("Feishu app id: ", default="").strip() or None
         feishu_app_secret = prompt_secret("Feishu app secret: ").strip() or None
         feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
+    check_cmd = prompt_input("Default check command (optional): ", default="").strip()
+    model_preset = prompt_model_choice()
+    play_mode = prompt_play_mode()
     print(f"Run working directory: {run_cd}")
     return {
         "telegram_bot_token": token,
@@ -393,6 +398,24 @@ def prompt_yes_no(prompt: str, *, default: bool) -> bool:
         if raw in {"n", "no"}:
             return False
         print("Please answer y or n.", file=sys.stderr)
+
+
+def prompt_control_channel(*, default: str = CHANNEL_TELEGRAM) -> str:
+    options = [
+        ("1", CHANNEL_TELEGRAM, "Telegram"),
+        ("2", CHANNEL_FEISHU, "Feishu (适合CN网络环境)"),
+    ]
+    default_channel = default if default in {CHANNEL_TELEGRAM, CHANNEL_FEISHU} else CHANNEL_TELEGRAM
+    default_index = next(index for index, channel, _ in options if channel == default_channel)
+    print("Choose control channel:")
+    for index, _, label in options:
+        print(f"  {index}. {label}")
+    while True:
+        raw = prompt_input(f"Channel number [{default_index}]: ", default=default_index).strip()
+        for index, channel, _ in options:
+            if raw == index:
+                return channel
+        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
 
 
 def prompt_token() -> str:

@@ -30,7 +30,7 @@ Prerequisites and cost notes:
 
 1. Clone this repo and install it in editable mode.
 2. Go to your target project directory (the repo you actually want to operate on).
-3. Run `argusbot init` and complete Telegram/model setup prompts.
+3. Run `argusbot init`, choose control channel (default Telegram), and complete setup prompts.
 4. After setup, daemon starts in background and keeps running.
 5. Chat with your Telegram bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
 
@@ -50,7 +50,7 @@ cd <your_main_project>
 argusbot init
 ```
 
-During `argusbot init`, enter your Telegram bot token/chat id and the wizard will persist config under `.argusbot/` in your main project.
+During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`), then enter the selected channel credentials. Config is persisted under `.argusbot/` in your main project.
 
 ## Current Feature Snapshot
 
@@ -99,9 +99,9 @@ argusbot help
 
 Behavior:
 
-- First run: asks you to choose Telegram, Feishu, or both, then collects only the selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
+- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
-- `argusbot init`: stops all current ArgusBot daemons, prompts token/chat id/model selection/play mode, starts daemon in background, then exits.
+- `argusbot init`: stops all current ArgusBot daemons, prompts control channel + credentials/model/play mode, starts daemon in background, then exits.
 - After `init`, run `argusbot` to attach monitor to that background daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
