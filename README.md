@@ -188,6 +188,8 @@ Common options:
 
 ## Feishu Setup Checklist
 
+ how to create a bot?  （EN)[Feishu_readme/Feishu_readme.md]   (CN)[Feishu_readme/Feishu_readme_CN.md]
+
 Use this when running in CN network environments or when Telegram is unavailable.
 
 Required parameters:
