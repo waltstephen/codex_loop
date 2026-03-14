@@ -1,5 +1,5 @@
-from codex_autoloop.models import CheckResult, PlanSnapshot, PlanWorkstream, ReviewDecision
-from codex_autoloop.planner import format_plan_markdown, parse_plan_text
+from codex_autoloop.models import CheckResult, CodexRunResult, PlanSnapshot, PlanWorkstream, ReviewDecision
+from codex_autoloop.planner import Planner, PlannerConfig, format_plan_markdown, parse_plan_text
 
 
 def test_parse_plan_text_plain_json() -> None:
@@ -70,3 +70,67 @@ def test_format_plan_markdown_includes_follow_up() -> None:
     assert "Planning Snapshot" in markdown
     assert "Suggested Next Objective" in markdown
     assert "Benchmark the planner-managed daemon flow end-to-end" in markdown
+
+
+def test_planner_evaluate_returns_plan_decision() -> None:
+    class _FakeRunner:
+        def run_exec(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            payload = """
+            {
+              "summary": "Need one more follow-up run.",
+              "workstreams": [
+                {
+                  "area": "Planner follow-up",
+                  "status": "todo",
+                  "evidence": "review passed",
+                  "next_step": "launch follow-up"
+                }
+              ],
+              "done_items": ["core implementation done"],
+              "remaining_items": ["final benchmark"],
+              "risks": ["benchmark dataset mismatch"],
+              "next_steps": ["run benchmark"],
+              "exploration_items": ["compare baseline"],
+              "suggested_next_objective": "Run final benchmark and summarize metrics",
+              "should_propose_follow_up": true
+            }
+            """
+            return CodexRunResult(command=["codex", "exec"], exit_code=0, agent_messages=[payload])
+
+    planner = Planner(runner=_FakeRunner())  # type: ignore[arg-type]
+    decision = planner.evaluate(
+        objective="ship feature",
+        plan_messages=["focus on benchmark quality"],
+        round_index=3,
+        session_id="thread-1",
+        latest_review_completion_summary="all checks passed",
+        latest_plan_overview="",
+        config=PlannerConfig(mode="auto"),
+    )
+    assert decision.follow_up_required is True
+    assert "compare baseline" in decision.next_explore
+    assert "Run final benchmark" in decision.main_instruction
+    assert "benchmark dataset mismatch" in decision.review_instruction
+    assert "Planning Snapshot" in decision.overview_markdown
+
+
+def test_planner_evaluate_fallback_when_output_invalid() -> None:
+    class _FakeRunner:
+        def run_exec(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return CodexRunResult(command=["codex", "exec"], exit_code=1, agent_messages=["not json"])
+
+    planner = Planner(runner=_FakeRunner())  # type: ignore[arg-type]
+    decision = planner.evaluate(
+        objective="ship feature",
+        plan_messages=[],
+        round_index=1,
+        session_id=None,
+        latest_review_completion_summary="",
+        latest_plan_overview="",
+        config=PlannerConfig(mode="record"),
+    )
+    assert decision.follow_up_required is False
+    assert decision.main_instruction != ""
+    assert decision.overview_markdown.strip() != ""

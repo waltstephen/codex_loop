@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .checks import summarize_checks
 from .codex_runner import CodexRunner, RunnerOptions
-from .models import CheckResult, PlanSnapshot, PlanWorkstream, RoundSummary, ReviewDecision
+from .models import CheckResult, PlanDecision, PlanSnapshot, PlanWorkstream, RoundSummary, ReviewDecision
 from .planner_modes import PLANNER_MODE_AUTO, PLANNER_MODE_RECORD
 
 
@@ -96,6 +96,147 @@ class Planner:
             stop_reason=stop_reason,
         )
         return parsed
+
+    def evaluate(
+        self,
+        *,
+        objective: str,
+        plan_messages: list[str],
+        round_index: int,
+        session_id: str | None,
+        latest_review_completion_summary: str,
+        latest_plan_overview: str,
+        config: PlannerConfig,
+    ) -> PlanDecision:
+        prompt = self._build_evaluate_prompt(
+            objective=objective,
+            plan_messages=plan_messages,
+            round_index=round_index,
+            session_id=session_id,
+            latest_review_completion_summary=latest_review_completion_summary,
+            latest_plan_overview=latest_plan_overview,
+            mode=config.mode,
+        )
+        result = self.runner.run_exec(
+            prompt=prompt,
+            resume_thread_id=None,
+            options=RunnerOptions(
+                model=config.model,
+                reasoning_effort=config.reasoning_effort,
+                dangerous_yolo=config.dangerous_yolo,
+                full_auto=config.full_auto,
+                skip_git_repo_check=config.skip_git_repo_check,
+                extra_args=config.extra_args,
+                output_schema_path=self.schema_path,
+            ),
+            run_label="planner",
+        )
+        parsed = parse_plan_text(result.last_agent_message)
+        if parsed is None:
+            parsed = self._fallback_snapshot(
+                objective=objective,
+                latest_review=None,
+                latest_checks=[],
+                trigger="loop-engine",
+                terminal=False,
+                error=result.last_agent_message or f"Planner returned empty output. exit={result.exit_code}",
+            )
+        if config.mode == PLANNER_MODE_RECORD:
+            parsed.should_propose_follow_up = False
+            parsed.suggested_next_objective = ""
+        parsed.plan_id = uuid4().hex[:12]
+        parsed.generated_at = datetime.now(timezone.utc).isoformat()
+        parsed.trigger = "loop-engine"
+        parsed.terminal = False
+        parsed.report_markdown = format_plan_markdown(
+            objective=objective,
+            snapshot=parsed,
+            review=None,
+            checks=[],
+            stop_reason=None,
+        )
+        return self._snapshot_to_decision(
+            snapshot=parsed,
+            latest_review_completion_summary=latest_review_completion_summary,
+        )
+
+    def _build_evaluate_prompt(
+        self,
+        *,
+        objective: str,
+        plan_messages: list[str],
+        round_index: int,
+        session_id: str | None,
+        latest_review_completion_summary: str,
+        latest_plan_overview: str,
+        mode: str,
+    ) -> str:
+        plan_messages_text = "\n".join(f"- {line}" for line in plan_messages) if plan_messages else "- none"
+        overview_text = latest_plan_overview.strip() if latest_plan_overview.strip() else "none"
+        review_summary = latest_review_completion_summary.strip() if latest_review_completion_summary.strip() else "none"
+        if mode == PLANNER_MODE_RECORD:
+            mode_guidance = (
+                "Planner mode: record-only.\n"
+                "Set should_propose_follow_up=false and leave suggested_next_objective empty.\n\n"
+            )
+        else:
+            mode_guidance = (
+                "Planner mode: auto.\n"
+                "You may propose one concrete follow-up objective when appropriate.\n\n"
+            )
+        return (
+            "You are the planning manager for an autoloop round.\n"
+            "Return valid JSON matching the provided schema.\n"
+            "Focus on concrete workstreams, next steps, and risks.\n\n"
+            f"{mode_guidance}"
+            f"Round index: {round_index}\n"
+            f"Session ID: {session_id or 'none'}\n\n"
+            "Objective:\n"
+            f"{objective}\n\n"
+            "Plan-channel operator messages:\n"
+            f"{plan_messages_text}\n\n"
+            "Latest reviewer completion summary:\n"
+            f"{review_summary}\n\n"
+            "Latest plan overview markdown:\n"
+            f"{overview_text}\n"
+        )
+
+    @staticmethod
+    def _snapshot_to_decision(
+        *,
+        snapshot: PlanSnapshot,
+        latest_review_completion_summary: str,
+    ) -> PlanDecision:
+        follow_up_required = bool(snapshot.should_propose_follow_up and snapshot.suggested_next_objective.strip())
+        next_explore = (
+            _first_non_empty(snapshot.exploration_items)
+            or _first_non_empty(snapshot.remaining_items)
+            or _first_non_empty(snapshot.next_steps)
+            or snapshot.summary
+            or "Continue execution with current objective."
+        )
+        main_instruction = (
+            snapshot.suggested_next_objective.strip()
+            if follow_up_required
+            else (
+                _first_non_empty(snapshot.next_steps)
+                or _first_non_empty(snapshot.remaining_items)
+                or snapshot.summary
+                or "Continue execution with concrete repository actions."
+            )
+        )
+        review_instruction = (
+            _first_non_empty(snapshot.risks)
+            or latest_review_completion_summary.strip()
+            or "Validate acceptance checks and unresolved risks."
+        )
+        return PlanDecision(
+            follow_up_required=follow_up_required,
+            next_explore=next_explore.strip(),
+            main_instruction=main_instruction.strip(),
+            review_instruction=review_instruction.strip(),
+            overview_markdown=snapshot.report_markdown.strip() + "\n",
+        )
 
     def _build_prompt(
         self,
@@ -418,6 +559,14 @@ def _as_text(value: object) -> str:
     if not isinstance(value, str):
         return ""
     return value.strip()
+
+
+def _first_non_empty(items: list[str]) -> str:
+    for item in items:
+        text = item.strip()
+        if text:
+            return text
+    return ""
 
 
 def _escape_table(text: str) -> str:
