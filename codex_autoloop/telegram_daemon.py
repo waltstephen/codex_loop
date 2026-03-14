@@ -309,6 +309,8 @@ def main() -> None:
     scheduled_plan_context: dict[str, Any] | None = None
     scheduled_plan_request_at: dt.datetime | None = None
     pending_follow_up: PlanFollowUp | None = None
+    feishu_heartbeat_interval_seconds = max(0, int(args.feishu_heartbeat_interval_seconds))
+    last_feishu_heartbeat_monotonic = time.monotonic()
     btw_agent = BtwAgent(
         runner=CodexRunner(),
         config=BtwConfig(
@@ -436,7 +438,9 @@ def main() -> None:
         nonlocal child_run_id, child_control_path, child_resume_session_id
         nonlocal child_main_prompt_path, child_plan_report_path, child_plan_todo_path
         nonlocal child_review_summaries_dir, pending_follow_up
+        nonlocal last_feishu_heartbeat_monotonic
         clear_planner_state(reason="child_started")
+        last_feishu_heartbeat_monotonic = time.monotonic()
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         log_path = logs_dir / f"run-{timestamp}.log"
         control_path = bus_dir / f"child-control-{timestamp}.jsonl"
@@ -1048,6 +1052,34 @@ def main() -> None:
                 continue
             rc = child.poll()
             if rc is None:
+                now_monotonic = time.monotonic()
+                running = child is not None and child.poll() is None
+                if should_emit_feishu_heartbeat(
+                    feishu_enabled=(feishu_notifier is not None),
+                    running=running,
+                    interval_seconds=feishu_heartbeat_interval_seconds,
+                    now_monotonic=now_monotonic,
+                    last_sent_monotonic=last_feishu_heartbeat_monotonic,
+                ):
+                    elapsed_seconds = (
+                        int((dt.datetime.utcnow() - child_started_at).total_seconds()) if child_started_at else 0
+                    )
+                    heartbeat_message = (
+                        "[daemon] typing...\n"
+                        "main agent is still running.\n"
+                        f"pid={child.pid}\n"
+                        f"elapsed={elapsed_seconds}s\n"
+                        f"objective={str(child_objective or '')[:300]}"
+                    )
+                    delivered = feishu_notifier.send_message(heartbeat_message) if feishu_notifier is not None else False
+                    log_event(
+                        "feishu.heartbeat",
+                        delivered=bool(delivered),
+                        pid=child.pid,
+                        run_id=child_run_id,
+                        elapsed_seconds=elapsed_seconds,
+                    )
+                    last_feishu_heartbeat_monotonic = now_monotonic
                 update_status()
                 continue
             notify(
@@ -1463,6 +1495,21 @@ def format_countdown(seconds: int) -> str:
     if minutes > 0:
         return f"{minutes}m {secs}s"
     return f"{secs}s"
+
+
+def should_emit_feishu_heartbeat(
+    *,
+    feishu_enabled: bool,
+    running: bool,
+    interval_seconds: int,
+    now_monotonic: float,
+    last_sent_monotonic: float,
+) -> bool:
+    if not feishu_enabled or not running:
+        return False
+    if interval_seconds <= 0:
+        return False
+    return (now_monotonic - last_sent_monotonic) >= interval_seconds
 
 
 def resolve_plan_follow_up(
@@ -1964,6 +2011,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=2,
         help="Polling interval for Feishu control command loop.",
+    )
+    parser.add_argument(
+        "--feishu-heartbeat-interval-seconds",
+        type=int,
+        default=600,
+        help="Interval for Feishu running heartbeat messages. Set 0 to disable.",
     )
     return parser
 

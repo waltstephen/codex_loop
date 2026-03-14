@@ -172,6 +172,7 @@ Common options:
 - `--feishu-app-id` / `--feishu-app-secret` / `--feishu-chat-id`: enable Feishu notifications and control
 - `--feishu-events`: choose which events are pushed to Feishu (comma-separated)
 - `--feishu-live-updates` + `--feishu-live-interval-seconds 30`: push live agent message deltas to Feishu (only when changed)
+- `--feishu-heartbeat-interval-seconds 600`: when a run is still active, send a Feishu heartbeat (`typing...`) every 10 minutes
 - `--feishu-control`: allow Feishu inbound control (`/inject`, `/status`, `/stop`, `/plan`, `/review`) while loop is running
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
 - `--stall-soft-idle-seconds 3600`: after 1h no new output, run stall sub-agent diagnosis (do not force kill)

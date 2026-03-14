@@ -22,6 +22,7 @@ from codex_autoloop.telegram_daemon import (
     resolve_resume_session_id,
     resolve_saved_session_id,
     sanitize_follow_up_objective,
+    should_emit_feishu_heartbeat,
     set_force_fresh_session_marker,
     should_schedule_plan_follow_up,
     terminate_process_tree,
@@ -463,6 +464,64 @@ def test_build_parser_accepts_feishu_only_args() -> None:
     )
     assert args.telegram_bot_token is None
     assert args.feishu_app_id == "cli_xxx"
+
+
+def test_build_parser_default_feishu_heartbeat_interval_seconds() -> None:
+    args = build_parser().parse_args(["--telegram-bot-token", "123:abc"])
+    assert args.feishu_heartbeat_interval_seconds == 600
+
+
+def test_should_emit_feishu_heartbeat_respects_interval_and_state() -> None:
+    assert (
+        should_emit_feishu_heartbeat(
+            feishu_enabled=True,
+            running=True,
+            interval_seconds=600,
+            now_monotonic=1200,
+            last_sent_monotonic=590,
+        )
+        is True
+    )
+    assert (
+        should_emit_feishu_heartbeat(
+            feishu_enabled=True,
+            running=True,
+            interval_seconds=600,
+            now_monotonic=1189,
+            last_sent_monotonic=590,
+        )
+        is False
+    )
+    assert (
+        should_emit_feishu_heartbeat(
+            feishu_enabled=False,
+            running=True,
+            interval_seconds=600,
+            now_monotonic=1200,
+            last_sent_monotonic=590,
+        )
+        is False
+    )
+    assert (
+        should_emit_feishu_heartbeat(
+            feishu_enabled=True,
+            running=False,
+            interval_seconds=600,
+            now_monotonic=1200,
+            last_sent_monotonic=590,
+        )
+        is False
+    )
+    assert (
+        should_emit_feishu_heartbeat(
+            feishu_enabled=True,
+            running=True,
+            interval_seconds=0,
+            now_monotonic=1200,
+            last_sent_monotonic=590,
+        )
+        is False
+    )
 
 
 def test_wait_for_process_exit_detects_exit() -> None:
