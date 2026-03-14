@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
 
+![ArgusBot architecture concept](Feishu_readme/Gemini_Generated_Image_xniz1sxniz1sxniz%20(1).png)
+
 `ArgusBot` is a Python supervisor plugin for Codex CLI:
 
 - Main agent executes the task (`codex exec` or `codex exec resume`)
