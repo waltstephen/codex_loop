@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
 
-![ArgusBot architecture concept](Feishu_readme/Gemini_Generated_Image_xniz1sxniz1sxniz%20(1).png)
+![ArgusBot banner](Feishu_readme/add_bot.png)
 
 `ArgusBot` is a Python supervisor plugin for Codex CLI:
 
@@ -25,6 +25,8 @@ Current defaults:
 1. Security risk: daemon-launched runs use `--yolo` by default. This grants Codex high local execution power. Run only in trusted repositories/workspaces.
 2. Visibility and debugging: Telegram/Feishu snippets may hide important details. If behavior looks wrong, run `argusbot` in the target workspace and watch local live output/logs first.
 3. Cost and loop risk: long-running objectives can consume significant tokens. Planner or reviewer quality can also cause repeated loops. Always set clear acceptance checks, monitor runtime, and stop/re-scope when needed.
+
+![ArgusBot architecture concept](Feishu_readme/cleaned_Gemini_Generated_Image_xniz1sxniz1sxniz%20(1).png)
 
 ## Quick Start (24/7 Telegram Control)
 
@@ -594,4 +596,4 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ArgusBot&type=Date)](https://www.star-history.com/#ArgusBot&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=waltstephen/ArgusBot&type=Date)](https://www.star-history.com/#waltstephen/ArgusBot&Date)
