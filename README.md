@@ -18,21 +18,21 @@ Current defaults:
 - Daemon child model defaults now inherit Codex CLI global settings unless you explicitly set a preset/override.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
-## Quick Start (24/7 Telegram Control)
+## Quick Start (Local Daemon Workflow)
 
-If you want to control your main project from Telegram 24/7 with an always-on daemon, use this flow:
+If you only need the workflow itself, you can run the always-on daemon locally without Telegram:
 
 Prerequisites and cost notes:
 
 - You must have Codex CLI installed and authenticated first (make sure `codex` works before running `codexloop init`).
-- For 24/7 daemon operation, choosing `high` or `xhigh` reasoning can lead to token usage close to running one Codex session continuously for 24 hours. Plan budget carefully.
+- For long-running daemon operation, choosing `high` or `xhigh` reasoning can lead to token usage close to running one Codex session continuously for 24 hours. Plan budget carefully.
 - `medium` reasoning is usually a good quality/cost tradeoff for long-running background control.
 
 1. Clone this repo and install it in editable mode.
 2. Go to your target project directory (the repo you actually want to operate on).
-3. Run `codexloop init` and complete Telegram/model setup prompts.
+3. Run `codexloop init` and complete local/model setup prompts.
 4. After setup, daemon starts in background and keeps running.
-5. Chat with your Telegram bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
+5. Use `codexloop` or `codex-autoloop-daemon-ctl` to control work at any time.
 
 Example:
 
@@ -50,7 +50,7 @@ cd <your_main_project>
 codexloop init
 ```
 
-During `codexloop init`, enter your Telegram bot token/chat id and the wizard will persist config under `.codex_daemon/` in your main project.
+During `codexloop init`, the tool will persist local daemon config under `.codex_daemon/` in your main project. Telegram is now optional.
 
 ## Current Feature Snapshot
 

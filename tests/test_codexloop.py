@@ -81,15 +81,15 @@ def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:
 
 
 def test_is_config_usable_requires_token_and_run_cd() -> None:
-    assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": "."}) is True
-    assert codexloop.is_config_usable({"telegram_bot_token": "bad-token", "run_cd": "."}) is False
+    assert codexloop.is_config_usable({"run_cd": "."}) is True
+    assert codexloop.is_config_usable({"telegram_bot_token": "bad-token", "run_cd": "."}) is True
     assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": ""}) is False
 
 
 def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
-    monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    monkeypatch.setattr(codexloop, "prompt_secret", lambda prompt: "")
+    monkeypatch.setattr(codexloop, "prompt_yes_no", lambda prompt, default: False)
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".codex_daemon", run_cd=tmp_path)
@@ -100,6 +100,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["run_plan_auto_execute_delay_seconds"] == 600
     assert config["run_yolo"] is True
     assert config["run_full_auto"] is False
+    assert config["feishu_app_id"] is None
 
 
 def test_prompt_play_mode_selection(monkeypatch) -> None:
@@ -125,8 +126,6 @@ def test_prompt_model_choice_default_inherits_codex(monkeypatch) -> None:
 def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path, capsys) -> None:
     home_dir = tmp_path / ".codex_daemon"
     config = {
-        "telegram_bot_token": "123:abc",
-        "telegram_chat_id": "auto",
         "run_cd": str(tmp_path),
         "run_check": None,
         "run_max_rounds": 500,
@@ -172,8 +171,6 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
     home_dir = tmp_path / ".codex_daemon"
     config = {
-        "telegram_bot_token": "123:abc",
-        "telegram_chat_id": "auto",
         "run_cd": str(tmp_path),
         "run_check": "pytest -q",
         "run_max_rounds": 500,
@@ -194,7 +191,7 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         token_lock_dir="/tmp/token-locks",
     )
     assert cmd[0] == "daemon-bin"
-    assert "--telegram-bot-token" in cmd
+    assert "--telegram-bot-token" not in cmd
     assert "--run-max-rounds" in cmd
     assert "--run-plan-mode" in cmd
     assert "--run-plan-request-delay-seconds" in cmd
@@ -206,12 +203,32 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert "--run-resume-last-session" in cmd
 
 
+def test_build_daemon_command_includes_feishu(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
+    home_dir = tmp_path / ".codex_daemon"
+    config = {
+        "run_cd": str(tmp_path),
+        "run_max_rounds": 500,
+        "run_plan_mode": "fully-plan",
+        "run_plan_request_delay_seconds": 600,
+        "run_plan_auto_execute_delay_seconds": 600,
+        "run_resume_last_session": True,
+        "feishu_app_id": "cli_xxx",
+        "feishu_app_secret": "secret",
+        "feishu_chat_id": "oc_123",
+        "bus_dir": str(home_dir / "bus"),
+        "logs_dir": str(home_dir / "logs"),
+    }
+    cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
+    assert "--feishu-app-id" in cmd
+    assert "--feishu-app-secret" in cmd
+    assert "--feishu-chat-id" in cmd
+
+
 def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
     home_dir = tmp_path / ".codex_daemon"
     config = {
-        "telegram_bot_token": "123:abc",
-        "telegram_chat_id": "auto",
         "run_cd": str(tmp_path),
         "run_check": None,
         "run_max_rounds": 500,
