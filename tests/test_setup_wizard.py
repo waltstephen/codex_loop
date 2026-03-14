@@ -1,6 +1,10 @@
+import hashlib
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from codex_autoloop import setup_wizard
 
@@ -102,6 +106,68 @@ def test_resolve_effective_chat_id_resolves_auto(monkeypatch) -> None:
     ) == "8533505134"
 
 
+def test_resolve_effective_chat_id_reuses_home_config_after_conflict(monkeypatch, tmp_path: Path) -> None:
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    (home_dir / "daemon_config.json").write_text(
+        json.dumps({"telegram_chat_id": "8533505134"}),
+        encoding="utf-8",
+    )
+
+    def fake_resolve_chat_id(**kwargs):
+        kwargs["on_error"](
+            'getUpdates HTTP 409: {"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request"}'
+        )
+        return None
+
+    monkeypatch.setattr(setup_wizard, "resolve_chat_id", fake_resolve_chat_id)
+    assert setup_wizard.resolve_effective_chat_id(
+        bot_token="123:abc",
+        requested_chat_id="auto",
+        timeout_seconds=5,
+        home_dir=home_dir,
+        token_lock_dir=str(tmp_path / "locks"),
+    ) == "8533505134"
+
+
+def test_resolve_effective_chat_id_reuses_matching_token_lock_meta(monkeypatch, tmp_path: Path) -> None:
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    token = "123:abc"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
+    (lock_dir / f"{digest}.json").write_text(
+        json.dumps({"chat_id": "8533505134"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(setup_wizard, "resolve_chat_id", lambda **kwargs: None)
+    assert setup_wizard.resolve_effective_chat_id(
+        bot_token=token,
+        requested_chat_id="auto",
+        timeout_seconds=5,
+        home_dir=tmp_path / "missing-home",
+        token_lock_dir=str(lock_dir),
+    ) == "8533505134"
+
+
+def test_resolve_effective_chat_id_raises_when_auto_resolution_has_no_fallback(monkeypatch, tmp_path: Path) -> None:
+    def fake_resolve_chat_id(**kwargs):
+        kwargs["on_error"](
+            'getUpdates HTTP 409: {"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request"}'
+        )
+        return None
+
+    monkeypatch.setattr(setup_wizard, "resolve_chat_id", fake_resolve_chat_id)
+    with pytest.raises(SystemExit) as excinfo:
+        setup_wizard.resolve_effective_chat_id(
+            bot_token="123:abc",
+            requested_chat_id="auto",
+            timeout_seconds=5,
+            home_dir=tmp_path / "missing-home",
+            token_lock_dir=str(tmp_path / "locks"),
+        )
+    assert excinfo.value.code == 2
+
+
 def test_main_stops_existing_daemon_before_resolving_auto_chat_id(monkeypatch, tmp_path: Path) -> None:
     home_dir = tmp_path / "custom-home"
     run_cd = tmp_path / "repo"
@@ -168,3 +234,18 @@ def test_main_stops_existing_daemon_before_resolving_auto_chat_id(monkeypatch, t
     setup_wizard.main()
 
     assert order[:2] == ["stop_existing_daemon", "resolve_effective_chat_id"]
+
+
+def test_build_parser_accepts_feishu_options() -> None:
+    args = setup_wizard.build_parser().parse_args(
+        [
+            "--feishu-app-id",
+            "cli_xxx",
+            "--feishu-app-secret",
+            "secret",
+            "--feishu-chat-id",
+            "oc_123",
+        ]
+    )
+    assert args.feishu_app_id == "cli_xxx"
+    assert args.feishu_chat_id == "oc_123"

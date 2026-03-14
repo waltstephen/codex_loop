@@ -5,6 +5,7 @@ from typing import Iterable
 
 from ..core.ports import EventSink
 from ..dashboard import DashboardStore
+from ..feishu_adapter import FeishuNotifier
 from ..live_updates import TelegramStreamReporter, TelegramStreamReporterConfig, extract_agent_message
 from ..telegram_notifier import TelegramNotifier
 
@@ -97,4 +98,18 @@ class TelegramEventSink:
     def close(self) -> None:
         if self._stream_reporter is not None:
             self._stream_reporter.stop()
+        self.notifier.close()
+
+
+class FeishuEventSink:
+    def __init__(self, *, notifier: FeishuNotifier) -> None:
+        self.notifier = notifier
+
+    def handle_event(self, event: dict[str, object]) -> None:
+        self.notifier.notify_event(event)
+
+    def handle_stream_line(self, stream: str, line: str) -> None:
+        return
+
+    def close(self) -> None:
         self.notifier.close()

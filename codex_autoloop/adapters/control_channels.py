@@ -7,6 +7,7 @@ from typing import Callable
 
 from ..core.ports import CommandHandler, ControlCommand
 from ..daemon_bus import JsonlCommandBus
+from ..feishu_adapter import FeishuCommandPoller
 from ..telegram_control import TelegramCommandPoller
 
 ErrorHandler = Callable[[str], None]
@@ -61,6 +62,50 @@ class TelegramControlChannel:
             whisper_model=self.whisper_model,
             whisper_base_url=self.whisper_base_url,
             whisper_timeout_seconds=self.whisper_timeout_seconds,
+        )
+        self._poller.start()
+
+    def stop(self) -> None:
+        if self._poller is None:
+            return
+        self._poller.stop()
+        self._poller = None
+
+
+class FeishuControlChannel:
+    def __init__(
+        self,
+        *,
+        app_id: str,
+        app_secret: str,
+        chat_id: str,
+        on_error: ErrorHandler | None = None,
+        poll_interval_seconds: int = 2,
+        plain_text_kind: str = "inject",
+    ) -> None:
+        self.app_id = app_id
+        self.app_secret = app_secret
+        self.chat_id = chat_id
+        self.on_error = on_error
+        self.poll_interval_seconds = poll_interval_seconds
+        self.plain_text_kind = plain_text_kind
+        self._poller: FeishuCommandPoller | None = None
+
+    def start(self, on_command: CommandHandler) -> None:
+        if self._poller is not None:
+            return
+
+        def _forward(command) -> None:
+            on_command(ControlCommand(kind=command.kind, text=command.text, source="feishu"))
+
+        self._poller = FeishuCommandPoller(
+            app_id=self.app_id,
+            app_secret=self.app_secret,
+            chat_id=self.chat_id,
+            on_command=_forward,
+            on_error=self.on_error,
+            poll_interval_seconds=self.poll_interval_seconds,
+            plain_text_kind=self.plain_text_kind,
         )
         self._poller.start()
 

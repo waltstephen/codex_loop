@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,12 +30,9 @@ class Reviewer:
         *,
         objective: str,
         operator_messages: list[str],
+        planner_review_instruction: str = "",
         round_index: int,
         session_id: str | None,
-        main_exit_code: int,
-        main_turn_completed: bool,
-        main_turn_failed: bool,
-        main_agent_message_count: int,
         main_summary: str,
         main_error: str | None,
         checks: list[CheckResult],
@@ -43,12 +41,9 @@ class Reviewer:
         prompt = self._build_prompt(
             objective=objective,
             operator_messages=operator_messages,
+            planner_review_instruction=planner_review_instruction,
             round_index=round_index,
             session_id=session_id,
-            main_exit_code=main_exit_code,
-            main_turn_completed=main_turn_completed,
-            main_turn_failed=main_turn_failed,
-            main_agent_message_count=main_agent_message_count,
             main_summary=main_summary,
             main_error=main_error,
             checks=checks,
@@ -73,6 +68,7 @@ class Reviewer:
                 confidence=0.0,
                 reason=f"Reviewer returned empty output. exit={result.exit_code}",
                 next_action="Continue implementation and provide concrete completed work.",
+                round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
             )
 
         parsed = parse_decision_text(result.last_agent_message)
@@ -82,20 +78,18 @@ class Reviewer:
                 confidence=0.0,
                 reason="Reviewer output was not valid JSON.",
                 next_action="Continue implementation and include clear completion evidence.",
+                round_summary_markdown="# Review Summary\n\n- Reviewer output was not valid JSON.\n",
             )
-        return parsed
+        return _coerce_decision_against_main_summary(parsed, main_summary=main_summary)
 
     def _build_prompt(
         self,
         *,
         objective: str,
         operator_messages: list[str],
+        planner_review_instruction: str = "",
         round_index: int,
         session_id: str | None,
-        main_exit_code: int,
-        main_turn_completed: bool,
-        main_turn_failed: bool,
-        main_agent_message_count: int,
         main_summary: str,
         main_error: str | None,
         checks: list[CheckResult],
@@ -110,19 +104,17 @@ class Reviewer:
             "1) `done` only when objective is fully satisfied, no blocker remains, and acceptance checks pass.\n"
             "2) If uncertain, choose `continue`.\n"
             "3) Use `blocked` only if additional user input is strictly required.\n"
-            "4) `next_action` must be a concrete instruction for the primary agent.\n"
-            "5) Do not speculate about crashes or missing replies; use the structured main-agent facts below.\n"
-            "6) Only describe the main agent as crashed/failed if the exit code is non-zero or fatal error is not `none`.\n"
-            "7) If the main agent emitted one or more agent messages, do not claim there was no user-facing reply.\n\n"
+            "4) `next_action` must be a concrete instruction for the primary agent.\n\n"
+            "5) `round_summary_markdown` must summarize this round's completed work, evidence, and gaps.\n"
+            "6) If status is not `done`, `completion_summary_markdown` should be a short placeholder or empty note.\n"
+            "7) If status is `done`, `completion_summary_markdown` must summarize final completion evidence.\n\n"
             f"Objective:\n{objective}\n\n"
             "Operator message history (source of truth for user instructions):\n"
             f"{operator_text}\n\n"
+            "Planner guidance for this review:\n"
+            f"{planner_review_instruction or 'none'}\n\n"
             f"Round: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n"
-            f"Main agent exit code: {main_exit_code}\n"
-            f"Main agent turn completed: {str(main_turn_completed).lower()}\n"
-            f"Main agent turn failed: {str(main_turn_failed).lower()}\n"
-            f"Main agent emitted agent messages: {main_agent_message_count}\n"
             f"Main agent fatal error: {error_text}\n\n"
             "Main agent last summary:\n"
             f"{main_summary}\n\n"
@@ -147,17 +139,25 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
     confidence = parsed.get("confidence", 0.0)
     reason = parsed.get("reason", "")
     next_action = parsed.get("next_action", "")
+    round_summary_markdown = parsed.get("round_summary_markdown", "")
+    completion_summary_markdown = parsed.get("completion_summary_markdown", "")
     if not isinstance(confidence, (int, float)):
         confidence = 0.0
     if not isinstance(reason, str):
         reason = str(reason)
     if not isinstance(next_action, str):
         next_action = str(next_action)
+    if not isinstance(round_summary_markdown, str):
+        round_summary_markdown = str(round_summary_markdown)
+    if not isinstance(completion_summary_markdown, str):
+        completion_summary_markdown = str(completion_summary_markdown)
     return ReviewDecision(
         status=status,
         confidence=max(0.0, min(float(confidence), 1.0)),
         reason=reason.strip(),
         next_action=next_action.strip(),
+        round_summary_markdown=round_summary_markdown.strip(),
+        completion_summary_markdown=completion_summary_markdown.strip(),
     )
 
 
@@ -169,3 +169,64 @@ def _load_json(text: str) -> dict | None:
     if not isinstance(value, dict):
         return None
     return value
+
+
+GENERIC_MAIN_PATTERNS = [
+    "i am the primary implementation agent",
+    "i'm the primary implementation agent",
+    "i’m the primary implementation agent",
+    "i will act as the primary implementation agent",
+    "i'll act as the primary implementation agent",
+    "i’ll act as the primary implementation agent",
+    "acting as the primary implementation agent",
+    "i'll handle the main task directly",
+    "i’ll handle the main task directly",
+    "continuing as the primary implementation agent",
+    "i’ll keep ownership of the main task here",
+    "i'll keep ownership of the main task here",
+]
+
+CONCRETE_EXECUTION_PATTERNS = [
+    "done:",
+    "remaining:",
+    "blockers:",
+]
+
+COMMAND_EVIDENCE_RE = re.compile(r"\b(?:ran|executed)\s+(?:pytest|git diff|git status|rg|get-content)\b")
+COMPLETED_ACTION_RE = re.compile(
+    r"\b(?:read|inspected|edited|updated|changed|patched|ran|tested|implemented|verified|fixed)\b"
+)
+
+
+def _coerce_decision_against_main_summary(decision: ReviewDecision, *, main_summary: str) -> ReviewDecision:
+    normalized = " ".join((main_summary or "").lower().split())
+    if any(pattern in normalized for pattern in GENERIC_MAIN_PATTERNS) and not _has_concrete_execution_evidence(
+        main_summary
+    ):
+        return ReviewDecision(
+            status="continue",
+            confidence=min(decision.confidence, 0.2),
+            reason=(
+                "Main agent summary appears to be a generic role acknowledgment without concrete repository work. "
+                "Continue and require specific execution evidence."
+            ),
+            next_action="Perform concrete repository inspection or code changes before the next review.",
+            round_summary_markdown=(
+                decision.round_summary_markdown
+                or "# Review Summary\n\n- Main summary was a generic acknowledgment without concrete execution evidence.\n"
+            ),
+            completion_summary_markdown="",
+        )
+    return decision
+
+
+def _has_concrete_execution_evidence(summary: str) -> bool:
+    text = summary or ""
+    normalized = " ".join(text.lower().split())
+    if not normalized:
+        return False
+    if any(pattern in normalized for pattern in CONCRETE_EXECUTION_PATTERNS):
+        return True
+    if COMMAND_EVIDENCE_RE.search(normalized):
+        return True
+    return COMPLETED_ACTION_RE.search(normalized) is not None

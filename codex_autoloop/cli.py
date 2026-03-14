@@ -327,6 +327,43 @@ def build_parser() -> argparse.ArgumentParser:
         default=90,
         help="Timeout in seconds for Whisper transcription requests.",
     )
+    parser.add_argument("--feishu-app-id", default=None, help="Feishu app id for control/notifications.")
+    parser.add_argument("--feishu-app-secret", default=None, help="Feishu app secret for control/notifications.")
+    parser.add_argument("--feishu-chat-id", default=None, help="Feishu chat id for control/notifications.")
+    parser.add_argument(
+        "--feishu-receive-id-type",
+        default="chat_id",
+        help="Feishu receive_id_type used for outgoing messages.",
+    )
+    parser.add_argument(
+        "--feishu-events",
+        default="loop.started,round.review.completed,loop.completed",
+        help="Comma-separated event names to send to Feishu.",
+    )
+    parser.add_argument(
+        "--feishu-timeout-seconds",
+        type=int,
+        default=10,
+        help="HTTP timeout for Feishu API calls.",
+    )
+    parser.add_argument(
+        "--feishu-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Feishu inbound control commands.",
+    )
+    parser.add_argument(
+        "--feishu-control-poll-interval-seconds",
+        type=int,
+        default=2,
+        help="Polling interval for Feishu control command loop.",
+    )
+    parser.add_argument(
+        "--feishu-control-plain-text-inject",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Treat plain text Feishu messages as injected instruction updates.",
+    )
     parser.add_argument(
         "--live-terminal",
         action=argparse.BooleanOptionalAction,

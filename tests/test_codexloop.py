@@ -83,6 +83,17 @@ def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:
 def test_is_config_usable_requires_token_and_run_cd() -> None:
     assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": "."}) is True
     assert codexloop.is_config_usable({"telegram_bot_token": "bad-token", "run_cd": "."}) is False
+    assert (
+        codexloop.is_config_usable(
+            {
+                "feishu_app_id": "cli_xxx",
+                "feishu_app_secret": "secret",
+                "feishu_chat_id": "oc_123",
+                "run_cd": ".",
+            }
+        )
+        is True
+    )
     assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": ""}) is False
 
 
@@ -94,6 +105,9 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
+    assert config["feishu_app_id"] is None
+    assert config["feishu_app_secret"] is None
+    assert config["feishu_chat_id"] is None
     assert config["run_model_preset"] is None
     assert config["run_planner_mode"] == "auto"
     assert config["run_plan_mode"] == "fully-plan"
@@ -186,8 +200,10 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "run_plan_mode": "fully-plan",
         "run_plan_request_delay_seconds": 600,
         "run_plan_auto_execute_delay_seconds": 600,
+        "follow_up_auto_execute_seconds": 900,
         "run_resume_last_session": True,
         "run_model_preset": "quality",
+        "codex_autoloop_bin": r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe -m codex_autoloop.cli",
         "bus_dir": str(home_dir / "bus"),
         "logs_dir": str(home_dir / "logs"),
     }
@@ -202,11 +218,17 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert "--run-plan-mode" in cmd
     assert "--run-plan-request-delay-seconds" in cmd
     assert "--run-plan-auto-execute-delay-seconds" in cmd
+    assert "--follow-up-auto-execute-seconds" in cmd
     assert "--run-check" in cmd
     assert "--run-model-preset" in cmd
+    assert "--argusbot-bin" in cmd
     assert "--run-skip-git-repo-check" in cmd
     assert "--run-yolo" in cmd
     assert "--run-resume-last-session" in cmd
+    follow_up_index = cmd.index("--follow-up-auto-execute-seconds")
+    assert cmd[follow_up_index + 1] == "900"
+    child_command_index = cmd.index("--argusbot-bin")
+    assert cmd[child_command_index + 1] == r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe -m codex_autoloop.cli"
 
 
 def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
@@ -231,6 +253,36 @@ def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
     cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
     assert "--run-yolo" in cmd
     assert "--no-run-yolo" not in cmd
+
+
+def test_build_daemon_command_includes_feishu(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
+    home_dir = tmp_path / ".argusbot"
+    config = {
+        "telegram_bot_token": "123:abc",
+        "telegram_chat_id": "auto",
+        "feishu_app_id": "cli_xxx",
+        "feishu_app_secret": "secret",
+        "feishu_chat_id": "oc_123",
+        "feishu_receive_id_type": "chat_id",
+        "run_cd": str(tmp_path),
+        "run_check": None,
+        "run_max_rounds": 500,
+        "run_skip_git_repo_check": False,
+        "run_full_auto": False,
+        "run_yolo": True,
+        "run_planner_mode": "auto",
+        "run_plan_mode": "fully-plan",
+        "run_resume_last_session": True,
+        "run_model_preset": "quality",
+        "bus_dir": str(home_dir / "bus"),
+        "logs_dir": str(home_dir / "logs"),
+    }
+    cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
+    assert "--feishu-app-id" in cmd
+    assert "--feishu-app-secret" in cmd
+    assert "--feishu-chat-id" in cmd
+    assert "--feishu-receive-id-type" in cmd
 
 
 def test_stop_all_codexloop_loops_workspace_only_stops_current_home(monkeypatch, tmp_path: Path, capsys) -> None:

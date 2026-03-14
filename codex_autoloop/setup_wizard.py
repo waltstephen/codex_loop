@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import shlex
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from .model_catalog import MODEL_PRESETS, get_preset
 from .planner_modes import (
@@ -19,7 +21,7 @@ from .planner_modes import (
     planner_mode_label,
 )
 from .telegram_notifier import resolve_chat_id
-from .token_lock import acquire_token_lock
+from .token_lock import acquire_token_lock, default_token_lock_dir
 
 
 DEFAULT_CODEX_AUTOLOOP_CMD = f"{sys.executable} -m codex_autoloop.cli"
@@ -118,11 +120,39 @@ def main() -> None:
         bot_token=token,
         requested_chat_id=requested_chat_id,
         timeout_seconds=120,
+        home_dir=home_dir,
+        token_lock_dir=args.token_lock_dir,
     )
+    feishu_app_id = (getattr(args, "feishu_app_id", None) or "").strip() or None
+    feishu_app_secret = (getattr(args, "feishu_app_secret", None) or "").strip() or None
+    feishu_chat_id = (getattr(args, "feishu_chat_id", None) or "").strip() or None
+    feishu_receive_id_type = str(getattr(args, "feishu_receive_id_type", "chat_id") or "chat_id").strip() or "chat_id"
+    feishu_fields = [feishu_app_id, feishu_app_secret, feishu_chat_id]
+    if any(feishu_fields) and not all(feishu_fields):
+        print(
+            "Feishu configuration is incomplete. Provide app id, app secret, and chat id together.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if not all(feishu_fields):
+        feishu_enabled = prompt_yes_no("Enable Feishu bidirectional control?", default=False)
+        if feishu_enabled:
+            feishu_app_id = prompt_input("Feishu app id: ", default="").strip() or None
+            feishu_app_secret = prompt_secret("Feishu app secret: ").strip() or None
+            feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
+            if not (feishu_app_id and feishu_app_secret and feishu_chat_id):
+                print("Feishu setup skipped because one or more required fields were empty.", file=sys.stderr)
+                feishu_app_id = None
+                feishu_app_secret = None
+                feishu_chat_id = None
 
     config = {
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
+        "feishu_app_id": feishu_app_id,
+        "feishu_app_secret": feishu_app_secret,
+        "feishu_chat_id": feishu_chat_id,
+        "feishu_receive_id_type": feishu_receive_id_type,
         "run_cd": str(Path(args.run_cd).resolve()),
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": args.run_max_rounds,
@@ -170,6 +200,19 @@ def main() -> None:
         "--follow-up-auto-execute-seconds",
         str(args.follow_up_auto_execute_seconds),
     ]
+    if feishu_app_id and feishu_app_secret and feishu_chat_id:
+        daemon_cmd.extend(
+            [
+                "--feishu-app-id",
+                feishu_app_id,
+                "--feishu-app-secret",
+                feishu_app_secret,
+                "--feishu-chat-id",
+                feishu_chat_id,
+                "--feishu-receive-id-type",
+                feishu_receive_id_type,
+            ]
+        )
     if check_cmd:
         daemon_cmd.extend(["--run-check", check_cmd])
     if resolved_preset is not None:
@@ -300,22 +343,127 @@ def resolve_daemon_ctl_hint() -> str:
     return f"{sys.executable} -m codex_autoloop.daemon_ctl"
 
 
-def resolve_effective_chat_id(*, bot_token: str, requested_chat_id: str, timeout_seconds: int) -> str:
+def resolve_effective_chat_id(
+    *,
+    bot_token: str,
+    requested_chat_id: str,
+    timeout_seconds: int,
+    home_dir: Path | None = None,
+    token_lock_dir: str | Path | None = None,
+) -> str:
     raw = (requested_chat_id or "").strip()
     if raw.lower() not in {"", "auto", "none", "null"}:
         return raw
+    errors: list[str] = []
+
+    def _on_error(message: str) -> None:
+        errors.append(message)
+        print(f"[setup] {message}", file=sys.stderr)
+
     print("Resolving Telegram chat_id from recent updates. Send /start or a message to your bot now...", file=sys.stderr)
     resolved = resolve_chat_id(
         bot_token=bot_token,
         timeout_seconds=timeout_seconds,
         poll_interval_seconds=2,
-        on_error=lambda msg: print(f"[setup] {msg}", file=sys.stderr),
+        on_error=_on_error,
     )
+    if not resolved:
+        fallback_chat_id, fallback_source = resolve_local_chat_id_hint(
+            bot_token=bot_token,
+            home_dir=home_dir,
+            token_lock_dir=token_lock_dir,
+        )
+        if fallback_chat_id:
+            print(
+                f"Reusing existing Telegram chat_id={fallback_chat_id} from {fallback_source}.",
+                file=sys.stderr,
+            )
+            return fallback_chat_id
+        if any(_is_getupdates_conflict_error(message) for message in errors):
+            print(
+                "Telegram getUpdates is already being polled by another instance for this bot token.",
+                file=sys.stderr,
+            )
     if not resolved:
         print("Unable to resolve Telegram chat_id automatically.", file=sys.stderr)
         raise SystemExit(2)
     print(f"Resolved Telegram chat_id={resolved}", file=sys.stderr)
     return resolved
+
+
+def resolve_local_chat_id_hint(
+    *,
+    bot_token: str,
+    home_dir: Path | None,
+    token_lock_dir: str | Path | None,
+) -> tuple[str | None, str | None]:
+    if home_dir is not None:
+        config_path = home_dir / "daemon_config.json"
+        home_chat_id = _read_chat_id_from_json(path=config_path, key="telegram_chat_id")
+        if home_chat_id:
+            return home_chat_id, str(config_path)
+    for lock_dir in _candidate_token_lock_dirs(token_lock_dir):
+        meta_path = lock_dir / f"{_token_hash(bot_token)}.json"
+        token_chat_id = _read_chat_id_from_json(path=meta_path, key="chat_id")
+        if token_chat_id:
+            return token_chat_id, str(meta_path)
+    return None, None
+
+
+def _read_chat_id_from_json(*, path: Path, key: str) -> str | None:
+    payload = _read_json_object(path)
+    if payload is None:
+        return None
+    value = str(payload.get(key, "")).strip()
+    if not looks_like_chat_id(value):
+        return None
+    return value
+
+
+def _read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _candidate_token_lock_dirs(primary: str | Path | None) -> list[Path]:
+    raw_candidates: list[Path] = []
+    if primary:
+        raw_candidates.append(Path(primary))
+    try:
+        raw_candidates.append(Path(default_token_lock_dir()))
+    except Exception:
+        pass
+    raw_candidates.append(Path("/tmp/argusbot-token-locks"))
+
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for candidate in raw_candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+        key = str(resolved).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(resolved)
+    return candidates
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
+
+
+def _is_getupdates_conflict_error(message: str) -> bool:
+    lowered = message.lower()
+    return "getupdates http 409" in lowered or "other getupdates request" in lowered
 
 
 def _detect_local_repo_root(start: Path) -> Path | None:
@@ -433,6 +581,17 @@ def prompt_input(prompt: str, default: str) -> str:
 
 def prompt_secret(prompt: str) -> str:
     return getpass.getpass(prompt).strip()
+
+
+def prompt_yes_no(prompt: str, *, default: bool) -> bool:
+    default_text = "Y/n" if default else "y/N"
+    while True:
+        raw = prompt_input(f"{prompt} [{default_text}]: ", default=("y" if default else "n")).lower()
+        if raw in {"y", "yes"}:
+            return True
+        if raw in {"n", "no"}:
+            return False
+        print("Please answer y or n.", file=sys.stderr)
 
 
 def prompt_token() -> str:
@@ -587,6 +746,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--token-lock-dir",
         default="/tmp/argusbot-token-locks",
         help="Global lock directory to enforce one daemon per Telegram token.",
+    )
+    parser.add_argument("--feishu-app-id", default=None, help="Optional Feishu app id.")
+    parser.add_argument("--feishu-app-secret", default=None, help="Optional Feishu app secret.")
+    parser.add_argument("--feishu-chat-id", default=None, help="Optional Feishu chat id.")
+    parser.add_argument(
+        "--feishu-receive-id-type",
+        default="chat_id",
+        help="Feishu receive_id_type used for outgoing messages.",
     )
     parser.add_argument(
         "--restart-existing",

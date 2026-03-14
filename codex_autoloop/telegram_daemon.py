@@ -17,6 +17,7 @@ from .apps.shell_utils import format_mode_menu
 from .btw_agent import BtwAgent, BtwConfig
 from .codex_runner import CodexRunner
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
+from .feishu_adapter import FeishuCommand, FeishuCommandPoller, FeishuConfig, FeishuNotifier
 from .model_catalog import MODEL_PRESETS, get_preset
 from .planner_modes import (
     PLANNER_MODE_AUTO,
@@ -95,9 +96,25 @@ def main() -> None:
     if args.follow_up_auto_execute_seconds < 0:
         parser.error("--follow-up-auto-execute-seconds must be >= 0")
     run_planner_mode = resolve_planner_mode(planner_enabled_flag=args.run_planner, planner_mode=args.run_planner_mode)
+    telegram_enabled = bool((args.telegram_bot_token or "").strip())
+    feishu_enabled = bool(
+        str(args.feishu_app_id or "").strip()
+        and str(args.feishu_app_secret or "").strip()
+        and str(args.feishu_chat_id or "").strip()
+    )
+    if not telegram_enabled and not feishu_enabled:
+        parser.error("At least one control channel is required: Telegram or Feishu.")
+    if any(
+        [
+            str(args.feishu_app_id or "").strip(),
+            str(args.feishu_app_secret or "").strip(),
+            str(args.feishu_chat_id or "").strip(),
+        ]
+    ) and not feishu_enabled:
+        parser.error("--feishu-app-id, --feishu-app-secret, and --feishu-chat-id must all be provided together.")
 
     chat_id = (args.telegram_chat_id or "").strip()
-    if chat_id.lower() in {"", "auto", "none", "null"}:
+    if telegram_enabled and chat_id.lower() in {"", "auto", "none", "null"}:
         print("Resolving chat_id from updates. Send /start or a message to your bot now...", file=sys.stderr)
         resolved = resolve_chat_id(
             bot_token=args.telegram_bot_token,
@@ -120,33 +137,49 @@ def main() -> None:
     operator_messages_path = logs_dir / "operator_messages.md"
 
     token_lock: TokenLock | None = None
-    try:
-        token_lock = acquire_token_lock(
-            token=args.telegram_bot_token,
-            owner_info={
-                "pid": os.getpid(),
-                "chat_id": chat_id,
-                "run_cwd": str(run_cwd),
-                "bus_dir": str(bus_dir),
-                "started_at": dt.datetime.utcnow().isoformat() + "Z",
-            },
-            lock_dir=args.token_lock_dir,
-        )
-    except RuntimeError as exc:
-        parser.error(str(exc))
+    if telegram_enabled:
+        try:
+            token_lock = acquire_token_lock(
+                token=args.telegram_bot_token,
+                owner_info={
+                    "pid": os.getpid(),
+                    "chat_id": chat_id,
+                    "run_cwd": str(run_cwd),
+                    "bus_dir": str(bus_dir),
+                    "started_at": dt.datetime.utcnow().isoformat() + "Z",
+                },
+                lock_dir=args.token_lock_dir,
+            )
+        except RuntimeError as exc:
+            parser.error(str(exc))
 
     daemon_bus = JsonlCommandBus(bus_dir / "daemon_commands.jsonl")
     status_path = bus_dir / "daemon_status.json"
 
-    notifier = TelegramNotifier(
-        TelegramConfig(
-            bot_token=args.telegram_bot_token,
-            chat_id=chat_id,
-            events=set(),
-            typing_enabled=False,
-        ),
-        on_error=lambda msg: print(f"[daemon] {msg}", file=sys.stderr),
-    )
+    notifier: TelegramNotifier | None = None
+    if telegram_enabled:
+        notifier = TelegramNotifier(
+            TelegramConfig(
+                bot_token=args.telegram_bot_token,
+                chat_id=chat_id,
+                events=set(),
+                typing_enabled=False,
+            ),
+            on_error=lambda msg: print(f"[daemon] {msg}", file=sys.stderr),
+        )
+    feishu_notifier: FeishuNotifier | None = None
+    if feishu_enabled:
+        feishu_notifier = FeishuNotifier(
+            FeishuConfig(
+                app_id=str(args.feishu_app_id).strip(),
+                app_secret=str(args.feishu_app_secret).strip(),
+                chat_id=str(args.feishu_chat_id).strip(),
+                receive_id_type=args.feishu_receive_id_type,
+                events=set(),
+                timeout_seconds=args.feishu_timeout_seconds,
+            ),
+            on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
+        )
 
     child: subprocess.Popen[str] | None = None
     child_objective: str | None = None
@@ -210,6 +243,22 @@ def main() -> None:
         }
         with run_archive_log.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+    def notify(
+        message: str,
+        *,
+        reply_markup: dict[str, Any] | None = None,
+        include_feishu: bool = True,
+    ) -> None:
+        delivered = False
+        if notifier is not None:
+            notifier.send_message(message, reply_markup=reply_markup)
+            delivered = True
+        if include_feishu and feishu_notifier is not None:
+            feishu_notifier.send_message(format_external_message(message))
+            delivered = True
+        if not delivered:
+            print(message, file=sys.stdout)
 
     def clear_planner_state(*, reason: str | None = None) -> None:
         nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
@@ -329,7 +378,7 @@ def main() -> None:
         child_run_id = timestamp
         child_control_path = control_path
         child_resume_session_id = resume_session_id
-        notifier.send_message(
+        notify(
             "[daemon] launched run\n"
             f"pid={child.pid}\n"
             f"objective={objective[:700]}\n"
@@ -396,12 +445,12 @@ def main() -> None:
             "This follow-up launches as a fresh session instead of resuming the old one.\n\n"
             f"{pending_follow_up.report_markdown[:3200]}"
         )
-        notifier.send_message(message, reply_markup=keyboard)
+        notify(message, reply_markup=keyboard)
 
     def send_modify_prompt() -> None:
         if pending_follow_up is None:
             return
-        notifier.send_message(
+        notify(
             "[daemon] modify planned next session\n"
             "Send the revised objective or constraints now.\n"
             "Daemon will inherit the existing planner objective and append your changes before execution.\n\n"
@@ -438,7 +487,11 @@ def main() -> None:
 
     def send_reply(source: str, message: str) -> None:
         if source == "telegram":
-            notifier.send_message(message)
+            if notifier is not None:
+                notifier.send_message(message)
+        elif source == "feishu":
+            if feishu_notifier is not None:
+                feishu_notifier.send_message(format_external_message(message))
         else:
             print(message, file=sys.stdout)
         log_event("reply.sent", source=source, message=message[:700])
@@ -664,6 +717,9 @@ def main() -> None:
     def on_telegram_command(command: TelegramCommand) -> None:
         handle_command(command, "telegram")
 
+    def on_feishu_command(command: FeishuCommand) -> None:
+        handle_command(TelegramCommand(kind=command.kind, text=command.text), "feishu")
+
     def schedule_plan_after_child_finish(
         *,
         objective: str,
@@ -700,7 +756,7 @@ def main() -> None:
                 objective=objective[:700],
                 exit_code=exit_code,
             )
-            notifier.send_message(
+            notify(
                 "[daemon] planner mode=record\n"
                 f"Recorded run summary to table: {record_file}"
             )
@@ -720,7 +776,7 @@ def main() -> None:
                 objective=objective[:700],
                 exit_code=exit_code,
             )
-            notifier.send_message(
+            notify(
                 "[daemon] planner mode=auto\n"
                 f"Skip auto-plan ({skip_reason or 'unknown'}). "
                 "Please fix blockers and run again via /run or terminal."
@@ -745,7 +801,7 @@ def main() -> None:
             objective=objective[:700],
             exit_code=exit_code,
         )
-        notifier.send_message(
+        notify(
             "[daemon] planner mode=auto\n"
             f"Will generate next request in {plan_request_delay_seconds}s."
         )
@@ -772,7 +828,7 @@ def main() -> None:
                 request=request[:700],
                 auto_execute_at=auto_at.isoformat() + "Z",
             )
-            notifier.send_message(
+            notify(
                 "[daemon] auto executing planned request (no override received in time).\n"
                 f"request={request[:700]}"
             )
@@ -808,28 +864,42 @@ def main() -> None:
                 request=request[:700],
                 auto_execute_at=pending_plan_auto_execute_at.isoformat() + "Z",
             )
-            notifier.send_message(
+            notify(
                 "[daemon] planner request generated\n"
                 f"request={request[:700]}\n"
                 f"Auto execute in {plan_auto_execute_delay_seconds}s unless you override via /run or /inject."
             )
 
-    poller = TelegramCommandPoller(
-        bot_token=args.telegram_bot_token,
-        chat_id=chat_id,
-        on_command=on_telegram_command,
-        on_error=lambda msg: print(f"[daemon] {msg}", file=sys.stderr),
-        poll_interval_seconds=args.poll_interval_seconds,
-        long_poll_timeout_seconds=args.long_poll_timeout_seconds,
-        plain_text_as_inject=True,
-        whisper_enabled=args.telegram_control_whisper,
-        whisper_api_key=args.telegram_control_whisper_api_key,
-        whisper_model=args.telegram_control_whisper_model,
-        whisper_base_url=args.telegram_control_whisper_base_url,
-        whisper_timeout_seconds=args.telegram_control_whisper_timeout_seconds,
-    )
-    poller.start()
-    notifier.send_message(
+    poller: TelegramCommandPoller | None = None
+    if telegram_enabled:
+        poller = TelegramCommandPoller(
+            bot_token=args.telegram_bot_token,
+            chat_id=chat_id,
+            on_command=on_telegram_command,
+            on_error=lambda msg: print(f"[daemon] {msg}", file=sys.stderr),
+            poll_interval_seconds=args.poll_interval_seconds,
+            long_poll_timeout_seconds=args.long_poll_timeout_seconds,
+            plain_text_as_inject=True,
+            whisper_enabled=args.telegram_control_whisper,
+            whisper_api_key=args.telegram_control_whisper_api_key,
+            whisper_model=args.telegram_control_whisper_model,
+            whisper_base_url=args.telegram_control_whisper_base_url,
+            whisper_timeout_seconds=args.telegram_control_whisper_timeout_seconds,
+        )
+        poller.start()
+    feishu_poller: FeishuCommandPoller | None = None
+    if feishu_enabled:
+        feishu_poller = FeishuCommandPoller(
+            app_id=str(args.feishu_app_id).strip(),
+            app_secret=str(args.feishu_app_secret).strip(),
+            chat_id=str(args.feishu_chat_id).strip(),
+            on_command=on_feishu_command,
+            on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
+            poll_interval_seconds=args.feishu_control_poll_interval_seconds,
+            plain_text_kind="run",
+        )
+        feishu_poller.start()
+    notify(
         "[daemon] online\n"
         "Send /run <objective> to start a new run.\n"
         "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
@@ -859,7 +929,7 @@ def main() -> None:
             if rc is None:
                 update_status()
                 continue
-            notifier.send_message(
+            notify(
                 "[daemon] run finished\n"
                 f"exit_code={rc}\n"
                 f"objective={str(child_objective or '')[:700]}\n"
@@ -882,7 +952,7 @@ def main() -> None:
                     "[daemon][warning] detected 'invalid encrypted content' in child log. "
                     "Next run will start with a fresh session (no resume)."
                 )
-                notifier.send_message(warning)
+                notify(warning)
                 print(warning, file=sys.stdout)
                 log_event(
                     "session.fresh.flagged",
@@ -949,7 +1019,10 @@ def main() -> None:
         print("Daemon interrupted.", file=sys.stderr)
         log_event("daemon.interrupted")
     finally:
-        poller.stop()
+        if poller is not None:
+            poller.stop()
+        if feishu_poller is not None:
+            feishu_poller.stop()
         if child is not None and child.poll() is None:
             child.terminate()
         clear_planner_state(reason="daemon_stopped")
@@ -965,7 +1038,10 @@ def main() -> None:
         log_event("daemon.stopped")
         if token_lock is not None:
             token_lock.release()
-        notifier.close()
+        if notifier is not None:
+            notifier.close()
+        if feishu_notifier is not None:
+            feishu_notifier.close()
 
 
 def build_child_command(
@@ -991,14 +1067,15 @@ def build_child_command(
     )
     planner_model = args.run_planner_model
     planner_reasoning_effort = args.run_planner_reasoning_effort
+    telegram_enabled = bool(str(args.telegram_bot_token or "").strip())
+    feishu_enabled = bool(
+        str(args.feishu_app_id or "").strip()
+        and str(args.feishu_app_secret or "").strip()
+        and str(args.feishu_chat_id or "").strip()
+    )
     cmd = resolve_autoloop_command(args.codex_autoloop_bin) + [
         "--max-rounds",
         str(args.run_max_rounds),
-        "--telegram-bot-token",
-        args.telegram_bot_token,
-        "--telegram-chat-id",
-        chat_id,
-        "--no-telegram-control",
         "--control-file",
         control_file,
         "--operator-messages-file",
@@ -1018,6 +1095,32 @@ def build_child_command(
         "--telegram-control-whisper-timeout-seconds",
         str(args.telegram_control_whisper_timeout_seconds),
     ]
+    if telegram_enabled:
+        cmd.extend(
+            [
+                "--telegram-bot-token",
+                args.telegram_bot_token,
+                "--telegram-chat-id",
+                chat_id,
+                "--no-telegram-control",
+            ]
+        )
+    if feishu_enabled:
+        cmd.extend(
+            [
+                "--feishu-app-id",
+                str(args.feishu_app_id).strip(),
+                "--feishu-app-secret",
+                str(args.feishu_app_secret).strip(),
+                "--feishu-chat-id",
+                str(args.feishu_chat_id).strip(),
+                "--feishu-receive-id-type",
+                args.feishu_receive_id_type,
+                "--feishu-timeout-seconds",
+                str(args.feishu_timeout_seconds),
+                "--no-feishu-control",
+            ]
+        )
     if main_model:
         cmd.extend(["--main-model", main_model])
     if main_reasoning_effort:
@@ -1506,7 +1609,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="argusbot-daemon",
         description="Keep an ArgusBot Telegram command daemon online and launch runs on demand.",
     )
-    parser.add_argument("--telegram-bot-token", required=True, help="Telegram bot token.")
+    parser.add_argument("--telegram-bot-token", default=None, help="Optional Telegram bot token.")
     parser.add_argument(
         "--telegram-chat-id",
         default="auto",
@@ -1720,6 +1823,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=90,
         help="Timeout in seconds for Whisper transcription requests.",
+    )
+    parser.add_argument("--feishu-app-id", default=None, help="Optional Feishu app id.")
+    parser.add_argument("--feishu-app-secret", default=None, help="Optional Feishu app secret.")
+    parser.add_argument("--feishu-chat-id", default=None, help="Feishu chat id.")
+    parser.add_argument(
+        "--feishu-receive-id-type",
+        default="chat_id",
+        help="Feishu receive_id_type used for outgoing messages.",
+    )
+    parser.add_argument(
+        "--feishu-timeout-seconds",
+        type=int,
+        default=10,
+        help="HTTP timeout for Feishu API calls.",
+    )
+    parser.add_argument(
+        "--feishu-control-poll-interval-seconds",
+        type=int,
+        default=2,
+        help="Polling interval for Feishu control command loop.",
     )
     return parser
 

@@ -324,10 +324,22 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
     model_preset = prompt_model_choice()
     play_mode = prompt_play_mode()
+    feishu_enabled = prompt_yes_no("Enable Feishu bidirectional control?", default=False)
+    feishu_app_id = None
+    feishu_app_secret = None
+    feishu_chat_id = None
+    if feishu_enabled:
+        feishu_app_id = prompt_input("Feishu app id: ", default="").strip() or None
+        feishu_app_secret = prompt_secret("Feishu app secret: ").strip() or None
+        feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
     print(f"Run working directory: {run_cd}")
     return {
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
+        "feishu_app_id": feishu_app_id,
+        "feishu_app_secret": feishu_app_secret,
+        "feishu_chat_id": feishu_chat_id,
+        "feishu_receive_id_type": "chat_id",
         "run_cd": str(run_cd),
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": DEFAULT_MAX_ROUNDS,
@@ -352,8 +364,11 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
 
 def is_config_usable(config: dict[str, Any]) -> bool:
     token = str(config.get("telegram_bot_token") or "").strip()
+    feishu_app_id = str(config.get("feishu_app_id") or "").strip()
+    feishu_app_secret = str(config.get("feishu_app_secret") or "").strip()
+    feishu_chat_id = str(config.get("feishu_chat_id") or "").strip()
     run_cd = str(config.get("run_cd") or "").strip()
-    return looks_like_token(token) and bool(run_cd)
+    return (looks_like_token(token) or bool(feishu_app_id and feishu_app_secret and feishu_chat_id)) and bool(run_cd)
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -365,6 +380,17 @@ def prompt_input(prompt: str, default: str) -> str:
 
 def prompt_secret(prompt: str) -> str:
     return getpass.getpass(prompt).strip()
+
+
+def prompt_yes_no(prompt: str, *, default: bool) -> bool:
+    default_text = "Y/n" if default else "y/N"
+    while True:
+        raw = prompt_input(f"{prompt} [{default_text}]: ", default=("y" if default else "n")).lower()
+        if raw in {"y", "yes"}:
+            return True
+        if raw in {"n", "no"}:
+            return False
+        print("Please answer y or n.", file=sys.stderr)
 
 
 def prompt_token() -> str:
@@ -606,18 +632,18 @@ def terminate_process_tree(pid: int) -> bool:
 
 def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_dir: str) -> list[str]:
     token = str(config.get("telegram_bot_token") or "").strip()
-    if not token:
-        raise SystemExit("Missing telegram_bot_token in daemon config.")
+    feishu_app_id = str(config.get("feishu_app_id") or "").strip()
+    feishu_app_secret = str(config.get("feishu_app_secret") or "").strip()
+    feishu_chat_id = str(config.get("feishu_chat_id") or "").strip()
+    if not token and not (feishu_app_id and feishu_app_secret and feishu_chat_id):
+        raise SystemExit("Missing control channel config in daemon config. Configure Telegram or Feishu.")
     run_cd = str(config.get("run_cd") or ".")
     chat_id = str(config.get("telegram_chat_id") or "auto")
     bus_dir = resolve_bus_dir(config, home_dir)
     logs_dir = resolve_logs_dir(config, home_dir)
+    child_command = str(config.get("codex_autoloop_bin") or "").strip()
     cmd = [
         *resolve_daemon_launch_prefix(),
-        "--telegram-bot-token",
-        token,
-        "--telegram-chat-id",
-        chat_id,
         "--run-cd",
         str(Path(run_cd).expanduser().resolve()),
         "--run-max-rounds",
@@ -638,7 +664,26 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         str(int(config.get("run_plan_request_delay_seconds", 600))),
         "--run-plan-auto-execute-delay-seconds",
         str(int(config.get("run_plan_auto_execute_delay_seconds", 600))),
+        "--follow-up-auto-execute-seconds",
+        str(int(config.get("follow_up_auto_execute_seconds", 600))),
     ]
+    if token:
+        cmd.extend(["--telegram-bot-token", token, "--telegram-chat-id", chat_id])
+    if feishu_app_id and feishu_app_secret and feishu_chat_id:
+        cmd.extend(
+            [
+                "--feishu-app-id",
+                feishu_app_id,
+                "--feishu-app-secret",
+                feishu_app_secret,
+                "--feishu-chat-id",
+                feishu_chat_id,
+                "--feishu-receive-id-type",
+                str(config.get("feishu_receive_id_type") or "chat_id"),
+            ]
+        )
+    if child_command:
+        cmd.extend(["--argusbot-bin", child_command])
     run_check = config.get("run_check")
     if isinstance(run_check, str) and run_check.strip():
         cmd.extend(["--run-check", run_check.strip()])

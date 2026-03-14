@@ -5,13 +5,20 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
-from ..adapters.control_channels import LocalBusControlChannel, TelegramControlChannel
-from ..adapters.event_sinks import CompositeEventSink, DashboardEventSink, TelegramEventSink, TerminalEventSink
+from ..adapters.control_channels import FeishuControlChannel, LocalBusControlChannel, TelegramControlChannel
+from ..adapters.event_sinks import (
+    CompositeEventSink,
+    DashboardEventSink,
+    FeishuEventSink,
+    TelegramEventSink,
+    TerminalEventSink,
+)
 from ..btw_agent import BtwAgent, BtwConfig
 from ..codex_runner import CodexRunner
 from ..core.engine import LoopConfig, LoopEngine
 from ..core.state_store import LoopStateStore
 from ..dashboard import DashboardServer, DashboardStore
+from ..feishu_adapter import FeishuConfig, FeishuNotifier
 from ..planner import Planner
 from ..reviewer import Reviewer
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
@@ -157,6 +164,44 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             )
             print("Telegram control channel enabled.", file=sys.stderr)
 
+    feishu_notifier: FeishuNotifier | None = None
+    feishu_values = [
+        str(args.feishu_app_id or "").strip(),
+        str(args.feishu_app_secret or "").strip(),
+        str(args.feishu_chat_id or "").strip(),
+    ]
+    feishu_requested = all(feishu_values)
+    if any(feishu_values) and not feishu_requested:
+        raise ValueError(
+            "--feishu-app-id, --feishu-app-secret, and --feishu-chat-id are all required when Feishu is enabled."
+        )
+    if feishu_requested:
+        feishu_notifier = FeishuNotifier(
+            FeishuConfig(
+                app_id=feishu_values[0],
+                app_secret=feishu_values[1],
+                chat_id=feishu_values[2],
+                receive_id_type=args.feishu_receive_id_type,
+                events=parse_telegram_events(args.feishu_events),
+                timeout_seconds=args.feishu_timeout_seconds,
+            ),
+            on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
+        )
+        print("Feishu notifications enabled.", file=sys.stderr)
+        sinks.append(FeishuEventSink(notifier=feishu_notifier))
+        if args.feishu_control:
+            control_channels.append(
+                FeishuControlChannel(
+                    app_id=feishu_values[0],
+                    app_secret=feishu_values[1],
+                    chat_id=feishu_values[2],
+                    on_error=lambda msg: print(f"[feishu-control] {msg}", file=sys.stderr),
+                    poll_interval_seconds=args.feishu_control_poll_interval_seconds,
+                    plain_text_kind=("inject" if args.feishu_control_plain_text_inject else "run"),
+                )
+            )
+            print("Feishu control channel enabled.", file=sys.stderr)
+
     if args.control_file:
         control_channels.append(
             LocalBusControlChannel(
@@ -171,6 +216,9 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     def reply_to_source(source: str, message: str) -> None:
         if source == "telegram" and telegram_notifier is not None:
             telegram_notifier.send_message(message)
+            return
+        if source == "feishu" and feishu_notifier is not None:
+            feishu_notifier.send_message(message)
             return
         print(message, file=sys.stderr)
 
@@ -209,11 +257,12 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     def on_control_command(command) -> None:
         if command.kind == "inject":
             state_store.request_inject(command.text, source=command.source)
-            if command.source == "telegram" and telegram_notifier is not None:
-                telegram_notifier.send_message(
+            if command.source in {"telegram", "feishu"}:
+                reply_to_source(
+                    command.source,
                     "[autoloop] control ack\n"
                     "Action: inject\n"
-                    "Main agent will be interrupted and resumed with your new instruction."
+                    "Main agent will be interrupted and resumed with your new instruction.",
                 )
             else:
                 print("[control] local inject received.", file=sys.stderr)
@@ -257,11 +306,12 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             return
         if command.kind == "stop":
             state_store.request_stop(source=command.source)
-            if command.source == "telegram" and telegram_notifier is not None:
-                telegram_notifier.send_message(
+            if command.source in {"telegram", "feishu"}:
+                reply_to_source(
+                    command.source,
                     "[autoloop] control ack\n"
                     "Action: stop\n"
-                    "Current run will be interrupted and loop will stop."
+                    "Current run will be interrupted and loop will stop.",
                 )
             else:
                 print("[control] local stop received.", file=sys.stderr)
