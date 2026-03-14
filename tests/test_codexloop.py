@@ -103,6 +103,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
+    monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
@@ -116,6 +117,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["run_plan_auto_execute_delay_seconds"] == 600
     assert config["run_yolo"] is True
     assert config["run_full_auto"] is False
+    assert config["run_copilot_proxy"] is False
 
 
 def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: Path) -> None:
@@ -124,6 +126,7 @@ def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: P
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
     monkeypatch.setattr(codexloop, "prompt_secret", lambda prompt: "secret")
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
+    monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["telegram_bot_token"] is None
@@ -131,6 +134,26 @@ def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: P
     assert config["feishu_app_id"] == "cli_xxx"
     assert config["feishu_app_secret"] == "secret"
     assert config["feishu_chat_id"] == "oc_123"
+
+
+def test_run_interactive_config_marks_copilot_preset_as_preferred(monkeypatch, tmp_path: Path) -> None:
+    observed: dict[str, bool] = {}
+
+    def fake_prompt_copilot_proxy_choice(preferred=False):
+        observed["preferred"] = preferred
+        return False, None, 18080
+
+    monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "telegram")
+    monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
+    monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: "copilot")
+    monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", fake_prompt_copilot_proxy_choice)
+    monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+
+    codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
+
+    assert observed == {"preferred": True}
 
 
 def test_prompt_control_channel_default_is_telegram(monkeypatch) -> None:
@@ -229,6 +252,9 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "follow_up_auto_execute_seconds": 900,
         "run_resume_last_session": True,
         "run_model_preset": "quality",
+        "run_copilot_proxy": True,
+        "run_copilot_proxy_dir": "/home/v-boxiuli/copilot-proxy",
+        "run_copilot_proxy_port": 18080,
         "codex_autoloop_bin": r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe -m codex_autoloop.cli",
         "bus_dir": str(home_dir / "bus"),
         "logs_dir": str(home_dir / "logs"),
@@ -247,6 +273,9 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert "--follow-up-auto-execute-seconds" in cmd
     assert "--run-check" in cmd
     assert "--run-model-preset" in cmd
+    assert "--run-copilot-proxy" in cmd
+    assert "--run-copilot-proxy-dir" in cmd
+    assert "--run-copilot-proxy-port" in cmd
     assert "--argusbot-bin" in cmd
     assert "--run-skip-git-repo-check" in cmd
     assert "--run-yolo" in cmd

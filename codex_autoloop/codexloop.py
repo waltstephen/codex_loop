@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .apps.daemon_app import render_plan_context, render_review_context
+from .copilot_proxy import bootstrap_proxy_checkout, managed_proxy_dir, resolve_proxy_dir
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
 from .model_catalog import MODEL_PRESETS
 
@@ -336,6 +337,9 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
     model_preset = prompt_model_choice()
+    use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = prompt_copilot_proxy_choice(
+        preferred=(model_preset == "copilot")
+    )
     play_mode = prompt_play_mode()
     print(f"Run working directory: {run_cd}")
     return {
@@ -362,6 +366,9 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_main_model": None,
         "run_reviewer_model": None,
         "run_model_preset": model_preset,
+        "run_copilot_proxy": use_copilot_proxy,
+        "run_copilot_proxy_dir": copilot_proxy_dir,
+        "run_copilot_proxy_port": copilot_proxy_port,
         "bus_dir": str((home_dir / "bus").resolve()),
         "logs_dir": str((home_dir / "logs").resolve()),
     }
@@ -455,6 +462,36 @@ def prompt_model_choice() -> str | None:
         if 1 <= index <= len(MODEL_PRESETS):
             return MODEL_PRESETS[index - 1].name
         print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
+
+
+def prompt_copilot_proxy_choice(*, preferred: bool = False) -> tuple[bool, str | None, int]:
+    detected = resolve_proxy_dir()
+    if detected is not None:
+        use_proxy = prompt_yes_no(
+            f"Detected copilot-proxy at {detected}. Use it for Codex runs?",
+            default=preferred,
+        )
+        if not use_proxy:
+            return False, None, 18080
+        return True, str(detected), 18080
+    if not preferred:
+        return False, None, 18080
+    target_dir = managed_proxy_dir()
+    install_proxy = prompt_yes_no(
+        f"No local copilot-proxy checkout was found. Install it automatically into {target_dir}?",
+        default=True,
+    )
+    if not install_proxy:
+        return False, None, 18080
+    try:
+        resolved = bootstrap_proxy_checkout(
+            on_progress=lambda message: print(f"[copilot-proxy] {message}", file=sys.stderr),
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return False, None, 18080
+    print(f"[copilot-proxy] Ready at {resolved}", file=sys.stderr)
+    return True, str(resolved), 18080
 
 
 def prompt_play_mode() -> PlayMode:
@@ -720,6 +757,15 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
     run_model_preset = str(config.get("run_model_preset") or "").strip()
     if run_model_preset:
         cmd.extend(["--run-model-preset", run_model_preset])
+    if bool(config.get("run_copilot_proxy")):
+        cmd.append("--run-copilot-proxy")
+    else:
+        cmd.append("--no-run-copilot-proxy")
+    run_copilot_proxy_dir = str(config.get("run_copilot_proxy_dir") or "").strip()
+    if run_copilot_proxy_dir:
+        cmd.extend(["--run-copilot-proxy-dir", run_copilot_proxy_dir])
+    run_copilot_proxy_port = int(config.get("run_copilot_proxy_port") or 18080)
+    cmd.extend(["--run-copilot-proxy-port", str(run_copilot_proxy_port)])
     run_plan_record_file = str(config.get("run_plan_record_file") or "").strip()
     if run_plan_record_file:
         cmd.extend(["--run-plan-record-file", run_plan_record_file])

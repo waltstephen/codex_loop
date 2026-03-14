@@ -338,6 +338,64 @@ def test_build_parser_accepts_feishu_options() -> None:
     assert args.feishu_chat_id == "oc_123"
 
 
+def test_build_parser_accepts_copilot_proxy_options() -> None:
+    args = setup_wizard.build_parser().parse_args(
+        [
+            "--run-copilot-proxy",
+            "--run-copilot-proxy-dir",
+            "/home/v-boxiuli/copilot-proxy",
+            "--run-copilot-proxy-port",
+            "18080",
+        ]
+    )
+    assert args.run_copilot_proxy is True
+    assert args.run_copilot_proxy_dir == "/home/v-boxiuli/copilot-proxy"
+    assert args.run_copilot_proxy_port == 18080
+
+
+def test_resolve_copilot_proxy_settings_bootstraps_when_explicitly_enabled(monkeypatch, tmp_path: Path) -> None:
+    managed_dir = tmp_path / ".argusbot" / "tools" / "copilot-proxy"
+    monkeypatch.setattr(setup_wizard, "resolve_proxy_dir", lambda raw=None: None)
+    monkeypatch.setattr(setup_wizard, "prompt_yes_no", lambda prompt, default: True)
+    monkeypatch.setattr(setup_wizard, "managed_proxy_dir", lambda: managed_dir)
+    monkeypatch.setattr(setup_wizard, "bootstrap_proxy_checkout", lambda on_progress=None: managed_dir)
+
+    enabled, proxy_dir, port = setup_wizard.resolve_copilot_proxy_settings(
+        SimpleNamespace(
+            run_copilot_proxy=True,
+            run_copilot_proxy_dir=None,
+            run_copilot_proxy_port=18080,
+            run_model_preset=None,
+        )
+    )
+
+    assert enabled is True
+    assert proxy_dir == str(managed_dir)
+    assert port == 18080
+
+
+def test_resolve_copilot_proxy_settings_bootstraps_for_copilot_preset(monkeypatch, tmp_path: Path) -> None:
+    managed_dir = tmp_path / ".argusbot" / "tools" / "copilot-proxy"
+    monkeypatch.setattr(setup_wizard, "resolve_proxy_dir", lambda raw=None: None)
+    monkeypatch.setattr(setup_wizard, "prompt_yes_no", lambda prompt, default: True)
+    monkeypatch.setattr(setup_wizard, "managed_proxy_dir", lambda: managed_dir)
+    monkeypatch.setattr(setup_wizard, "bootstrap_proxy_checkout", lambda on_progress=None: managed_dir)
+
+    enabled, proxy_dir, port = setup_wizard.resolve_copilot_proxy_settings(
+        SimpleNamespace(
+            run_copilot_proxy=None,
+            run_copilot_proxy_dir=None,
+            run_copilot_proxy_port=18080,
+            run_model_preset=None,
+        ),
+        preferred_preset_name="copilot",
+    )
+
+    assert enabled is True
+    assert proxy_dir == str(managed_dir)
+    assert port == 18080
+
+
 def test_resolve_feishu_config_rejects_invalid_chat_id() -> None:
     with pytest.raises(SystemExit) as excinfo:
         setup_wizard.resolve_feishu_config(

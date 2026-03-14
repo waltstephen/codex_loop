@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..adapters.control_channels import LocalBusControlChannel, TelegramControlChannel
 from ..btw_agent import BtwAgent, BtwConfig
-from ..codex_runner import CodexRunner
+from ..copilot_proxy import build_codex_runner, config_from_args, format_proxy_summary
 from ..daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from ..model_catalog import get_preset
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
@@ -48,6 +48,9 @@ class TelegramDaemonApp:
         self.status_path = self.bus_dir / "daemon_status.json"
         self.next_run_new_session_flag_path = self.bus_dir / "next_run_new_session.flag"
         preset = get_preset(args.run_model_preset) if getattr(args, "run_model_preset", None) else None
+        run_copilot_proxy = config_from_args(args, prefix="run_")
+        if run_copilot_proxy.enabled:
+            print(f"[daemon] Copilot proxy mode: {format_proxy_summary(run_copilot_proxy)}", file=sys.stderr)
 
         self.token_lock: TokenLock | None = None
         self.notifier: TelegramNotifier | None = None
@@ -62,7 +65,7 @@ class TelegramDaemonApp:
         self.child_started_at: dt.datetime | None = None
         self.child_control_bus: JsonlCommandBus | None = None
         self.btw_agent = BtwAgent(
-            runner=CodexRunner(),
+            runner=build_codex_runner(codex_bin="codex", config=run_copilot_proxy),
             config=BtwConfig(
                 working_dir=str(self.run_cwd),
                 model=(
@@ -600,6 +603,14 @@ def build_child_command(
         cmd.append("--no-telegram-live-updates")
     if args.telegram_control_whisper_api_key:
         cmd.extend(["--telegram-control-whisper-api-key", args.telegram_control_whisper_api_key])
+    if getattr(args, "run_copilot_proxy", False):
+        cmd.append("--copilot-proxy")
+    else:
+        cmd.append("--no-copilot-proxy")
+    run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
+    if run_copilot_proxy_dir:
+        cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])
+    cmd.extend(["--copilot-proxy-port", str(int(getattr(args, "run_copilot_proxy_port", 18080)))])
     if resume_session_id:
         cmd.extend(["--session-id", resume_session_id])
     if args.run_skip_git_repo_check:

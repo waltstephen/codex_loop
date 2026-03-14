@@ -11,8 +11,19 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from .copilot_proxy import (
+    AUTO_DETECTED_PROXY_DIRS,
+    AUTO_DETECTED_PROXY_DIR_HELP,
+    CopilotProxyConfig,
+    bootstrap_proxy_checkout,
+    codex_config_overrides,
+    ensure_proxy_running,
+    format_proxy_summary,
+    managed_proxy_dir,
+    resolve_proxy_dir,
+)
 from .model_catalog import MODEL_PRESETS, get_preset
 from .planner_modes import (
     PLANNER_MODE_AUTO,
@@ -46,13 +57,6 @@ def main() -> None:
         print("codex CLI executable check failed.", file=sys.stderr)
         raise SystemExit(2)
 
-    auth_ok = check_codex_auth(codex_bin=codex_bin, cwd=Path(args.run_cd).resolve(), timeout_seconds=45)
-    if not auth_ok:
-        print("Could not verify Codex auth by probe request.", file=sys.stderr)
-        choice = prompt_input("Continue anyway? [y/N]: ", default="n").lower()
-        if choice not in {"y", "yes"}:
-            raise SystemExit(2)
-
     channel = resolve_setup_channel(args)
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
@@ -78,6 +82,27 @@ def main() -> None:
         preset_name = prompt_model_choice()
         if preset_name is None:
             inherit_codex_defaults = True
+    use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = resolve_copilot_proxy_settings(
+        args,
+        preferred_preset_name=preset_name,
+    )
+    copilot_proxy = CopilotProxyConfig(
+        enabled=use_copilot_proxy,
+        proxy_dir=copilot_proxy_dir,
+        port=copilot_proxy_port,
+    )
+    auth_ok = check_codex_auth(
+        codex_bin=codex_bin,
+        cwd=Path(args.run_cd).resolve(),
+        timeout_seconds=45,
+        extra_args=codex_config_overrides(copilot_proxy),
+        before_exec=(lambda: ensure_proxy_running(copilot_proxy)) if copilot_proxy.enabled else None,
+    )
+    if not auth_ok:
+        print("Could not verify Codex auth by probe request.", file=sys.stderr)
+        choice = prompt_input("Continue anyway? [y/N]: ", default="n").lower()
+        if choice not in {"y", "yes"}:
+            raise SystemExit(2)
     resolved_preset = get_preset(preset_name) if preset_name and preset_name.lower() != "custom" else None
     if preset_name and preset_name.lower() != "custom" and resolved_preset is None:
         print(f"Unknown model preset: {preset_name}", file=sys.stderr)
@@ -161,6 +186,9 @@ def main() -> None:
         "run_main_model": main_model,
         "run_reviewer_model": reviewer_model,
         "run_model_preset": (resolved_preset.name if resolved_preset else (preset_name or None)),
+        "run_copilot_proxy": copilot_proxy.enabled,
+        "run_copilot_proxy_dir": copilot_proxy.proxy_dir,
+        "run_copilot_proxy_port": copilot_proxy.port,
         "run_planner_mode": planner_mode,
         "follow_up_auto_execute_seconds": args.follow_up_auto_execute_seconds,
         "codex_autoloop_bin": DEFAULT_CODEX_AUTOLOOP_CMD,
@@ -227,6 +255,13 @@ def main() -> None:
             daemon_cmd.extend(["--run-reviewer-model", reviewer_model])
         if reviewer_reasoning_effort:
             daemon_cmd.extend(["--run-reviewer-reasoning-effort", reviewer_reasoning_effort])
+    if copilot_proxy.enabled:
+        daemon_cmd.append("--run-copilot-proxy")
+    else:
+        daemon_cmd.append("--no-run-copilot-proxy")
+    if copilot_proxy.proxy_dir:
+        daemon_cmd.extend(["--run-copilot-proxy-dir", copilot_proxy.proxy_dir])
+    daemon_cmd.extend(["--run-copilot-proxy-port", str(copilot_proxy.port)])
     if args.run_skip_git_repo_check:
         daemon_cmd.append("--run-skip-git-repo-check")
     if args.run_full_auto:
@@ -280,6 +315,7 @@ def main() -> None:
             f"Reviewer model: {reviewer_model or '<codex default>'} "
             f"effort={reviewer_reasoning_effort or '<default>'}"
         )
+    print(f"Copilot proxy: {format_proxy_summary(copilot_proxy)}")
     print("")
     ctl_hint = resolve_daemon_ctl_hint()
     print("Terminal control examples:")
@@ -316,10 +352,26 @@ def check_codex_binary(codex_bin: str) -> bool:
     return completed.returncode == 0
 
 
-def check_codex_auth(*, codex_bin: str, cwd: Path, timeout_seconds: int) -> bool:
+def check_codex_auth(
+    *,
+    codex_bin: str,
+    cwd: Path,
+    timeout_seconds: int,
+    extra_args: list[str] | None = None,
+    before_exec: Callable[[], None] | None = None,
+) -> bool:
     try:
+        if before_exec is not None:
+            before_exec()
         completed = subprocess.run(
-            [codex_bin, "exec", "--skip-git-repo-check", "--json", "Reply exactly: ok"],
+            [
+                codex_bin,
+                "exec",
+                "--skip-git-repo-check",
+                "--json",
+                *(extra_args or []),
+                "Reply exactly: ok",
+            ],
             cwd=str(cwd),
             capture_output=True,
             text=True,
@@ -332,6 +384,71 @@ def check_codex_auth(*, codex_bin: str, cwd: Path, timeout_seconds: int) -> bool
     if "unauthorized" in lowered or "missing bearer" in lowered:
         return False
     return '"text":"ok"' in text or '"text": "ok"' in text
+
+
+def resolve_copilot_proxy_settings(
+    args: argparse.Namespace,
+    *,
+    preferred_preset_name: str | None = None,
+) -> tuple[bool, str | None, int]:
+    explicit_enabled = getattr(args, "run_copilot_proxy", None)
+    raw_dir = getattr(args, "run_copilot_proxy_dir", None)
+    raw_port = getattr(args, "run_copilot_proxy_port", 18080)
+    resolved_dir = resolve_proxy_dir(raw_dir)
+    copilot_preferred = str(preferred_preset_name or getattr(args, "run_model_preset", "") or "").strip().lower() == "copilot"
+    if raw_dir and resolved_dir is None:
+        print(
+            "Invalid --run-copilot-proxy-dir: proxy.mjs not found in the specified directory.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if explicit_enabled is True:
+        if resolved_dir is None:
+            installed = prompt_install_copilot_proxy(default=True)
+            if installed:
+                resolved_dir = Path(installed)
+        if resolved_dir is None:
+            print(
+                "Copilot proxy was enabled, but no local proxy checkout was found. "
+                f"Pass --run-copilot-proxy-dir explicitly or use one of these locations: {AUTO_DETECTED_PROXY_DIRS}.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        return True, str(resolved_dir), max(1, int(raw_port))
+    if explicit_enabled is False:
+        return False, None, max(1, int(raw_port))
+    if resolved_dir is None:
+        if copilot_preferred:
+            installed = prompt_install_copilot_proxy(default=True)
+            if installed:
+                return True, installed, max(1, int(raw_port))
+        return False, None, max(1, int(raw_port))
+    use_proxy = prompt_yes_no(
+        f"Detected copilot-proxy at {resolved_dir}. Use it for Codex runs?",
+        default=copilot_preferred,
+    )
+    if not use_proxy:
+        return False, None, max(1, int(raw_port))
+    return True, str(resolved_dir), max(1, int(raw_port))
+
+
+def prompt_install_copilot_proxy(*, default: bool) -> str | None:
+    target_dir = managed_proxy_dir()
+    install_proxy = prompt_yes_no(
+        f"No local copilot-proxy checkout was found. Install it automatically into {target_dir}?",
+        default=default,
+    )
+    if not install_proxy:
+        return None
+    try:
+        resolved = bootstrap_proxy_checkout(
+            on_progress=lambda message: print(f"[copilot-proxy] {message}", file=sys.stderr),
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return None
+    print(f"[copilot-proxy] Ready at {resolved}", file=sys.stderr)
+    return str(resolved)
 
 
 def resolve_daemon_launch_prefix() -> list[str]:
@@ -834,6 +951,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-model-preset",
         default=None,
         help="Optional preset name for daemon-launched models. Interactive setup also prompts for this.",
+    )
+    parser.add_argument(
+        "--run-copilot-proxy",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Use a local copilot-proxy for daemon-launched Codex runs.",
+    )
+    parser.add_argument(
+        "--run-copilot-proxy-dir",
+        default=None,
+        help=f"Path to the local copilot-proxy checkout. {AUTO_DETECTED_PROXY_DIR_HELP}",
+    )
+    parser.add_argument(
+        "--run-copilot-proxy-port",
+        type=int,
+        default=18080,
+        help="Local copilot-proxy port.",
     )
     parser.add_argument(
         "--run-planner-mode",
