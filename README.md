@@ -18,6 +18,12 @@ Current defaults:
 - Daemon child model defaults now inherit Codex CLI global settings unless you explicitly set a preset/override.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
+## Important Warnings
+
+1. Security risk: daemon-launched runs use `--yolo` by default. This grants Codex high local execution power. Run only in trusted repositories/workspaces.
+2. Visibility and debugging: Telegram/Feishu snippets may hide important details. If behavior looks wrong, run `argusbot` in the target workspace and watch local live output/logs first.
+3. Cost and loop risk: long-running objectives can consume significant tokens. Planner or reviewer quality can also cause repeated loops. Always set clear acceptance checks, monitor runtime, and stop/re-scope when needed.
+
 ## Quick Start (24/7 Telegram Control)
 
 If you want to control your main project from Telegram 24/7 with an always-on daemon, use this flow:
