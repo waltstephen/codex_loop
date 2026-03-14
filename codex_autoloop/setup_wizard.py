@@ -25,6 +25,10 @@ from .token_lock import acquire_token_lock, default_token_lock_dir
 
 
 DEFAULT_CODEX_AUTOLOOP_CMD = f"{sys.executable} -m codex_autoloop.cli"
+CHANNEL_TELEGRAM = "telegram"
+CHANNEL_FEISHU = "feishu"
+CHANNEL_BOTH = "both"
+CHANNEL_CHOICES = [CHANNEL_TELEGRAM, CHANNEL_FEISHU, CHANNEL_BOTH]
 
 
 def main() -> None:
@@ -49,7 +53,7 @@ def main() -> None:
         if choice not in {"y", "yes"}:
             raise SystemExit(2)
 
-    token = prompt_token()
+    channel = resolve_setup_channel(args)
     home_dir = Path(args.home_dir).resolve()
     bus_dir = home_dir / "bus"
     logs_dir = home_dir / "logs"
@@ -60,7 +64,10 @@ def main() -> None:
     if args.restart_existing:
         stop_existing_daemon(home_dir=home_dir, bus_dir=bus_dir)
 
-    requested_chat_id = prompt_chat_id()
+    telegram_enabled = channel in {CHANNEL_TELEGRAM, CHANNEL_BOTH}
+    feishu_enabled = channel in {CHANNEL_FEISHU, CHANNEL_BOTH}
+    token = resolve_telegram_token(args) if telegram_enabled else None
+    requested_chat_id = resolve_telegram_chat_id(args) if telegram_enabled else None
     check_cmd = prompt_input(
         "Default check command (optional, leave empty for none): ",
         default="",
@@ -104,49 +111,38 @@ def main() -> None:
     if planner_mode is None:
         planner_mode = prompt_planner_mode_choice()
 
-    try:
-        probe_lock = acquire_token_lock(
-            token=token,
-            owner_info={"pid": "setup-probe", "run_cd": str(Path(args.run_cd).resolve())},
-            lock_dir=args.token_lock_dir,
-        )
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        raise SystemExit(2)
-    else:
-        probe_lock.release()
+    chat_id: str | None = None
+    if telegram_enabled:
+        assert token is not None
+        try:
+            probe_lock = acquire_token_lock(
+                token=token,
+                owner_info={"pid": "setup-probe", "run_cd": str(Path(args.run_cd).resolve())},
+                lock_dir=args.token_lock_dir,
+            )
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(2)
+        else:
+            probe_lock.release()
 
-    chat_id = resolve_effective_chat_id(
-        bot_token=token,
-        requested_chat_id=requested_chat_id,
-        timeout_seconds=120,
-        home_dir=home_dir,
-        token_lock_dir=args.token_lock_dir,
-    )
-    feishu_app_id = (getattr(args, "feishu_app_id", None) or "").strip() or None
-    feishu_app_secret = (getattr(args, "feishu_app_secret", None) or "").strip() or None
-    feishu_chat_id = (getattr(args, "feishu_chat_id", None) or "").strip() or None
-    feishu_receive_id_type = str(getattr(args, "feishu_receive_id_type", "chat_id") or "chat_id").strip() or "chat_id"
-    feishu_fields = [feishu_app_id, feishu_app_secret, feishu_chat_id]
-    if any(feishu_fields) and not all(feishu_fields):
-        print(
-            "Feishu configuration is incomplete. Provide app id, app secret, and chat id together.",
-            file=sys.stderr,
+        chat_id = resolve_effective_chat_id(
+            bot_token=token,
+            requested_chat_id=requested_chat_id or "auto",
+            timeout_seconds=120,
+            home_dir=home_dir,
+            token_lock_dir=args.token_lock_dir,
         )
-        raise SystemExit(2)
-    if not all(feishu_fields):
-        feishu_enabled = prompt_yes_no("Enable Feishu bidirectional control?", default=False)
-        if feishu_enabled:
-            feishu_app_id = prompt_input("Feishu app id: ", default="").strip() or None
-            feishu_app_secret = prompt_secret("Feishu app secret: ").strip() or None
-            feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
-            if not (feishu_app_id and feishu_app_secret and feishu_chat_id):
-                print("Feishu setup skipped because one or more required fields were empty.", file=sys.stderr)
-                feishu_app_id = None
-                feishu_app_secret = None
-                feishu_chat_id = None
+
+    feishu_app_id = None
+    feishu_app_secret = None
+    feishu_chat_id = None
+    feishu_receive_id_type = str(getattr(args, "feishu_receive_id_type", "chat_id") or "chat_id").strip() or "chat_id"
+    if feishu_enabled:
+        feishu_app_id, feishu_app_secret, feishu_chat_id = resolve_feishu_config(args)
 
     config = {
+        "control_channel": channel,
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
         "feishu_app_id": feishu_app_id,
@@ -179,10 +175,6 @@ def main() -> None:
     daemon_prefix = resolve_daemon_launch_prefix()
     daemon_cmd = [
         *daemon_prefix,
-        "--telegram-bot-token",
-        token,
-        "--telegram-chat-id",
-        chat_id,
         "--argusbot-bin",
         DEFAULT_CODEX_AUTOLOOP_CMD,
         "--run-cd",
@@ -200,6 +192,15 @@ def main() -> None:
         "--follow-up-auto-execute-seconds",
         str(args.follow_up_auto_execute_seconds),
     ]
+    if token and chat_id:
+        daemon_cmd.extend(
+            [
+                "--telegram-bot-token",
+                token,
+                "--telegram-chat-id",
+                chat_id,
+            ]
+        )
     if feishu_app_id and feishu_app_secret and feishu_chat_id:
         daemon_cmd.extend(
             [
@@ -262,6 +263,7 @@ def main() -> None:
     print(f"Config: {config_path}")
     print(f"Log: {daemon_log}")
     print(f"Bus dir: {bus_dir}")
+    print(f"Control channel: {channel}")
     print(f"Planner mode: {planner_mode} ({planner_mode_label(planner_mode)})")
     if planner_mode == PLANNER_MODE_AUTO:
         print(f"Follow-up auto execute: {args.follow_up_auto_execute_seconds}s")
@@ -285,12 +287,20 @@ def main() -> None:
     print(f"  {ctl_hint} --bus-dir {bus_dir} inject \"继续并优先修复测试\"")
     print(f"  {ctl_hint} --bus-dir {bus_dir} status")
     print(f"  {ctl_hint} --bus-dir {bus_dir} stop")
-    print("")
-    print("Telegram control examples:")
-    print("  /run <objective>")
-    print("  /inject <instruction>")
-    print("  /status")
-    print("  /stop")
+    if telegram_enabled:
+        print("")
+        print("Telegram control examples:")
+        print("  /run <objective>")
+        print("  /inject <instruction>")
+        print("  /status")
+        print("  /stop")
+    if feishu_enabled:
+        print("")
+        print("Feishu control examples:")
+        print("  /run <objective>")
+        print("  /inject <instruction>")
+        print("  /status")
+        print("  /stop")
 
 
 def check_codex_binary(codex_bin: str) -> bool:
@@ -596,6 +606,25 @@ def prompt_yes_no(prompt: str, *, default: bool) -> bool:
         print("Please answer y or n.", file=sys.stderr)
 
 
+def prompt_channel_choice(default: str | None = None) -> str:
+    options = [
+        ("1", CHANNEL_TELEGRAM, "Telegram"),
+        ("2", CHANNEL_FEISHU, "Feishu"),
+        ("3", CHANNEL_BOTH, "Telegram + Feishu"),
+    ]
+    default_channel = default if default in CHANNEL_CHOICES else CHANNEL_TELEGRAM
+    default_index = next(index for index, channel, _ in options if channel == default_channel)
+    print("Choose a control channel:")
+    for index, _, label in options:
+        print(f"  {index}. {label}")
+    while True:
+        raw = prompt_input(f"Channel number [{default_index}]: ", default=default_index).strip()
+        for index, channel, _ in options:
+            if raw == index:
+                return channel
+        print("Invalid selection. Enter 1, 2, or 3.", file=sys.stderr)
+
+
 def prompt_token() -> str:
     while True:
         token = prompt_secret("Telegram bot token: ")
@@ -610,6 +639,16 @@ def prompt_chat_id() -> str:
         if value.lower() == "auto" or looks_like_chat_id(value):
             return value
         print("Invalid chat id. Use 'auto' or a numeric chat id like 123456 or -100123456.", file=sys.stderr)
+
+
+def prompt_feishu_config() -> tuple[str, str, str]:
+    while True:
+        app_id = prompt_input("Feishu app id: ", default="").strip()
+        app_secret = prompt_secret("Feishu app secret: ").strip()
+        chat_id = prompt_input("Feishu chat id: ", default="").strip()
+        if app_id and app_secret and chat_id:
+            return app_id, app_secret, chat_id
+        print("Feishu app id, app secret, and chat id are all required. Please try again.", file=sys.stderr)
 
 
 def prompt_model_choice() -> str | None:
@@ -677,10 +716,69 @@ def prompt_planner_mode_choice() -> str:
     return PLANNER_MODE_AUTO
 
 
+def resolve_setup_channel(args: argparse.Namespace) -> str:
+    raw = str(getattr(args, "channel", None) or "").strip().lower()
+    if raw in CHANNEL_CHOICES:
+        return raw
+    inferred = infer_setup_channel(args)
+    return prompt_channel_choice(default=inferred)
+
+
+def infer_setup_channel(args: argparse.Namespace) -> str | None:
+    telegram_enabled = bool(str(getattr(args, "telegram_bot_token", None) or "").strip())
+    feishu_enabled = all(
+        str(getattr(args, field, None) or "").strip()
+        for field in ("feishu_app_id", "feishu_app_secret", "feishu_chat_id")
+    )
+    if telegram_enabled and feishu_enabled:
+        return CHANNEL_BOTH
+    if telegram_enabled:
+        return CHANNEL_TELEGRAM
+    if feishu_enabled:
+        return CHANNEL_FEISHU
+    return None
+
+
+def resolve_telegram_token(args: argparse.Namespace) -> str:
+    configured = str(getattr(args, "telegram_bot_token", None) or "").strip()
+    if not configured:
+        return prompt_token()
+    if not looks_like_token(configured):
+        print("Invalid token format. Expected <digits>:<secret>.", file=sys.stderr)
+        raise SystemExit(2)
+    return configured
+
+
+def resolve_telegram_chat_id(args: argparse.Namespace) -> str:
+    configured = str(getattr(args, "telegram_chat_id", None) or "").strip()
+    if not configured:
+        return prompt_chat_id()
+    if configured.lower() == "auto" or looks_like_chat_id(configured):
+        return configured
+    print("Invalid chat id. Use 'auto' or a numeric chat id like 123456 or -100123456.", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def resolve_feishu_config(args: argparse.Namespace) -> tuple[str, str, str]:
+    app_id = str(getattr(args, "feishu_app_id", None) or "").strip()
+    app_secret = str(getattr(args, "feishu_app_secret", None) or "").strip()
+    chat_id = str(getattr(args, "feishu_chat_id", None) or "").strip()
+    fields = [app_id, app_secret, chat_id]
+    if any(fields) and not all(fields):
+        print(
+            "Feishu configuration is incomplete. Provide app id, app secret, and chat id together.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if all(fields):
+        return app_id, app_secret, chat_id
+    return prompt_feishu_config()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="argusbot-setup",
-        description="Interactive ArgusBot setup: verify codex, collect Telegram token, and launch daemon in background.",
+        description="Interactive ArgusBot setup: verify codex, choose Telegram/Feishu control, and launch daemon.",
     )
     parser.add_argument(
         "--home-dir",
@@ -749,6 +847,14 @@ def build_parser() -> argparse.ArgumentParser:
         default="/tmp/argusbot-token-locks",
         help="Global lock directory to enforce one daemon per Telegram token.",
     )
+    parser.add_argument(
+        "--channel",
+        default=None,
+        choices=CHANNEL_CHOICES,
+        help="Control channel to enable: telegram, feishu, or both. Interactive setup prompts when omitted.",
+    )
+    parser.add_argument("--telegram-bot-token", default=None, help="Optional Telegram bot token.")
+    parser.add_argument("--telegram-chat-id", default=None, help="Optional Telegram chat id or 'auto'.")
     parser.add_argument("--feishu-app-id", default=None, help="Optional Feishu app id.")
     parser.add_argument("--feishu-app-secret", default=None, help="Optional Feishu app secret.")
     parser.add_argument("--feishu-chat-id", default=None, help="Optional Feishu chat id.")

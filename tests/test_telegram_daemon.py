@@ -22,6 +22,8 @@ from codex_autoloop.telegram_daemon import (
     sanitize_follow_up_objective,
     set_force_fresh_session_marker,
     should_schedule_plan_follow_up,
+    terminate_process_tree,
+    wait_for_process_exit,
 )
 
 
@@ -430,3 +432,46 @@ def test_build_parser_accepts_feishu_only_args() -> None:
     )
     assert args.telegram_bot_token is None
     assert args.feishu_app_id == "cli_xxx"
+
+
+def test_wait_for_process_exit_detects_exit() -> None:
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def poll(self):
+            self.calls += 1
+            return None if self.calls == 1 else 0
+
+    assert wait_for_process_exit(_FakeProcess(), timeout_seconds=0.5) is True
+
+
+def test_terminate_process_tree_uses_taskkill_on_windows(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class _FakeProcess:
+        pid = 2468
+
+        def __init__(self) -> None:
+            self._poll = None
+
+        def poll(self):
+            return self._poll
+
+        def wait(self, timeout=None):
+            self._poll = 0
+            return 0
+
+        def kill(self):
+            self._poll = 0
+
+    monkeypatch.setattr("codex_autoloop.telegram_daemon.os.name", "nt")
+    monkeypatch.setattr(
+        "codex_autoloop.telegram_daemon.subprocess.run",
+        lambda args, **kwargs: calls.append(args),
+    )
+
+    process = _FakeProcess()
+    terminate_process_tree(process)
+
+    assert calls == [["taskkill", "/PID", "2468", "/T", "/F"]]

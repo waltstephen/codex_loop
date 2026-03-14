@@ -21,7 +21,7 @@ argusbot help
 ```
 
 Behavior:
-- First run: prompts for Telegram token/chat id, uses current shell directory as run working directory, writes `.argusbot/daemon_config.json`, starts daemon.
+- First run: prompts you to choose Telegram, Feishu, or both, then collects only the selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon.
 - Later runs: auto-reuse previous config, auto-start daemon if needed, and attach to live logs.
 - `argusbot init`: stop all current ArgusBot daemons, prompt token/chat id/model preset/play mode, start a fresh daemon in background, and exit.
 - After `init`, run `argusbot` to attach monitor.

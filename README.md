@@ -99,7 +99,7 @@ argusbot help
 
 Behavior:
 
-- First run: asks for Telegram token/chat id, uses current shell directory as run working directory, writes `.argusbot/daemon_config.json`, starts daemon.
+- First run: asks you to choose Telegram, Feishu, or both, then collects only the selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
 - `argusbot init`: stops all current ArgusBot daemons, prompts token/chat id/model selection/play mode, starts daemon in background, then exits.
 - After `init`, run `argusbot` to attach monitor to that background daemon.
@@ -370,8 +370,8 @@ python -m codex_autoloop.setup_wizard --run-cd .
 The wizard will:
 
 1. Check `codex` CLI availability and basic auth probe.
-2. Prompt for Telegram bot token/chat id.
-3. Optionally prompt for Feishu app id / app secret / chat id.
+2. Prompt for control channel: Telegram, Feishu, or both.
+3. Prompt only for the selected channel credentials.
 4. Prompt optional default check command (empty means no forced check command).
 5. Prompt for planner mode after model selection.
 6. Start daemon in background and save config under `.argusbot/`.

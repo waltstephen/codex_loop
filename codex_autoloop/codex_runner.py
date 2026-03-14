@@ -112,25 +112,35 @@ class CodexRunner:
         stdout_thread.start()
         stderr_thread.start()
 
+        def check_external_interrupt() -> bool:
+            nonlocal watchdog_reason, watchdog_terminated
+            if watchdog_terminated or process.poll() is not None:
+                return False
+            if options.external_interrupt_reason_provider is None:
+                return False
+            interrupt_reason = options.external_interrupt_reason_provider()
+            if not interrupt_reason:
+                return False
+            watchdog_reason = f"External interrupt: {interrupt_reason}"
+            self._emit(
+                self._stream_name("stderr", run_label),
+                f"[watchdog] {watchdog_reason}",
+            )
+            self._terminate_process(process)
+            watchdog_terminated = True
+            return True
+
         while True:
             if process.poll() is not None and stdout_closed and stderr_closed:
                 break
+            check_external_interrupt()
             try:
-                stream_name, text = line_queue.get(timeout=1.0)
+                stream_name, text = line_queue.get(timeout=0.25)
             except queue.Empty:
                 now = time.monotonic()
                 idle_seconds = now - last_activity_at
 
-                if process.poll() is None and options.external_interrupt_reason_provider is not None:
-                    interrupt_reason = options.external_interrupt_reason_provider()
-                    if interrupt_reason:
-                        watchdog_reason = f"External interrupt: {interrupt_reason}"
-                        self._emit(
-                            self._stream_name("stderr", run_label),
-                            f"[watchdog] {watchdog_reason}",
-                        )
-                        self._terminate_process(process)
-                        watchdog_terminated = True
+                check_external_interrupt()
 
                 if (
                     soft_idle > 0

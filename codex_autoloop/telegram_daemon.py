@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import signal
 import shlex
 import subprocess
 import sys
@@ -36,6 +37,8 @@ PLAN_MODES = {PLAN_MODE_EXECUTE_ONLY, PLAN_MODE_FULLY_PLAN, PLAN_MODE_RECORD_ONL
 FORCE_FRESH_SESSION_KEY = "force_fresh_session"
 FORCE_FRESH_REASON_KEY = "force_fresh_reason"
 INVALID_ENCRYPTED_CONTENT_MARKER = "invalid encrypted content"
+STOP_GRACE_SECONDS = 2.0
+STOP_POLL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass
@@ -88,6 +91,62 @@ def resolve_child_env() -> dict[str, str]:
         parts.insert(0, repo_root)
     env["PYTHONPATH"] = os.pathsep.join(parts)
     return env
+
+
+def wait_for_process_exit(process: subprocess.Popen[str], *, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return True
+        time.sleep(STOP_POLL_INTERVAL_SECONDS)
+    return process.poll() is not None
+
+
+def terminate_process_tree(process: subprocess.Popen[str], *, wait_timeout_seconds: float = 5.0) -> None:
+    if process.poll() is not None:
+        return
+    timeout = max(1.0, float(wait_timeout_seconds))
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=max(5.0, timeout + 2.0),
+            )
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                return
+        try:
+            process.wait(timeout=timeout)
+        except Exception:
+            return
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except Exception:
+        try:
+            process.terminate()
+        except Exception:
+            return
+    try:
+        process.wait(timeout=timeout)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            return
+    try:
+        process.wait(timeout=5.0)
+    except Exception:
+        return
 
 
 def main() -> None:
@@ -367,6 +426,7 @@ def main() -> None:
             text=True,
             cwd=run_cwd,
             env=resolve_child_env(),
+            start_new_session=True,
         )
         child_objective = objective
         child_log_path = log_path
@@ -703,12 +763,26 @@ def main() -> None:
             if not running:
                 send_reply(source, "[daemon] no active run.")
                 return
-            if forward_to_child("stop", "", source):
+            forwarded = forward_to_child("stop", "", source)
+            assert child is not None
+            stop_outcome = "graceful" if wait_for_process_exit(child, timeout_seconds=STOP_GRACE_SECONDS) else "forced"
+            if stop_outcome == "forced":
+                terminate_process_tree(child)
+            log_event(
+                "child.stop.requested",
+                source=source,
+                forwarded=forwarded,
+                outcome=stop_outcome,
+                pid=child.pid,
+                run_id=child_run_id,
+            )
+            update_status()
+            if stop_outcome == "graceful" and forwarded:
                 send_reply(source, "[daemon] stop forwarded to active run.")
+            elif stop_outcome == "graceful":
+                send_reply(source, "[daemon] active run stopped.")
             else:
-                assert child is not None
-                child.terminate()
-                send_reply(source, "[daemon] stop signal sent to active run.")
+                send_reply(source, "[daemon] active run force-stopped.")
             return
         if command.kind == "daemon-stop":
             send_reply(source, "[daemon] stopping daemon.")
@@ -1024,7 +1098,7 @@ def main() -> None:
         if feishu_poller is not None:
             feishu_poller.stop()
         if child is not None and child.poll() is None:
-            child.terminate()
+            terminate_process_tree(child)
         clear_planner_state(reason="daemon_stopped")
         write_status(
             status_path,
