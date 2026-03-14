@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .copilot_proxy import AUTO_DETECTED_PROXY_DIR_HELP
 from .apps.cli_app import run_cli
 from .apps.shell_utils import (
     control_help_text,
@@ -79,6 +80,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("objective", nargs="+", help="Task objective passed to the primary agent.")
     parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary path.")
+    parser.add_argument(
+        "--copilot-proxy",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Route Codex CLI requests through a local copilot-proxy instance.",
+    )
+    parser.add_argument(
+        "--copilot-proxy-dir",
+        default=None,
+        help=f"Path to the local copilot-proxy checkout. {AUTO_DETECTED_PROXY_DIR_HELP}",
+    )
+    parser.add_argument(
+        "--copilot-proxy-port",
+        type=int,
+        default=18080,
+        help="Local copilot-proxy port.",
+    )
     parser.add_argument("--session-id", default=None, help="Resume an existing Codex exec session id.")
     parser.add_argument("--max-rounds", type=int, default=500, help="Maximum primary-agent rounds.")
     parser.add_argument(

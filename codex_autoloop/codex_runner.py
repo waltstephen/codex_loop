@@ -49,9 +49,17 @@ class RunnerOptions:
 
 
 class CodexRunner:
-    def __init__(self, codex_bin: str = "codex", event_callback: EventCallback | None = None) -> None:
+    def __init__(
+        self,
+        codex_bin: str = "codex",
+        event_callback: EventCallback | None = None,
+        default_extra_args: list[str] | None = None,
+        before_exec: Callable[[], None] | None = None,
+    ) -> None:
         self.codex_bin = codex_bin
         self.event_callback = event_callback
+        self.default_extra_args = list(default_extra_args or [])
+        self.before_exec = before_exec
 
     def run_exec(
         self,
@@ -61,6 +69,8 @@ class CodexRunner:
         options: RunnerOptions,
         run_label: str | None = None,
     ) -> CodexRunResult:
+        if self.before_exec is not None:
+            self.before_exec()
         command = self._build_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
         command[0] = self._resolve_executable(command[0])
         process = subprocess.Popen(
@@ -275,8 +285,11 @@ class CodexRunner:
             command.append("--skip-git-repo-check")
         if options.output_schema_path and not resume_thread_id:
             command.extend(["--output-schema", options.output_schema_path])
+        merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
-            command.extend(options.extra_args)
+            merged_extra_args.extend(options.extra_args)
+        if merged_extra_args:
+            command.extend(merged_extra_args)
         if resume_thread_id:
             command.append(resume_thread_id)
         # Always stream the prompt through stdin so multiline prompts survive

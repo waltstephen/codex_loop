@@ -94,6 +94,38 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+## GitHub Copilot via `copilot-proxy`
+
+ArgusBot can route every `codex exec` call through a local `copilot-proxy` checkout, so main/reviewer/planner/BTW runs can use GitHub Copilot-backed quota instead of OpenAI API billing.
+
+Simplest setup:
+
+```bash
+argusbot init
+```
+
+During `argusbot init` / `argusbot-setup`, ArgusBot will:
+
+- auto-detect an existing proxy checkout in `~/copilot-proxy`, `~/copilot-codex-proxy`, or `~/.argusbot/tools/copilot-proxy`
+- if you select the `copilot` preset (or explicitly enable Copilot proxy), offer to auto-install the proxy into `~/.argusbot/tools/copilot-proxy`
+
+Direct CLI example:
+
+```bash
+argusbot-run \
+  --copilot-proxy \
+  --main-model gpt-5.4 \
+  --reviewer-model gpt-5.4 \
+  --plan-model gpt-5.4 \
+  "实现功能并跑完验证"
+```
+
+Notes:
+
+- `--copilot-proxy-dir` is only needed when your proxy checkout lives outside the auto-detected locations above.
+- When enabled, ArgusBot auto-starts `proxy.mjs` if needed and injects Codex provider overrides per run, so you do not have to rewrite your global `~/.codex/config.toml`.
+- Prefer Copilot-supported models such as `gpt-5.4`, `gpt-5.2`, `gpt-5.1`, `gpt-4o`, `claude-sonnet-4.6`, `claude-opus-4.6`, or `gemini-3-pro-preview`.
+
 ## One-word operator workflow (`argusbot`)
 
 Run:
@@ -167,6 +199,7 @@ Common options:
 - `--session-id <id>`: continue an existing Codex session
 - `--main-model` / `--reviewer-model`: set model(s)
 - `--planner-model`: override the manager/planner model (defaults to reviewer settings when omitted)
+- `--copilot-proxy [--copilot-proxy-port 18080] [--copilot-proxy-dir /custom/path]`: route Codex through local `copilot-proxy`
 - `python -m codex_autoloop.model_catalog`: list common models and presets
 - `--yolo`: pass dangerous no-sandbox mode to Codex
 - `--full-auto`: pass full-auto mode to Codex
@@ -496,6 +529,7 @@ python -m codex_autoloop.model_catalog
 Current presets:
 
 - `quality`: `main=gpt-5.4/high`, `reviewer=gpt-5.4/high`
+- `copilot`: `main=gpt-5.4/high`, `reviewer=gpt-5.4/high`
 - `codex52-xhigh`: `main=gpt-5.2-codex/xhigh`, `reviewer=gpt-5.2-codex/xhigh`
 - `quality-xhigh`: `main=gpt-5.4/xhigh`, `reviewer=gpt-5.4/xhigh`
 - `balanced`: `main=gpt-5.3-codex/high`, `reviewer=gpt-5.1-codex/medium`

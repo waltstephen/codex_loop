@@ -16,7 +16,7 @@ from typing import Any
 from .apps.daemon_app import render_plan_context, render_review_context
 from .apps.shell_utils import format_mode_menu
 from .btw_agent import BtwAgent, BtwConfig
-from .codex_runner import CodexRunner
+from .copilot_proxy import AUTO_DETECTED_PROXY_DIR_HELP, build_codex_runner, config_from_args, format_proxy_summary
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .feishu_adapter import FeishuCommand, FeishuCommandPoller, FeishuConfig, FeishuNotifier
 from .model_catalog import MODEL_PRESETS, get_preset
@@ -311,8 +311,11 @@ def main() -> None:
     pending_follow_up: PlanFollowUp | None = None
     feishu_heartbeat_interval_seconds = max(0, int(args.feishu_heartbeat_interval_seconds))
     last_feishu_heartbeat_monotonic = time.monotonic()
+    run_copilot_proxy = config_from_args(args, prefix="run_")
+    if run_copilot_proxy.enabled:
+        print(f"[daemon] Copilot proxy mode: {format_proxy_summary(run_copilot_proxy)}", file=sys.stderr)
     btw_agent = BtwAgent(
-        runner=CodexRunner(),
+        runner=build_codex_runner(codex_bin="codex", config=run_copilot_proxy),
         config=BtwConfig(
             working_dir=str(run_cwd),
             model=(
@@ -1297,6 +1300,14 @@ def build_child_command(
         cmd.append("--no-telegram-control-whisper")
     if args.telegram_control_whisper_api_key:
         cmd.extend(["--telegram-control-whisper-api-key", args.telegram_control_whisper_api_key])
+    if getattr(args, "run_copilot_proxy", False):
+        cmd.append("--copilot-proxy")
+    else:
+        cmd.append("--no-copilot-proxy")
+    run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
+    if run_copilot_proxy_dir:
+        cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])
+    cmd.extend(["--copilot-proxy-port", str(int(getattr(args, "run_copilot_proxy_port", 18080)))])
     if resume_session_id:
         cmd.extend(["--session-id", resume_session_id])
     if args.run_skip_git_repo_check:
@@ -1844,6 +1855,23 @@ def build_parser() -> argparse.ArgumentParser:
             "Optional model preset name for child runs. "
             f"If unset, child inherits Codex default model settings (available presets: {preset_names})."
         ),
+    )
+    parser.add_argument(
+        "--run-copilot-proxy",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Route child Codex runs through a local copilot-proxy instance.",
+    )
+    parser.add_argument(
+        "--run-copilot-proxy-dir",
+        default=None,
+        help=f"Path to the local copilot-proxy checkout used by child runs. {AUTO_DETECTED_PROXY_DIR_HELP}",
+    )
+    parser.add_argument(
+        "--run-copilot-proxy-port",
+        type=int,
+        default=18080,
+        help="Local copilot-proxy port used by child runs.",
     )
     parser.add_argument(
         "--run-main-model",

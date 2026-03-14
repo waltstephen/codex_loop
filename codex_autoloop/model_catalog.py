@@ -51,6 +51,16 @@ MODEL_PRESETS: list[ModelPreset] = [
         note="Highest-quality default with high reasoning for both agents.",
     ),
     ModelPreset(
+        name="copilot",
+        main_model="gpt-5.4",
+        main_reasoning_effort="high",
+        reviewer_model="gpt-5.4",
+        reviewer_reasoning_effort="high",
+        plan_model="gpt-5.4",
+        plan_reasoning_effort="high",
+        note="Copilot proxy-friendly preset using GPT-5.4 across main, reviewer, and planner.",
+    ),
+    ModelPreset(
         name="codex52-xhigh",
         main_model="gpt-5.2-codex",
         main_reasoning_effort="xhigh",

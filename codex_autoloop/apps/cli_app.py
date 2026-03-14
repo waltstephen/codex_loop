@@ -14,7 +14,7 @@ from ..adapters.event_sinks import (
     TerminalEventSink,
 )
 from ..btw_agent import BtwAgent, BtwConfig
-from ..codex_runner import CodexRunner
+from ..copilot_proxy import build_codex_runner, config_from_args, format_proxy_summary
 from ..core.engine import LoopConfig, LoopEngine
 from ..core.state_store import LoopStateStore
 from ..dashboard import DashboardServer, DashboardStore
@@ -40,6 +40,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     dashboard_server: DashboardServer | None = None
     event_sink: CompositeEventSink | None = None
     control_channels: list[object] = []
+    copilot_proxy = config_from_args(args)
 
     operator_messages_file = resolve_operator_messages_file(
         explicit_path=args.operator_messages_file,
@@ -91,6 +92,9 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             file=sys.stderr,
         )
         sinks.append(DashboardEventSink(dashboard_store))
+
+    if copilot_proxy.enabled:
+        print(f"Copilot proxy mode: {format_proxy_summary(copilot_proxy)}", file=sys.stderr)
 
     telegram_notifier: TelegramNotifier | None = None
     raw_chat_id = (args.telegram_chat_id or "").strip()
@@ -230,7 +234,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         print(message, file=sys.stderr)
 
     btw_agent = BtwAgent(
-        runner=CodexRunner(codex_bin=args.codex_bin),
+        runner=build_codex_runner(codex_bin=args.codex_bin, config=copilot_proxy),
         config=BtwConfig(
             working_dir=str(Path.cwd()),
             model=args.plan_model or args.reviewer_model or args.main_model,
@@ -377,7 +381,11 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         channel.start(on_control_command)
 
     event_sink = CompositeEventSink(sinks)
-    runner = CodexRunner(codex_bin=args.codex_bin, event_callback=event_sink.handle_stream_line)
+    runner = build_codex_runner(
+        codex_bin=args.codex_bin,
+        config=copilot_proxy,
+        event_callback=event_sink.handle_stream_line,
+    )
     reviewer = Reviewer(runner=runner)
     planner = Planner(runner=runner) if args.plan_mode != "off" else None
     engine = LoopEngine(
