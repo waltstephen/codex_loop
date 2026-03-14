@@ -84,12 +84,8 @@ pip install -e .
 如果你拿到的是别的 ID 类型，这个项目后面会发不进群，也轮询不到命令。
 
 <div align="center">
-<img src="add_bot.png" width="400">
-</div>
-
-
-<div align="center">
-<img src="find_chatid.png" width="400">
+  <img src="add_bot.png" width="400" />
+  <img src="find_chatid.png" width="400" />
 </div>
 
 ## 4. 理解这里要的 `chat_id` 是什么
