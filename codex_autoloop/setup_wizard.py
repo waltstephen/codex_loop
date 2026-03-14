@@ -586,7 +586,9 @@ def prompt_secret(prompt: str) -> str:
 def prompt_yes_no(prompt: str, *, default: bool) -> bool:
     default_text = "Y/n" if default else "y/N"
     while True:
-        raw = prompt_input(f"{prompt} [{default_text}]: ", default=("y" if default else "n")).lower()
+        raw = prompt_input(f"{prompt} [{default_text}]: ", default=("y" if default else "n")).strip().lower()
+        if not raw:
+            raw = "y" if default else "n"
         if raw in {"y", "yes"}:
             return True
         if raw in {"n", "no"}:

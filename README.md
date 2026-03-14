@@ -60,6 +60,7 @@ During `argusbot init`, enter your Telegram bot token/chat id and the wizard wil
 - Stall watchdog with soft diagnosis and hard restart safety window.
 - Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
+- Feishu inbound control during active run: text polling for `/run`, `/inject`, `/status`, `/stop`, `/plan`, `/review`, and plain-text routing.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
 - Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
 - Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
@@ -168,6 +169,9 @@ Common options:
 - `--telegram-bot-token` + `--telegram-chat-id`: send progress to Telegram (recommended for cross-network access)
 - `--telegram-events`: choose which events are pushed (comma-separated)
 - `--telegram-live-interval-seconds 30`: push live agent message deltas every 30s (only when changed)
+- `--feishu-app-id` / `--feishu-app-secret` / `--feishu-chat-id`: enable Feishu notifications and control
+- `--feishu-events`: choose which events are pushed to Feishu (comma-separated)
+- `--feishu-control`: allow Feishu inbound control (`/inject`, `/status`, `/stop`, `/plan`, `/review`) while loop is running
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
 - `--stall-soft-idle-seconds 3600`: after 1h no new output, run stall sub-agent diagnosis (do not force kill)
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
@@ -367,9 +371,10 @@ The wizard will:
 
 1. Check `codex` CLI availability and basic auth probe.
 2. Prompt for Telegram bot token/chat id.
-3. Prompt optional default check command (empty means no forced check command).
-4. Prompt for planner mode after model selection.
-5. Start daemon in background and save config under `.argusbot/`.
+3. Optionally prompt for Feishu app id / app secret / chat id.
+4. Prompt optional default check command (empty means no forced check command).
+5. Prompt for planner mode after model selection.
+6. Start daemon in background and save config under `.argusbot/`.
 
 Default behavior for daemon-launched runs:
 
