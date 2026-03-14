@@ -180,6 +180,47 @@ Common options:
 - `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
 - `--telegram-control-whisper`: enable Telegram voice/audio transcription for control messages (default on)
 
+## Feishu Setup Checklist
+
+Use this when running in CN network environments or when Telegram is unavailable.
+
+Required parameters:
+
+- `--feishu-app-id`
+- `--feishu-app-secret`
+- `--feishu-chat-id` (for `receive_id_type=chat_id`, this should look like `oc_xxx`)
+
+Common optional parameters:
+
+- `--feishu-receive-id-type chat_id`
+- `--feishu-events "loop.started,round.review.completed,loop.completed"`
+- `--feishu-live-updates --feishu-live-interval-seconds 30`
+- `--feishu-heartbeat-interval-seconds 600`
+- `--feishu-control`
+
+Minimal run example:
+
+```bash
+argusbot-run \
+  --feishu-app-id "$FEISHU_APP_ID" \
+  --feishu-app-secret "$FEISHU_APP_SECRET" \
+  --feishu-chat-id "$FEISHU_CHAT_ID" \
+  "your objective"
+```
+
+App-side enablement steps (Feishu Open Platform):
+
+1. Enable bot capability for the app.
+2. Grant message-related app scopes (at least one required by API): `im:message.history:readonly`, `im:message:readonly`, or `im:message`.
+3. Publish a new app version and install/update it in your tenant.
+4. Add the bot into the target group, then use that group's `chat_id` (`oc_xxx`) in config.
+
+Common errors:
+
+- `230006 Bot ability is not activated`: bot capability is disabled or not published/installed yet.
+- `230002 Bot/User can NOT be out of the chat`: bot is not in the target group, or `feishu_chat_id` points to a different chat.
+- `99991672 Access denied ... scopes required`: required Feishu scopes are not enabled for the app.
+
 ## How to Instruct the System
 
 The most important field is the final goal. Put it first.
