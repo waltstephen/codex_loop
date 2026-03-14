@@ -347,6 +347,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="HTTP timeout for Feishu API calls.",
     )
     parser.add_argument(
+        "--feishu-live-updates",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable batched live agent message push to Feishu.",
+    )
+    parser.add_argument(
+        "--feishu-live-interval-seconds",
+        type=int,
+        default=30,
+        help="Push interval for Feishu live updates; sends only when there are changes.",
+    )
+    parser.add_argument(
         "--feishu-control",
         action=argparse.BooleanOptionalAction,
         default=True,

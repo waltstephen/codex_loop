@@ -4,9 +4,7 @@ import json
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable
-
-from .telegram_notifier import TelegramNotifier
+from typing import Callable, Protocol
 
 
 def extract_agent_message(stream: str, line: str) -> tuple[str, str] | None:
@@ -42,17 +40,24 @@ class TelegramStreamReporterConfig:
     max_chars: int = 3500
 
 
+class MessageNotifier(Protocol):
+    def send_message(self, message: str) -> object:
+        ...
+
+
 class TelegramStreamReporter:
     def __init__(
         self,
         *,
-        notifier: TelegramNotifier,
+        notifier: MessageNotifier,
         config: TelegramStreamReporterConfig,
         on_error: Callable[[str], None] | None = None,
+        channel_name: str = "telegram",
     ) -> None:
         self.notifier = notifier
         self.config = config
         self.on_error = on_error
+        self.channel_name = channel_name
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -101,7 +106,7 @@ class TelegramStreamReporter:
                 self.flush()
             except Exception as exc:
                 if self.on_error:
-                    self.on_error(f"telegram live flush error: {exc}")
+                    self.on_error(f"{self.channel_name} live flush error: {exc}")
 
     def _format_batch(self, batch: list[tuple[str, str]]) -> str:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")

@@ -102,14 +102,38 @@ class TelegramEventSink:
 
 
 class FeishuEventSink:
-    def __init__(self, *, notifier: FeishuNotifier) -> None:
+    def __init__(
+        self,
+        *,
+        notifier: FeishuNotifier,
+        live_updates: bool,
+        live_interval_seconds: int,
+        on_error=None,
+    ) -> None:
         self.notifier = notifier
+        self._stream_reporter: TelegramStreamReporter | None = None
+        if live_updates:
+            self._stream_reporter = TelegramStreamReporter(
+                notifier=notifier,
+                config=TelegramStreamReporterConfig(interval_seconds=live_interval_seconds),
+                on_error=on_error,
+                channel_name="feishu",
+            )
+            self._stream_reporter.start()
 
     def handle_event(self, event: dict[str, object]) -> None:
         self.notifier.notify_event(event)
 
     def handle_stream_line(self, stream: str, line: str) -> None:
-        return
+        if self._stream_reporter is None:
+            return
+        extracted = extract_agent_message(stream, line)
+        if extracted is None:
+            return
+        actor, message = extracted
+        self._stream_reporter.add_message(actor=actor, message=message)
 
     def close(self) -> None:
+        if self._stream_reporter is not None:
+            self._stream_reporter.stop()
         self.notifier.close()

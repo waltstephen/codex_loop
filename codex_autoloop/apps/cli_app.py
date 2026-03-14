@@ -188,7 +188,14 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
         )
         print("Feishu notifications enabled.", file=sys.stderr)
-        sinks.append(FeishuEventSink(notifier=feishu_notifier))
+        sinks.append(
+            FeishuEventSink(
+                notifier=feishu_notifier,
+                live_updates=args.feishu_live_updates,
+                live_interval_seconds=args.feishu_live_interval_seconds,
+                on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
+            )
+        )
         if args.feishu_control:
             control_channels.append(
                 FeishuControlChannel(
