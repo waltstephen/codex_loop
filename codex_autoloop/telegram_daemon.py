@@ -93,6 +93,48 @@ def resolve_child_env() -> dict[str, str]:
     return env
 
 
+def format_external_message(
+    message: str,
+    *,
+    reply_markup: dict[str, Any] | None = None,
+) -> str:
+    text = str(message or "").strip()
+    if not text:
+        return ""
+    action_labels: list[str] = []
+    if isinstance(reply_markup, dict):
+        rows = reply_markup.get("inline_keyboard")
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, list):
+                    continue
+                for button in row:
+                    if not isinstance(button, dict):
+                        continue
+                    label = str(button.get("text") or "").strip()
+                    if label:
+                        action_labels.append(label)
+    if not action_labels:
+        return text
+    actions = "\n".join(f"- {label}" for label in action_labels)
+    return (
+        f"{text}\n\n"
+        "[external] Telegram inline buttons are unavailable here. "
+        "If needed, use the corresponding text command instead.\n"
+        f"Available actions:\n{actions}"
+    )
+
+
+def looks_like_feishu_chat_id(value: str, *, receive_id_type: str = "chat_id") -> bool:
+    text = (value or "").strip()
+    if not text:
+        return False
+    normalized_type = (receive_id_type or "chat_id").strip().lower() or "chat_id"
+    if normalized_type != "chat_id":
+        return True
+    return text.startswith("oc_") and len(text) > 3
+
+
 def wait_for_process_exit(process: subprocess.Popen[str], *, timeout_seconds: float) -> bool:
     deadline = time.monotonic() + max(0.0, float(timeout_seconds))
     while time.monotonic() < deadline:
@@ -171,6 +213,11 @@ def main() -> None:
         ]
     ) and not feishu_enabled:
         parser.error("--feishu-app-id, --feishu-app-secret, and --feishu-chat-id must all be provided together.")
+    if feishu_enabled and not looks_like_feishu_chat_id(
+        str(args.feishu_chat_id or "").strip(),
+        receive_id_type=str(args.feishu_receive_id_type or "chat_id"),
+    ):
+        parser.error("Invalid Feishu chat id. For receive_id_type=chat_id, expected a value like oc_xxx.")
 
     chat_id = (args.telegram_chat_id or "").strip()
     if telegram_enabled and chat_id.lower() in {"", "auto", "none", "null"}:
@@ -314,7 +361,7 @@ def main() -> None:
             notifier.send_message(message, reply_markup=reply_markup)
             delivered = True
         if include_feishu and feishu_notifier is not None:
-            feishu_notifier.send_message(format_external_message(message))
+            feishu_notifier.send_message(format_external_message(message, reply_markup=reply_markup))
             delivered = True
         if not delivered:
             print(message, file=sys.stdout)

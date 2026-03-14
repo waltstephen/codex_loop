@@ -11,8 +11,10 @@ from codex_autoloop.telegram_daemon import (
     extract_suggested_next_objective_from_markdown,
     extract_latest_review,
     extract_latest_review_status,
+    format_external_message,
     format_status,
     is_force_fresh_session_requested,
+    looks_like_feishu_chat_id,
     log_contains_invalid_encrypted_content,
     normalize_plan_mode,
     resolve_last_session_id_from_archive,
@@ -295,6 +297,35 @@ def test_build_plan_request_uses_review_guidance() -> None:
     request = build_plan_request(objective="完成接口重构", exit_code=2, state_payload=state_payload)
     assert "目标上下文：完成接口重构" in request
     assert "fix failing tests" in request
+
+
+def test_format_external_message_returns_trimmed_text_without_buttons() -> None:
+    assert format_external_message("  [daemon] online  ") == "[daemon] online"
+
+
+def test_format_external_message_appends_inline_button_labels() -> None:
+    rendered = format_external_message(
+        "[daemon] suggested next session",
+        reply_markup={
+            "inline_keyboard": [
+                [
+                    {"text": "Execute Next Step", "callback_data": "plan_run:123"},
+                    {"text": "Reject Plan", "callback_data": "plan_reject:123"},
+                ],
+                [{"text": "Modify Then Execute", "callback_data": "plan_modify:123"}],
+            ]
+        },
+    )
+    assert "Telegram inline buttons are unavailable here" in rendered
+    assert "- Execute Next Step" in rendered
+    assert "- Reject Plan" in rendered
+    assert "- Modify Then Execute" in rendered
+
+
+def test_looks_like_feishu_chat_id_requires_oc_prefix_for_chat_id() -> None:
+    assert looks_like_feishu_chat_id("oc_123") is True
+    assert looks_like_feishu_chat_id("11") is False
+    assert looks_like_feishu_chat_id("ou_xxx", receive_id_type="open_id") is True
 
 
 def test_extract_latest_review_supports_legacy_flat_fields() -> None:

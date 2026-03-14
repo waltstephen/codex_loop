@@ -646,9 +646,13 @@ def prompt_feishu_config() -> tuple[str, str, str]:
         app_id = prompt_input("Feishu app id: ", default="").strip()
         app_secret = prompt_secret("Feishu app secret: ").strip()
         chat_id = prompt_input("Feishu chat id: ", default="").strip()
-        if app_id and app_secret and chat_id:
+        if app_id and app_secret and looks_like_feishu_chat_id(chat_id):
             return app_id, app_secret, chat_id
-        print("Feishu app id, app secret, and chat id are all required. Please try again.", file=sys.stderr)
+        print(
+            "Feishu app id, app secret, and a valid chat id are all required. "
+            "For receive_id_type=chat_id, use a value like oc_xxx.",
+            file=sys.stderr,
+        )
 
 
 def prompt_model_choice() -> str | None:
@@ -700,6 +704,16 @@ def looks_like_chat_id(value: str) -> bool:
     if value.startswith("-"):
         return value[1:].isdigit()
     return value.isdigit()
+
+
+def looks_like_feishu_chat_id(value: str, *, receive_id_type: str = "chat_id") -> bool:
+    text = (value or "").strip()
+    if not text:
+        return False
+    normalized_type = (receive_id_type or "chat_id").strip().lower() or "chat_id"
+    if normalized_type != "chat_id":
+        return True
+    return text.startswith("oc_") and len(text) > 3
 
 
 def prompt_planner_mode_choice() -> str:
@@ -763,6 +777,7 @@ def resolve_feishu_config(args: argparse.Namespace) -> tuple[str, str, str]:
     app_id = str(getattr(args, "feishu_app_id", None) or "").strip()
     app_secret = str(getattr(args, "feishu_app_secret", None) or "").strip()
     chat_id = str(getattr(args, "feishu_chat_id", None) or "").strip()
+    receive_id_type = str(getattr(args, "feishu_receive_id_type", "chat_id") or "chat_id").strip() or "chat_id"
     fields = [app_id, app_secret, chat_id]
     if any(fields) and not all(fields):
         print(
@@ -771,6 +786,12 @@ def resolve_feishu_config(args: argparse.Namespace) -> tuple[str, str, str]:
         )
         raise SystemExit(2)
     if all(fields):
+        if not looks_like_feishu_chat_id(chat_id, receive_id_type=receive_id_type):
+            print(
+                "Invalid Feishu chat id. For receive_id_type=chat_id, expected a value like oc_xxx.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
         return app_id, app_secret, chat_id
     return prompt_feishu_config()
 

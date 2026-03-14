@@ -89,6 +89,14 @@ def test_prompt_chat_id_retries(monkeypatch) -> None:
     assert setup_wizard.prompt_chat_id() == "-100123"
 
 
+def test_prompt_feishu_config_retries_until_chat_id_looks_valid(monkeypatch) -> None:
+    inputs = iter(["cli_xxx", "11", "cli_xxx", "oc_123"])
+    secrets = iter(["secret", "secret"])
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: next(inputs))
+    monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: next(secrets))
+    assert setup_wizard.prompt_feishu_config() == ("cli_xxx", "secret", "oc_123")
+
+
 def test_prompt_token_retries(monkeypatch) -> None:
     answers = iter(["invalid", "123:secret"])
     monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: next(answers))
@@ -328,3 +336,16 @@ def test_build_parser_accepts_feishu_options() -> None:
     assert args.channel == "feishu"
     assert args.feishu_app_id == "cli_xxx"
     assert args.feishu_chat_id == "oc_123"
+
+
+def test_resolve_feishu_config_rejects_invalid_chat_id() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        setup_wizard.resolve_feishu_config(
+            SimpleNamespace(
+                feishu_app_id="cli_xxx",
+                feishu_app_secret="secret",
+                feishu_chat_id="11",
+                feishu_receive_id_type="chat_id",
+            )
+        )
+    assert excinfo.value.code == 2
