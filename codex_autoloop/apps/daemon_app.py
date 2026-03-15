@@ -9,8 +9,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from ..adapters.control_channels import LocalBusControlChannel, TelegramControlChannel
+from ..attachment_policy import format_attachment_confirmation_message, requires_attachment_confirmation
 from ..btw_agent import BtwAgent, BtwConfig
 from ..codex_runner import CodexRunner
 from ..daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
@@ -61,6 +63,7 @@ class TelegramDaemonApp:
         self.child_review_summaries_dir: Path | None = None
         self.child_started_at: dt.datetime | None = None
         self.child_control_bus: JsonlCommandBus | None = None
+        self.pending_attachment_batches: dict[str, list[Any]] = {}
         self.btw_agent = BtwAgent(
             runner=CodexRunner(),
             config=BtwConfig(
@@ -105,7 +108,7 @@ class TelegramDaemonApp:
         self.notifier.send_message(
             "[daemon] online\n"
             "Send /run <objective> to start a new run.\n"
-            "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
+            "Commands: /status /new /mode /btw /confirm-send /cancel-send /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
         )
         self._log_event(
             "daemon.started",
@@ -198,6 +201,23 @@ class TelegramDaemonApp:
             return
         if command.kind == "mode-invalid":
             self._send_reply(command.source, "[daemon] invalid selection. Reply with 1, 2, or 3.")
+            return
+        if command.kind == "attachments-confirm":
+            pending = self.pending_attachment_batches.pop(command.source, None)
+            if not pending:
+                self._send_reply(command.source, "[btw] no pending attachment batch.")
+                return
+            self._send_reply(command.source, f"[btw] confirmed. Sending {len(pending)} attachments now.")
+            if self.notifier is not None:
+                for item in pending:
+                    self.notifier.send_local_file(item.path, caption=item.reason)
+            return
+        if command.kind == "attachments-cancel":
+            pending = self.pending_attachment_batches.pop(command.source, None)
+            if not pending:
+                self._send_reply(command.source, "[btw] no pending attachment batch.")
+                return
+            self._send_reply(command.source, f"[btw] cancelled. Skipped {len(pending)} attachments.")
             return
         if command.kind == "mode":
             updated_mode = _normalize_plan_mode(command.text)
@@ -321,9 +341,16 @@ class TelegramDaemonApp:
 
             def on_complete(result) -> None:
                 self._send_reply(command.source, result.answer)
-                if command.source == "telegram" and self.notifier is not None and result.attachments:
-                    for item in result.attachments:
-                        self.notifier.send_local_file(item.path, caption=item.reason)
+                if command.source == "telegram" and result.attachments:
+                    if requires_attachment_confirmation(source=command.source, attachment_count=len(result.attachments)):
+                        self.pending_attachment_batches[command.source] = list(result.attachments)
+                        self._send_reply(
+                            command.source,
+                            format_attachment_confirmation_message(attachment_count=len(result.attachments)),
+                        )
+                    elif self.notifier is not None:
+                        for item in result.attachments:
+                            self.notifier.send_local_file(item.path, caption=item.reason)
                 elif result.attachments:
                     self._send_reply(
                         command.source,
@@ -697,6 +724,8 @@ def help_text() -> str:
         "/mode - show a mode selection menu\n"
         "/mode <off|auto|record> - hot-switch daemon default mode and active child mode\n"
         "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
+        "/confirm-send - confirm and continue sending a pending large attachment batch\n"
+        "/cancel-send - cancel a pending large attachment batch\n"
         "/plan <direction> - send direction to the active plan agent only\n"
         "/review <criteria> - send audit criteria to the active reviewer only\n"
         "/show-main-prompt - print the latest main prompt markdown\n"

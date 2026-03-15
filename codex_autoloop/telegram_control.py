@@ -432,6 +432,10 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return TelegramCommand(kind="btw", text=content[len("/btw ") :].strip())
     if lowered == "/btw":
         return None
+    if lowered in {"/confirm-send", "/files-confirm", "/confirm-files"}:
+        return TelegramCommand(kind="attachments-confirm", text="")
+    if lowered in {"/cancel-send", "/files-cancel", "/cancel-files"}:
+        return TelegramCommand(kind="attachments-cancel", text="")
     if lowered == "/new":
         return TelegramCommand(kind="new", text="")
     if lowered in {"/fresh", "/fresh-session", "/new-session"}:

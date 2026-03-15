@@ -15,6 +15,12 @@ from typing import Any
 
 from .apps.daemon_app import render_plan_context, render_review_context
 from .apps.shell_utils import format_mode_menu
+from .attachment_policy import (
+    ATTACHMENT_CANCEL_COMMAND,
+    ATTACHMENT_CONFIRM_COMMAND,
+    format_attachment_confirmation_message,
+    requires_attachment_confirmation,
+)
 from .btw_agent import BtwAgent, BtwConfig
 from .codex_runner import CodexRunner
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
@@ -309,6 +315,7 @@ def main() -> None:
     scheduled_plan_context: dict[str, Any] | None = None
     scheduled_plan_request_at: dt.datetime | None = None
     pending_follow_up: PlanFollowUp | None = None
+    pending_attachment_batches: dict[str, list[Any]] = {}
     feishu_heartbeat_interval_seconds = max(0, int(args.feishu_heartbeat_interval_seconds))
     last_feishu_heartbeat_monotonic = time.monotonic()
     btw_agent = BtwAgent(
@@ -607,6 +614,20 @@ def main() -> None:
             print(message, file=sys.stdout)
         log_event("reply.sent", source=source, message=message[:700])
 
+    def send_attachment_batch(source: str, attachments: list[Any]) -> None:
+        if source == "telegram" and notifier is not None:
+            for item in attachments:
+                notifier.send_local_file(item.path, caption=item.reason)
+            return
+        if source == "feishu" and feishu_notifier is not None:
+            for item in attachments:
+                feishu_notifier.send_local_file(item.path, caption=item.reason)
+            return
+        send_reply(
+            source,
+            "[btw] attachments:\n" + "\n".join(f"- {item.path}" for item in attachments),
+        )
+
     def forward_to_child(kind: str, text: str, source: str) -> bool:
         if child is None or child.poll() is not None:
             return False
@@ -627,6 +648,23 @@ def main() -> None:
             return
         if command.kind == "mode-invalid":
             send_reply(source, "[daemon] invalid selection. Reply with 1, 2, or 3.")
+            return
+        if command.kind == "attachments-confirm":
+            pending = pending_attachment_batches.pop(source, None)
+            if not pending:
+                send_reply(source, "[btw] no pending attachment batch.")
+                return
+            send_reply(source, f"[btw] confirmed. Sending {len(pending)} attachments now.")
+            send_attachment_batch(source, pending)
+            update_status()
+            return
+        if command.kind == "attachments-cancel":
+            pending = pending_attachment_batches.pop(source, None)
+            if not pending:
+                send_reply(source, "[btw] no pending attachment batch.")
+                return
+            send_reply(source, f"[btw] cancelled. Skipped {len(pending)} attachments.")
+            update_status()
             return
         if command.kind == "status":
             last_session_id = resolve_resume_session_id(args.run_state_file, run_archive_log)
@@ -750,14 +788,18 @@ def main() -> None:
 
             def on_complete(result) -> None:
                 send_reply(source, result.answer)
-                if source == "telegram" and result.attachments:
-                    for item in result.attachments:
-                        notifier.send_local_file(item.path, caption=item.reason)
-                elif result.attachments:
+                if not result.attachments:
+                    update_status()
+                    return
+                if requires_attachment_confirmation(source=source, attachment_count=len(result.attachments)):
+                    pending_attachment_batches[source] = list(result.attachments)
                     send_reply(
                         source,
-                        "[btw] attachments:\n" + "\n".join(f"- {item.path}" for item in result.attachments),
+                        format_attachment_confirmation_message(attachment_count=len(result.attachments)),
                     )
+                    update_status()
+                    return
+                send_attachment_batch(source, list(result.attachments))
                 update_status()
 
             started = btw_agent.start_async(question=question, on_complete=on_complete, on_busy=on_busy)
@@ -1027,7 +1069,7 @@ def main() -> None:
     notify(
         "[daemon] online\n"
         "Send /run <objective> to start a new run.\n"
-        "Commands: /status /new /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
+        "Commands: /status /new /mode /btw /confirm-send /cancel-send /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
     )
     log_event(
         "daemon.started",
@@ -1753,6 +1795,8 @@ def help_text() -> str:
         "/mode - show a mode selection menu\n"
         "/mode <off|auto|record> - hot-switch daemon default planner mode and active child mode\n"
         "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
+        "/confirm-send - confirm and continue sending a pending large attachment batch\n"
+        "/cancel-send - cancel a pending large attachment batch\n"
         "/plan <direction> - send direction to the active plan agent only\n"
         "/review <criteria> - send audit criteria to the active reviewer only\n"
         "/show-main-prompt - print the latest main prompt markdown\n"

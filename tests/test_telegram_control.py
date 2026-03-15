@@ -127,6 +127,21 @@ def test_parse_btw_command() -> None:
     assert cmd.kind == "btw"
 
 
+def test_parse_attachment_confirmation_commands() -> None:
+    confirm = parse_command_from_update(
+        update=_wrap("/confirm-send"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    cancel = parse_command_from_update(
+        update=_wrap("/cancel-send"),
+        expected_chat_id="100",
+        plain_text_as_inject=True,
+    )
+    assert confirm is not None and confirm.kind == "attachments-confirm"
+    assert cancel is not None and cancel.kind == "attachments-cancel"
+
+
 def test_parse_plan_and_review_commands() -> None:
     plan = parse_command_from_update(
         update=_wrap("/plan focus on state persistence"),

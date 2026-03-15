@@ -13,6 +13,10 @@ from ..adapters.event_sinks import (
     TelegramEventSink,
     TerminalEventSink,
 )
+from ..attachment_policy import (
+    format_attachment_confirmation_message,
+    requires_attachment_confirmation,
+)
 from ..btw_agent import BtwAgent, BtwConfig
 from ..codex_runner import CodexRunner
 from ..core.engine import LoopConfig, LoopEngine
@@ -238,6 +242,19 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             messages_file=btw_messages_file,
         ),
     )
+    pending_attachment_batches: dict[str, list[Any]] = {}
+
+    def send_attachment_batch(source: str, attachments: list[Any]) -> None:
+        if source == "telegram" and telegram_notifier is not None:
+            for item in attachments:
+                telegram_notifier.send_local_file(item.path, caption=item.reason)
+            return
+        if source == "feishu" and feishu_notifier is not None:
+            for item in attachments:
+                feishu_notifier.send_local_file(item.path, caption=item.reason)
+            return
+        attachment_lines = ["[btw] attachments:"] + [f"- {item.path}" for item in attachments]
+        reply_to_source(source, "\n".join(attachment_lines))
 
     def start_btw(question: str, source: str) -> None:
         normalized = question.strip()
@@ -250,12 +267,16 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
 
         def on_complete(result) -> None:
             reply_to_source(source, result.answer)
-            if source == "telegram" and telegram_notifier is not None and result.attachments:
-                for item in result.attachments:
-                    telegram_notifier.send_local_file(item.path, caption=item.reason)
-            elif result.attachments:
-                attachment_lines = ["[btw] attachments:"] + [f"- {item.path}" for item in result.attachments]
-                reply_to_source(source, "\n".join(attachment_lines))
+            if not result.attachments:
+                return
+            if requires_attachment_confirmation(source=source, attachment_count=len(result.attachments)):
+                pending_attachment_batches[source] = list(result.attachments)
+                reply_to_source(
+                    source,
+                    format_attachment_confirmation_message(attachment_count=len(result.attachments)),
+                )
+                return
+            send_attachment_batch(source, list(result.attachments))
 
         started = btw_agent.start_async(question=normalized, on_complete=on_complete, on_busy=on_busy)
         if started:
@@ -289,6 +310,21 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             return
         if command.kind == "mode-invalid":
             reply_to_source(command.source, "[autoloop] invalid selection. Reply with 1, 2, or 3.")
+            return
+        if command.kind == "attachments-confirm":
+            pending = pending_attachment_batches.pop(command.source, None)
+            if not pending:
+                reply_to_source(command.source, "[btw] no pending attachment batch.")
+                return
+            reply_to_source(command.source, f"[btw] confirmed. Sending {len(pending)} attachments now.")
+            send_attachment_batch(command.source, pending)
+            return
+        if command.kind == "attachments-cancel":
+            pending = pending_attachment_batches.pop(command.source, None)
+            if not pending:
+                reply_to_source(command.source, "[btw] no pending attachment batch.")
+                return
+            reply_to_source(command.source, f"[btw] cancelled. Skipped {len(pending)} attachments.")
             return
         if command.kind == "btw":
             start_btw(command.text, command.source)

@@ -111,6 +111,22 @@ def test_send_local_file_uses_document_for_non_images(tmp_path: Path) -> None:
     assert calls[0]["field_name"] == "document"
 
 
+def test_send_local_file_uses_video_for_video_extensions(tmp_path: Path) -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    calls = []
+    notifier._post_multipart_file = lambda **kwargs: calls.append(kwargs) or True  # type: ignore[attr-defined]
+    video = tmp_path / "demo.mp4"
+    video.write_bytes(b"mp4")
+    assert notifier.send_local_file(video, caption="preview video") is True
+    assert calls[0]["field_name"] == "video"
+
+
 def test_send_message_timeout_does_not_raise(monkeypatch) -> None:
     notifier = TelegramNotifier(
         TelegramConfig(

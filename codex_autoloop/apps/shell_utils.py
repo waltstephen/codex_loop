@@ -133,6 +133,8 @@ def control_help_text() -> str:
         "/mode - show a mode selection menu\n"
         "/mode <off|auto|record> - hot-switch the current plan mode\n"
         "/btw <question> - ask the side-agent a read-only question about the current project\n"
+        "/confirm-send - confirm and continue sending a pending large attachment batch\n"
+        "/cancel-send - cancel a pending large attachment batch\n"
         "/plan <direction> - send extension/direction input to the plan agent only\n"
         "/review <criteria> - send audit criteria to the reviewer only\n"
         "/show-main-prompt - print the latest main prompt markdown\n"
