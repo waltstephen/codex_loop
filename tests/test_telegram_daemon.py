@@ -5,6 +5,7 @@ from pathlib import Path
 
 from codex_autoloop.telegram_daemon import (
     append_plan_record_row,
+    build_plan_skip_message,
     build_parser,
     build_child_command,
     build_plan_request,
@@ -432,6 +433,26 @@ def test_should_schedule_plan_follow_up_skips_when_latest_plan_has_no_follow_up(
     should_schedule, reason = should_schedule_plan_follow_up(exit_code=0, state_payload=state_payload)
     assert should_schedule is False
     assert reason == "planner_no_follow_up"
+
+
+def test_build_plan_skip_message_explains_planner_no_follow_up() -> None:
+    message = build_plan_skip_message(
+        skip_reason="planner_no_follow_up",
+        state_payload={
+            "latest_plan": {
+                "follow_up_required": False,
+                "main_instruction": "Wait for a new objective before starting further planning or execution.",
+            }
+        },
+    )
+    assert "Planner did not propose a follow-up objective." in message
+    assert "Wait for a new objective before starting further planning or execution." in message
+    assert "fix blockers" not in message.lower()
+
+
+def test_build_plan_skip_message_explains_failed_run() -> None:
+    message = build_plan_skip_message(skip_reason="last_run_failed", state_payload=None)
+    assert "previous run exited non-zero" in message
 
 
 def test_build_plan_request_prefers_planner_report_when_no_next_action(tmp_path: Path) -> None:

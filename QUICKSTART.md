@@ -108,10 +108,10 @@ argusbot-setup --run-cd .
 ```
 
 If the command is missing, use:
-Get-Process | Where-Object { $_.ProcessName -like 'argusbot*' } | Stop-Process -Force
+
 ```bash
   .\.venv\Scripts\Activate.ps1                                                                                   
-                                   
+         Get-Process | Where-Object { $_.ProcessName -like 'argusbot*' } | Stop-Process -Force                          
 python -m codex_autoloop.setup_wizard --run-cd .
 ```
 

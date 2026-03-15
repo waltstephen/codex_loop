@@ -946,11 +946,7 @@ def main() -> None:
                 objective=objective[:700],
                 exit_code=exit_code,
             )
-            notify(
-                "[daemon] planner mode=auto\n"
-                f"Skip auto-plan ({skip_reason or 'unknown'}). "
-                "Please fix blockers and run again via /run or terminal."
-            )
+            notify(build_plan_skip_message(skip_reason=skip_reason, state_payload=state_payload))
             return
 
         scheduled_plan_context = {
@@ -1638,6 +1634,36 @@ def should_schedule_plan_follow_up(*, exit_code: int, state_payload: dict[str, A
     if latest_plan is not None and latest_plan.follow_up_required is False:
         return False, "planner_no_follow_up"
     return True, None
+
+
+def build_plan_skip_message(*, skip_reason: str | None, state_payload: dict[str, Any] | None) -> str:
+    header = "[daemon] planner mode=auto\n"
+    if skip_reason == "planner_no_follow_up":
+        latest_plan = extract_latest_plan(state_payload)
+        instruction = sanitize_follow_up_objective(latest_plan.main_instruction) if latest_plan is not None else ""
+        if instruction:
+            return (
+                f"{header}Planner did not propose a follow-up objective. "
+                f"Latest planner instruction: {instruction[:700]}"
+            )
+        return (
+            f"{header}Planner did not propose a follow-up objective. "
+            "The last run appears complete, so the daemon will stay idle until a new /run objective arrives."
+        )
+    if skip_reason == "review_blocked":
+        return (
+            f"{header}Skip auto-plan (review_blocked). "
+            "The reviewer marked the run as blocked; fix the blocking issue before starting another run."
+        )
+    if skip_reason == "last_run_failed":
+        return (
+            f"{header}Skip auto-plan (last_run_failed). "
+            "The previous run exited non-zero; inspect the failure and rerun after the root cause is fixed."
+        )
+    return (
+        f"{header}Skip auto-plan ({skip_reason or 'unknown'}). "
+        "Please inspect the latest run state before starting another run."
+    )
 
 
 def extract_latest_review_status(state_payload: dict[str, Any] | None) -> str | None:
