@@ -58,14 +58,22 @@ class TelegramNotifier:
         self.send_message(message)
 
     def send_message(self, message: str, reply_markup: dict[str, Any] | None = None) -> bool:
-        payload = {
-            "chat_id": self.config.chat_id,
-            "text": message[:3900],
-            "disable_web_page_preview": True,
-        }
-        if reply_markup is not None:
-            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=True)
-        return self._post_form(self.send_message_url, payload)
+        chunks = _split_telegram_text(message, limit=3900)
+        if not chunks:
+            return True
+        sent_all = True
+        last_index = len(chunks) - 1
+        for index, chunk in enumerate(chunks):
+            payload = {
+                "chat_id": self.config.chat_id,
+                "text": chunk,
+                "disable_web_page_preview": True,
+            }
+            if reply_markup is not None and index == last_index:
+                payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=True)
+            if not self._post_form(self.send_message_url, payload):
+                sent_all = False
+        return sent_all
 
     def send_typing(self) -> None:
         payload = {
@@ -338,6 +346,29 @@ def _multipart_file_part(boundary: str, field: str, file_name: str, file_bytes: 
         f'Content-Disposition: form-data; name="{field}"; filename="{safe_name}"\r\n'
         "Content-Type: application/octet-stream\r\n\r\n"
     ).encode("utf-8") + file_bytes + b"\r\n"
+
+
+def _split_telegram_text(text: str, *, limit: int) -> list[str]:
+    raw = str(text or "")
+    if not raw:
+        return []
+    max_len = max(128, int(limit))
+    chunks: list[str] = []
+    remaining = raw
+    while remaining:
+        if len(remaining) <= max_len:
+            chunks.append(remaining)
+            break
+        window = remaining[:max_len]
+        split_at = window.rfind("\n")
+        if split_at < max_len // 3:
+            split_at = window.rfind(" ")
+        if split_at <= 0:
+            split_at = max_len
+        chunk = remaining[:split_at]
+        chunks.append(chunk)
+        remaining = remaining[split_at:].lstrip("\n ")
+    return chunks
 
 
 def format_event_message(event: dict[str, Any]) -> str:

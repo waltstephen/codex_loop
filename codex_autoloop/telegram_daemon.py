@@ -1634,6 +1634,9 @@ def should_schedule_plan_follow_up(*, exit_code: int, state_payload: dict[str, A
     review_status = extract_latest_review_status(state_payload)
     if review_status == "blocked":
         return False, "review_blocked"
+    latest_plan = extract_latest_plan(state_payload)
+    if latest_plan is not None and latest_plan.follow_up_required is False:
+        return False, "planner_no_follow_up"
     return True, None
 
 
@@ -1661,13 +1664,22 @@ def build_plan_request(
         objective_text = "Continue improving the current repository objective."
 
     review_status, review_reason, review_next_action = extract_latest_review(state_payload)
-    planner_next_objective = extract_suggested_next_objective_from_plan_report(planner_report_path)
+    latest_plan = extract_latest_plan(state_payload)
+    planner_next_objective = sanitize_follow_up_objective(
+        extract_suggested_next_objective_from_plan_report(planner_report_path) or ""
+    )
+    planner_main_instruction = (
+        sanitize_follow_up_objective(latest_plan.main_instruction) if latest_plan is not None else ""
+    )
+    sanitized_review_next_action = sanitize_follow_up_objective(review_next_action or "")
 
-    # Priority: reviewer next_action > planner report objective > objective fallback.
-    if review_next_action:
-        return f"{review_next_action.strip()}（目标上下文：{objective_text}）".strip()
+    # Priority: planner main instruction > planner report objective > actionable reviewer next_action.
+    if planner_main_instruction and (latest_plan is None or latest_plan.follow_up_required is not False):
+        return planner_main_instruction
     if planner_next_objective:
         return planner_next_objective
+    if sanitized_review_next_action and not looks_like_terminal_handoff_instruction(sanitized_review_next_action):
+        return f"{sanitized_review_next_action}（目标上下文：{objective_text}）".strip()
 
     parts = [f"继续推进目标：{objective_text}"]
     if exit_code != 0:
@@ -1697,7 +1709,76 @@ def sanitize_follow_up_objective(text: str) -> str:
             value = value[4:].strip()
             continue
         break
-    return value
+    return strip_objective_context(value)
+
+
+def strip_objective_context(text: str) -> str:
+    value = (text or "").strip()
+    if not value:
+        return ""
+    markers = (
+        "（目标上下文：",
+        "(目标上下文：",
+        "(目标上下文:",
+        "（objective context:",
+        "(objective context:",
+    )
+    lower_value = value.lower()
+    cut_index: int | None = None
+    for marker in markers:
+        if marker.startswith(("（objective", "(objective")):
+            idx = lower_value.find(marker)
+        else:
+            idx = value.find(marker)
+        if idx > 0 and (cut_index is None or idx < cut_index):
+            cut_index = idx
+    if cut_index is None:
+        return value
+    stripped = value[:cut_index].strip()
+    return stripped if stripped else value
+
+
+def looks_like_terminal_handoff_instruction(text: str) -> bool:
+    normalized = " ".join((text or "").strip().lower().split())
+    if not normalized:
+        return False
+    patterns = (
+        "send the user a concise completion summary",
+        "send the user a completion summary",
+        "stop the autoloop and wait for the user's next instruction",
+        "stop the autoloop and wait for the user",
+        "wait for the user's next instruction",
+        "stop the autoloop",
+        "等待用户下一步指令",
+        "等待用户下一步",
+        "等待用户指令",
+        "停止 autoloop",
+    )
+    return any(pattern in normalized for pattern in patterns)
+
+
+@dataclass
+class LatestPlanState:
+    follow_up_required: bool | None
+    main_instruction: str
+
+
+def extract_latest_plan(state_payload: dict[str, Any] | None) -> LatestPlanState | None:
+    if not isinstance(state_payload, dict):
+        return None
+    raw = state_payload.get("latest_plan")
+    if not isinstance(raw, dict):
+        return None
+    follow_up_required_raw = raw.get("follow_up_required")
+    follow_up_required = (
+        follow_up_required_raw if isinstance(follow_up_required_raw, bool) else None
+    )
+    main_instruction_raw = raw.get("main_instruction")
+    main_instruction = str(main_instruction_raw).strip() if isinstance(main_instruction_raw, str) else ""
+    return LatestPlanState(
+        follow_up_required=follow_up_required,
+        main_instruction=main_instruction,
+    )
 
 
 def extract_suggested_next_objective_from_plan_report(report_path: Path | None) -> str | None:

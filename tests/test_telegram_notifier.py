@@ -165,3 +165,23 @@ def test_send_message_urlerror_does_not_raise(monkeypatch) -> None:
     notifier.send_message("hello")
     assert errors
     assert "network" in errors[-1].lower()
+
+
+def test_send_message_splits_long_text_and_keeps_reply_markup_on_last_chunk() -> None:
+    notifier = TelegramNotifier(
+        TelegramConfig(
+            bot_token="123456:ABCDEFGHIJK",
+            chat_id="1",
+            events=set(),
+        )
+    )
+    payloads = []
+    notifier._post_form = lambda url, payload: payloads.append(payload) or True  # type: ignore[attr-defined]
+
+    long_text = "A" * 4200 + "\n" + "B" * 4200 + "\n" + "C" * 4200
+    reply_markup = {"inline_keyboard": [[{"text": "Run", "callback_data": "run:1"}]]}
+    assert notifier.send_message(long_text, reply_markup=reply_markup) is True
+    assert len(payloads) >= 3
+    assert all(len(str(item["text"])) <= 3900 for item in payloads)
+    assert "reply_markup" not in payloads[0]
+    assert "reply_markup" in payloads[-1]

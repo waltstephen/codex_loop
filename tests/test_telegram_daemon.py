@@ -421,6 +421,19 @@ def test_should_schedule_plan_follow_up_skips_on_blocked_review() -> None:
     assert reason == "review_blocked"
 
 
+def test_should_schedule_plan_follow_up_skips_when_latest_plan_has_no_follow_up() -> None:
+    state_payload = {
+        "latest_review_status": "done",
+        "latest_plan": {
+            "follow_up_required": False,
+            "main_instruction": "do not run",
+        },
+    }
+    should_schedule, reason = should_schedule_plan_follow_up(exit_code=0, state_payload=state_payload)
+    assert should_schedule is False
+    assert reason == "planner_no_follow_up"
+
+
 def test_build_plan_request_prefers_planner_report_when_no_next_action(tmp_path: Path) -> None:
     report = tmp_path / "plan-report.md"
     report.write_text(
@@ -451,6 +464,30 @@ def test_build_plan_request_prefers_planner_report_when_no_next_action(tmp_path:
     assert request == "实现 GUI 高层 planner 与 computer-use 执行层的联动验证。"
 
 
+def test_build_plan_request_prefers_latest_plan_main_instruction() -> None:
+    state_payload = {
+        "rounds": [
+            {
+                "review": {
+                    "status": "done",
+                    "reason": "done",
+                    "next_action": "send the user a concise completion summary",
+                }
+            }
+        ],
+        "latest_plan": {
+            "follow_up_required": True,
+            "main_instruction": "在 MONET hard-4 上复现 step_0020 与 step_0030 的对照实验并输出误差分析。",
+        },
+    }
+    request = build_plan_request(
+        objective="旧目标",
+        exit_code=0,
+        state_payload=state_payload,
+    )
+    assert request == "在 MONET hard-4 上复现 step_0020 与 step_0030 的对照实验并输出误差分析。"
+
+
 def test_extract_suggested_next_objective_from_markdown_none_when_placeholder() -> None:
     text = (
         "# Planning Snapshot\n"
@@ -464,6 +501,11 @@ def test_extract_suggested_next_objective_from_markdown_none_when_placeholder() 
 def test_sanitize_follow_up_objective_removes_run_prefixes() -> None:
     assert sanitize_follow_up_objective("run /run 继续修复") == "继续修复"
     assert sanitize_follow_up_objective("/run 继续修复") == "继续修复"
+
+
+def test_sanitize_follow_up_objective_removes_objective_context_suffix() -> None:
+    text = "Stop the autoloop and wait for the user's next instruction.（目标上下文：旧目标文本）"
+    assert sanitize_follow_up_objective(text) == "Stop the autoloop and wait for the user's next instruction."
 
 
 def test_append_plan_record_row_writes_markdown_table(tmp_path: Path) -> None:
