@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
 import socket
 import threading
@@ -9,12 +10,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from .telegram_control import normalize_command_prefix, parse_command_text, parse_mode_selection_text
 from .telegram_notifier import format_event_message
 
 _FEISHU_MENTION_PREFIX = re.compile(r"^(?:@[_\w-]+\s+)+")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 
 @dataclass
@@ -103,35 +108,196 @@ class FeishuNotifier:
             return False
         ok = True
         for chunk in split_feishu_message(message):
-            body = json.dumps(
-                {
-                    "receive_id": self.config.chat_id,
-                    "msg_type": "text",
-                    "content": json.dumps({"text": chunk}, ensure_ascii=False),
-                },
-                ensure_ascii=False,
-            ).encode("utf-8")
-            req = urllib.request.Request(
-                "https://open.feishu.cn/open-apis/im/v1/messages"
-                + f"?{urllib.parse.urlencode({'receive_id_type': self.config.receive_id_type})}",
-                data=body,
-                method="POST",
-                headers={
-                    "Content-Type": "application/json; charset=utf-8",
-                    "Authorization": f"Bearer {token}",
-                },
-            )
             ok = (
-                _perform_json_request(
-                    req,
-                    timeout_seconds=self.config.timeout_seconds,
-                    on_error=self.on_error,
-                    label="feishu send",
+                self._send_structured_message(
+                    token=token,
+                    msg_type="text",
+                    content={"text": chunk},
                 )
-                is not None
                 and ok
             )
         return ok
+
+    def send_local_file(self, path: str | Path, *, caption: str = "") -> bool:
+        token = self._tokens.get_token()
+        if not token:
+            return False
+        file_path = Path(path)
+        if not file_path.exists():
+            _emit(self.on_error, f"feishu local file missing: {file_path}")
+            return False
+        try:
+            file_bytes = file_path.read_bytes()
+        except OSError as exc:
+            _emit(self.on_error, f"feishu local file read failed: {exc}")
+            return False
+
+        suffix = file_path.suffix.lower()
+        if suffix in IMAGE_EXTENSIONS:
+            image_key = self._upload_image(token=token, file_name=file_path.name, file_bytes=file_bytes)
+            if not image_key:
+                return False
+            ok = self._send_structured_message(
+                token=token,
+                msg_type="image",
+                content={"image_key": image_key},
+            )
+        else:
+            is_video = suffix in VIDEO_EXTENSIONS
+            file_type = "mp4" if is_video and suffix == ".mp4" else "stream"
+            file_key = self._upload_file(
+                token=token,
+                file_name=file_path.name,
+                file_bytes=file_bytes,
+                file_type=file_type,
+            )
+            if not file_key:
+                return False
+            ok = self._send_structured_message(
+                token=token,
+                msg_type="file",
+                content={"file_key": file_key},
+            )
+
+        if caption.strip():
+            ok = (
+                self._send_structured_message(
+                    token=token,
+                    msg_type="text",
+                    content={"text": caption[:1500]},
+                )
+                and ok
+            )
+        return ok
+
+    def _send_structured_message(
+        self,
+        *,
+        token: str,
+        msg_type: str,
+        content: dict[str, Any],
+    ) -> bool:
+        body = json.dumps(
+            {
+                "receive_id": self.config.chat_id,
+                "msg_type": msg_type,
+                "content": json.dumps(content, ensure_ascii=False),
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/im/v1/messages"
+            + f"?{urllib.parse.urlencode({'receive_id_type': self.config.receive_id_type})}",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {token}",
+            },
+        )
+        return (
+            _perform_json_request(
+                req,
+                timeout_seconds=self.config.timeout_seconds,
+                on_error=self.on_error,
+                label="feishu send",
+            )
+            is not None
+        )
+
+    def _upload_image(self, *, token: str, file_name: str, file_bytes: bytes) -> str | None:
+        parsed = self._post_multipart(
+            token=token,
+            url="https://open.feishu.cn/open-apis/im/v1/images",
+            field_name="image",
+            file_name=file_name,
+            file_bytes=file_bytes,
+            extra_form_fields={"image_type": "message"},
+            label="feishu upload image",
+        )
+        if not isinstance(parsed, dict):
+            return None
+        data = parsed.get("data")
+        if not isinstance(data, dict):
+            _emit(self.on_error, "feishu upload image missing data")
+            return None
+        image_key = data.get("image_key")
+        if not isinstance(image_key, str) or not image_key.strip():
+            _emit(self.on_error, "feishu upload image missing image_key")
+            return None
+        return image_key.strip()
+
+    def _upload_file(
+        self,
+        *,
+        token: str,
+        file_name: str,
+        file_bytes: bytes,
+        file_type: str,
+    ) -> str | None:
+        parsed = self._post_multipart(
+            token=token,
+            url="https://open.feishu.cn/open-apis/im/v1/files",
+            field_name="file",
+            file_name=file_name,
+            file_bytes=file_bytes,
+            extra_form_fields={"file_type": file_type, "file_name": file_name},
+            label="feishu upload file",
+        )
+        if not isinstance(parsed, dict):
+            return None
+        data = parsed.get("data")
+        if not isinstance(data, dict):
+            _emit(self.on_error, "feishu upload file missing data")
+            return None
+        file_key = data.get("file_key")
+        if not isinstance(file_key, str) or not file_key.strip():
+            _emit(self.on_error, "feishu upload file missing file_key")
+            return None
+        return file_key.strip()
+
+    def _post_multipart(
+        self,
+        *,
+        token: str,
+        url: str,
+        field_name: str,
+        file_name: str,
+        file_bytes: bytes,
+        extra_form_fields: dict[str, str] | None,
+        label: str,
+    ) -> dict[str, Any] | None:
+        boundary = f"----argusbot{uuid4().hex}"
+        body = bytearray()
+        if extra_form_fields:
+            for key, value in extra_form_fields.items():
+                body.extend(_multipart_text_part(boundary, key, value))
+        guessed_mime_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+        body.extend(
+            _multipart_file_part(
+                boundary,
+                field_name,
+                file_name,
+                file_bytes,
+                content_type=guessed_mime_type,
+            )
+        )
+        body.extend(f"--{boundary}--\r\n".encode("utf-8"))
+        req = urllib.request.Request(
+            url,
+            data=bytes(body),
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+        )
+        return _perform_json_request(
+            req,
+            timeout_seconds=self.config.timeout_seconds,
+            on_error=self.on_error,
+            label=label,
+        )
 
     def close(self) -> None:
         return
@@ -371,3 +537,27 @@ def _perform_json_request(
 def _emit(on_error: ErrorCallback | None, message: str) -> None:
     if on_error is not None:
         on_error(message)
+
+
+def _multipart_text_part(boundary: str, field: str, value: str) -> bytes:
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"\r\n\r\n'
+        f"{value}\r\n"
+    ).encode("utf-8")
+
+
+def _multipart_file_part(
+    boundary: str,
+    field: str,
+    file_name: str,
+    file_bytes: bytes,
+    *,
+    content_type: str,
+) -> bytes:
+    safe_name = file_name.replace('"', "_")
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{safe_name}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode("utf-8") + file_bytes + b"\r\n"

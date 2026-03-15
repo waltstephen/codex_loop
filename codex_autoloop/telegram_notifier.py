@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+
 
 @dataclass
 class TelegramConfig:
@@ -34,6 +37,7 @@ class TelegramNotifier:
         self.send_message_url = f"{base}/sendMessage"
         self.send_chat_action_url = f"{base}/sendChatAction"
         self.send_photo_url = f"{base}/sendPhoto"
+        self.send_video_url = f"{base}/sendVideo"
         self.send_document_url = f"{base}/sendDocument"
         self.answer_callback_query_url = f"{base}/answerCallbackQuery"
         self._typing_stop = threading.Event()
@@ -80,13 +84,26 @@ class TelegramNotifier:
         except OSError as exc:
             self._emit_error(f"Telegram local file read failed: {exc}")
             return False
-        is_image = file_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+        suffix = file_path.suffix.lower()
+        if suffix in IMAGE_EXTENSIONS:
+            url = self.send_photo_url
+            field_name = "photo"
+            extra_form_fields: dict[str, str] | None = None
+        elif suffix in VIDEO_EXTENSIONS:
+            url = self.send_video_url
+            field_name = "video"
+            extra_form_fields = None
+        else:
+            url = self.send_document_url
+            field_name = "document"
+            extra_form_fields = {"disable_content_type_detection": "false"}
         return self._post_multipart_file(
-            url=self.send_photo_url if is_image else self.send_document_url,
-            field_name="photo" if is_image else "document",
+            url=url,
+            field_name=field_name,
             file_name=file_path.name,
             file_bytes=file_bytes,
             caption=caption,
+            extra_form_fields=extra_form_fields,
         )
 
     def answer_callback_query(self, callback_query_id: str, text: str = "") -> None:
@@ -164,13 +181,16 @@ class TelegramNotifier:
         file_name: str,
         file_bytes: bytes,
         caption: str,
+        extra_form_fields: dict[str, str] | None = None,
     ) -> bool:
         boundary = f"----codexautoloop{uuid4().hex}"
         body = bytearray()
         body.extend(_multipart_text_part(boundary, "chat_id", self.config.chat_id))
         if caption.strip():
             body.extend(_multipart_text_part(boundary, "caption", caption[:900]))
-        body.extend(_multipart_text_part(boundary, "disable_content_type_detection", "false"))
+        if extra_form_fields:
+            for key, value in extra_form_fields.items():
+                body.extend(_multipart_text_part(boundary, key, value))
         body.extend(_multipart_file_part(boundary, field_name, file_name, file_bytes))
         body.extend(f"--{boundary}--\r\n".encode("utf-8"))
         req = urllib.request.Request(

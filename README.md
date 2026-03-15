@@ -152,6 +152,9 @@ Behavior:
   - `/inject <instruction>`
   - `/mode <off|auto|record>`
   - `/btw <question>`
+  - `/confirm-send` (when BTW attachments > 5, confirm and continue upload)
+  - `/cancel-send` (when BTW attachments > 5, skip upload)
+  - BTW attachment return supports Telegram/Feishu media upload: images/photos, videos, and generic files/documents.
   - `/plan <direction>`
   - `/review <criteria>`
   - `/show-main-prompt`
