@@ -624,6 +624,17 @@ Safety stop conditions:
 - repeated no-progress rounds
 - reviewer returns `blocked`
 
+## Community
+
+If you're using ArgusBot for research workflows, welcome to join our user community.
+
+- WeChat user group: scan the QR code below
+- Please note your background / use case when joining
+
+<p align="center">
+  <img src="assets/wechat-group.png" alt="ArgusBot WeChat Group" width="260" />
+</p>
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, attribution, and acknowledgement details.
