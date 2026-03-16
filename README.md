@@ -632,7 +632,7 @@ If you're using ArgusBot for research workflows, welcome to join our user commun
 - Please note your background / use case when joining
 
 <p align="center">
-  <img src="assets/wechat-group.png" alt="ArgusBot WeChat Group" width="260" />
+  <img src="Feishu_readme/wechat-group.jpg" alt="ArgusBot WeChat Group" width="260" />
 </p>
 
 ## Contributing
