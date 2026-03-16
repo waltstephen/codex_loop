@@ -24,6 +24,7 @@ Thanks for your interest in improving `ArgusBot`.
 - Boxiu Li: [https://github.com/lbx154](https://github.com/lbx154)
 - Kaitong Cai: [https://github.com/CaiKaitong](https://github.com/CaiKaitong)
 - Zikai Zhou: [https://github.com/Klayand](https://github.com/Klayand)
+- Lifeng Zhuo: [https://github.com/zhuolifeng](https://github.com/zhuolifeng)
 
 ## Acknowledgements
 
