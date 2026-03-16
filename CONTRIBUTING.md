@@ -19,9 +19,10 @@ Thanks for your interest in improving `ArgusBot`.
 
 ## Project Contributors
 
-- Yijia Fan: original migration source for ArgusBot.
+- Yijia Fan: original migration source for ArgusBot[https://github.com/waltstephen](https://github.com/waltstephen).
 - Zimo Wen: [https://github.com/nssmd](https://github.com/nssmd)
 - Boxiu Li: [https://github.com/lbx154](https://github.com/lbx154)
+- Kaitong Cai [https://github.com/CaiKaitong](https://github.com/CaiKaitong)
 
 ## Acknowledgements
 
