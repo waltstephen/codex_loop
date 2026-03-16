@@ -529,6 +529,8 @@ Show local model presets and common names:
 python -m codex_autoloop.model_catalog
 ```
 
+### OpenAI / Codex Models
+
 Current presets:
 
 - `quality`: `main=gpt-5.4/high`, `reviewer=gpt-5.4/high`
@@ -539,6 +541,33 @@ Current presets:
 - `codex-xhigh`: `main=gpt-5.3-codex/xhigh`, `reviewer=gpt-5.3-codex/xhigh`
 - `cheap`: `main=gpt-5.1-codex-mini/medium`, `reviewer=gpt-5-codex-mini/low`
 - `max`: `main=gpt-5.1-codex-max/xhigh`, `reviewer=gpt-5.3-codex/high`
+
+### Qwen Models (Alibaba Cloud DashScope)
+
+To use Qwen models, you need to set the following environment variables:
+
+```bash
+# Set your Alibaba Cloud DashScope API Key
+export DASHSCOPE_API_KEY="your-dashscope-api-key"
+export DASHSCOPE_API_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"
+```
+
+Get your API key from: https://dashscope.console.aliyun.com/
+
+Qwen presets:
+
+- `qwen3-quality`: `main=qwen3-30b-a3b/high`, `reviewer=qwen3-30b-a3b/high` - High quality Qwen3
+- `qwen3-balanced`: `main=qwen3-32b/high`, `reviewer=qwen3-14b/medium` - Balanced Qwen3
+- `qwen3-coder`: `main=qwen3-coder-32b/high`, `reviewer=qwen3-coder-14b/medium` - Code-optimized Qwen3
+- `qwen3-cheap`: `main=qwen3-coder-7b/medium`, `reviewer=qwen3-8b/low` - Budget Qwen3
+- `qwen25-quality`: `main=qwen2.5-max/high`, `reviewer=qwen2.5-max/high` - High quality Qwen2.5
+- `qwen25-balanced`: `main=qwen2.5-72b/high`, `reviewer=qwen2.5-32b/medium` - Balanced Qwen2.5
+- `qwen25-coder`: `main=qwen2.5-coder-32b/high`, `reviewer=qwen2.5-coder-14b/medium` - Code-optimized Qwen2.5
+- `qwen25-cheap`: `main=qwen2.5-coder-7b/medium`, `reviewer=qwen2.5-7b/low` - Budget Qwen2.5
+- `qwen35-quality`: `main=qwen3.5-72b/high`, `reviewer=qwen3.5-32b/high` - High quality Qwen3.5
+- `qwen35-balanced`: `main=qwen3.5-32b/high`, `reviewer=qwen3.5-14b/medium` - Balanced Qwen3.5
+- `qwen35-coder`: `main=qwen3.5-coder-32b/high`, `reviewer=qwen3.5-coder-14b/medium` - Code-optimized Qwen3.5
+- `qwen35-cheap`: `main=qwen3.5-coder-7b/medium`, `reviewer=qwen3.5-8b/low` - Budget Qwen3.5
 
 Note:
 
