@@ -23,6 +23,7 @@ Thanks for your interest in improving `ArgusBot`.
 - Zimo Wen: [https://github.com/nssmd](https://github.com/nssmd)
 - Boxiu Li: [https://github.com/lbx154](https://github.com/lbx154)
 - Kaitong Cai: [https://github.com/CaiKaitong](https://github.com/CaiKaitong)
+- Zikai Zhou: [https://github.com/Klayand](https://github.com/Klayand)
 
 ## Acknowledgements
 
