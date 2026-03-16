@@ -544,11 +544,12 @@ Current presets:
 
 ### Qwen Models (Alibaba Cloud DashScope)
 
-To use Qwen models, you need to set the `DASHSCOPE_API_KEY` environment variable:
+To use Qwen models, you need to set the following environment variables:
 
 ```bash
 # Set your Alibaba Cloud DashScope API Key
 export DASHSCOPE_API_KEY="your-dashscope-api-key"
+export DASHSCOPE_API_BASE="https://dashscope.aliyuncs.com/compatible-mode/v1"
 ```
 
 Get your API key from: https://dashscope.console.aliyun.com/
