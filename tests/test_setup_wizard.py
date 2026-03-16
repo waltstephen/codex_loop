@@ -97,6 +97,31 @@ def test_prompt_feishu_config_retries_until_chat_id_looks_valid(monkeypatch) -> 
     assert setup_wizard.prompt_feishu_config() == ("cli_xxx", "secret", "oc_123")
 
 
+def test_prompt_teams_config_retries_until_required_fields_present(monkeypatch) -> None:
+    inputs = iter(
+        [
+            "",
+            "",
+            "",
+            "",
+            "app-id",
+            "conv-1",
+            "https://smba.trafficmanager.net/amer/",
+            "tenant-1",
+        ]
+    )
+    secrets = iter(["", "secret"])
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: next(inputs))
+    monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: next(secrets))
+    assert setup_wizard.prompt_teams_config() == (
+        "app-id",
+        "secret",
+        "conv-1",
+        "https://smba.trafficmanager.net/amer/",
+        "tenant-1",
+    )
+
+
 def test_prompt_token_retries(monkeypatch) -> None:
     answers = iter(["invalid", "123:secret"])
     monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: next(answers))
@@ -320,6 +345,84 @@ def test_main_feishu_only_skips_telegram_setup(monkeypatch, tmp_path: Path) -> N
     assert payload["feishu_app_id"] == "cli_xxx"
 
 
+def test_main_teams_only_skips_telegram_setup(monkeypatch, tmp_path: Path) -> None:
+    home_dir = tmp_path / "custom-home"
+    run_cd = tmp_path / "repo"
+    run_cd.mkdir()
+    args = SimpleNamespace(
+        channel="teams",
+        telegram_bot_token=None,
+        telegram_chat_id=None,
+        feishu_app_id=None,
+        feishu_app_secret=None,
+        feishu_chat_id=None,
+        feishu_receive_id_type="chat_id",
+        teams_app_id="app-id",
+        teams_app_password="secret",
+        teams_conversation_id="conv-1",
+        teams_service_url="https://smba.trafficmanager.net/amer/",
+        teams_tenant_id="tenant-1",
+        teams_endpoint_host="0.0.0.0",
+        teams_endpoint_port=3978,
+        teams_endpoint_path="/api/messages",
+        run_cd=str(run_cd),
+        home_dir=str(home_dir),
+        run_max_rounds=50,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_resume_last_session=True,
+        run_planner_mode="auto",
+        run_model_preset="cheap",
+        run_main_model=None,
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort=None,
+        token_lock_dir=str(tmp_path / "locks"),
+        restart_existing=False,
+        follow_up_auto_execute_seconds=600,
+    )
+
+    class _FakeParser:
+        def parse_args(self):
+            return args
+
+    class _FakeProcess:
+        pid = 4321
+
+        def poll(self):
+            return None
+
+    launched: list[list[str]] = []
+
+    monkeypatch.setattr(setup_wizard, "build_parser", lambda: _FakeParser())
+    monkeypatch.setattr(setup_wizard.shutil, "which", lambda name: "codex" if name == "codex" else None)
+    monkeypatch.setattr(setup_wizard, "check_codex_binary", lambda codex_bin: True)
+    monkeypatch.setattr(setup_wizard, "check_codex_auth", lambda **kwargs: True)
+    monkeypatch.setattr(setup_wizard, "resolve_effective_chat_id", lambda **kwargs: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(setup_wizard, "acquire_token_lock", lambda **kwargs: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(setup_wizard, "prompt_secret", lambda prompt: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
+    monkeypatch.setattr(setup_wizard, "resolve_daemon_launch_prefix", lambda: ["argusbot-daemon"])
+    monkeypatch.setattr(
+        setup_wizard.subprocess,
+        "Popen",
+        lambda cmd, **kwargs: launched.append(cmd) or _FakeProcess(),
+    )
+
+    setup_wizard.main()
+
+    assert launched
+    daemon_cmd = launched[0]
+    assert "--telegram-bot-token" not in daemon_cmd
+    assert "--feishu-app-id" not in daemon_cmd
+    assert "--teams-app-id" in daemon_cmd
+    payload = json.loads((home_dir / "daemon_config.json").read_text(encoding="utf-8"))
+    assert payload["control_channel"] == "teams"
+    assert payload["teams_app_id"] == "app-id"
+    assert payload["teams_service_url"] == "https://smba.trafficmanager.net/amer/"
+
+
 def test_build_parser_accepts_feishu_options() -> None:
     args = setup_wizard.build_parser().parse_args(
         [
@@ -336,6 +439,26 @@ def test_build_parser_accepts_feishu_options() -> None:
     assert args.channel == "feishu"
     assert args.feishu_app_id == "cli_xxx"
     assert args.feishu_chat_id == "oc_123"
+
+
+def test_build_parser_accepts_teams_options() -> None:
+    args = setup_wizard.build_parser().parse_args(
+        [
+            "--channel",
+            "teams",
+            "--teams-app-id",
+            "app-id",
+            "--teams-app-password",
+            "secret",
+            "--teams-conversation-id",
+            "conv-1",
+            "--teams-service-url",
+            "https://smba.trafficmanager.net/amer/",
+        ]
+    )
+    assert args.channel == "teams"
+    assert args.teams_app_id == "app-id"
+    assert args.teams_conversation_id == "conv-1"
 
 
 def test_build_parser_accepts_copilot_proxy_options() -> None:
@@ -404,6 +527,20 @@ def test_resolve_feishu_config_rejects_invalid_chat_id() -> None:
                 feishu_app_secret="secret",
                 feishu_chat_id="11",
                 feishu_receive_id_type="chat_id",
+            )
+    )
+    assert excinfo.value.code == 2
+
+
+def test_resolve_teams_config_rejects_partial_seed_reference() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        setup_wizard.resolve_teams_config(
+            SimpleNamespace(
+                teams_app_id="app-id",
+                teams_app_password="secret",
+                teams_conversation_id="conv-1",
+                teams_service_url="",
+                teams_tenant_id="tenant-1",
             )
         )
     assert excinfo.value.code == 2

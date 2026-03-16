@@ -5,11 +5,12 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
-from ..adapters.control_channels import FeishuControlChannel, LocalBusControlChannel, TelegramControlChannel
+from ..adapters.control_channels import FeishuControlChannel, LocalBusControlChannel, TeamsControlChannel, TelegramControlChannel
 from ..adapters.event_sinks import (
     CompositeEventSink,
     DashboardEventSink,
     FeishuEventSink,
+    TeamsEventSink,
     TelegramEventSink,
     TerminalEventSink,
 )
@@ -25,6 +26,7 @@ from ..dashboard import DashboardServer, DashboardStore
 from ..feishu_adapter import FeishuConfig, FeishuNotifier
 from ..planner import Planner
 from ..reviewer import Reviewer
+from ..teams_adapter import TeamsConfig, TeamsNotifier
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .shell_utils import (
     control_help_text,
@@ -35,6 +37,7 @@ from .shell_utils import (
     resolve_btw_messages_file,
     resolve_plan_overview_file,
     resolve_review_summaries_dir,
+    resolve_teams_reference_file,
     resolve_operator_messages_file,
 )
 
@@ -65,6 +68,12 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     )
     btw_messages_file = resolve_btw_messages_file(
         explicit_path=None,
+        operator_messages_file=operator_messages_file,
+        control_file=args.control_file,
+        state_file=args.state_file,
+    )
+    teams_reference_file = resolve_teams_reference_file(
+        explicit_path=args.teams_reference_file,
         operator_messages_file=operator_messages_file,
         control_file=args.control_file,
         state_file=args.state_file,
@@ -217,6 +226,73 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             )
             print("Feishu control channel enabled.", file=sys.stderr)
 
+    teams_notifier: TeamsNotifier | None = None
+    teams_values = [
+        str(args.teams_app_id or "").strip(),
+        str(args.teams_app_password or "").strip(),
+    ]
+    teams_requested = all(teams_values)
+    if any(teams_values) and not teams_requested:
+        raise ValueError("--teams-app-id and --teams-app-password are both required when Teams is enabled.")
+    teams_conversation_id = str(args.teams_conversation_id or "").strip()
+    teams_service_url = str(args.teams_service_url or "").strip()
+    if any(
+        [
+            teams_conversation_id,
+            teams_service_url,
+            str(args.teams_tenant_id or "").strip(),
+            str(args.teams_reference_file or "").strip(),
+        ]
+    ) and not teams_requested:
+        raise ValueError("--teams-app-id and --teams-app-password are required when Teams options are provided.")
+    if (teams_conversation_id and not teams_service_url) or (teams_service_url and not teams_conversation_id):
+        raise ValueError("--teams-conversation-id and --teams-service-url must be provided together when pre-seeding Teams.")
+    if teams_requested:
+        teams_notifier = TeamsNotifier(
+            TeamsConfig(
+                app_id=teams_values[0],
+                app_password=teams_values[1],
+                conversation_id=(teams_conversation_id or None),
+                service_url=(teams_service_url or None),
+                tenant_id=(str(args.teams_tenant_id or "").strip() or None),
+                events=parse_telegram_events(args.teams_events),
+                timeout_seconds=args.teams_timeout_seconds,
+                endpoint_host=args.teams_endpoint_host,
+                endpoint_port=args.teams_endpoint_port,
+                endpoint_path=args.teams_endpoint_path,
+                reference_file=teams_reference_file,
+            ),
+            on_error=lambda msg: print(f"[teams] {msg}", file=sys.stderr),
+        )
+        print("Teams notifications enabled.", file=sys.stderr)
+        sinks.append(
+            TeamsEventSink(
+                notifier=teams_notifier,
+                live_updates=args.teams_live_updates,
+                live_interval_seconds=args.teams_live_interval_seconds,
+                on_error=lambda msg: print(f"[teams] {msg}", file=sys.stderr),
+            )
+        )
+        if args.teams_control:
+            control_channels.append(
+                TeamsControlChannel(
+                    app_id=teams_values[0],
+                    app_password=teams_values[1],
+                    conversation_id=(teams_conversation_id or None),
+                    service_url=(teams_service_url or None),
+                    tenant_id=(str(args.teams_tenant_id or "").strip() or None),
+                    reference_file=teams_reference_file,
+                    notifier=teams_notifier,
+                    endpoint_host=args.teams_endpoint_host,
+                    endpoint_port=args.teams_endpoint_port,
+                    endpoint_path=args.teams_endpoint_path,
+                    on_error=lambda msg: print(f"[teams-control] {msg}", file=sys.stderr),
+                    plain_text_kind=("inject" if args.teams_control_plain_text_inject else "run"),
+                    timeout_seconds=args.teams_timeout_seconds,
+                )
+            )
+            print("Teams control channel enabled.", file=sys.stderr)
+
     if args.control_file:
         control_channels.append(
             LocalBusControlChannel(
@@ -234,6 +310,9 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             return
         if source == "feishu" and feishu_notifier is not None:
             feishu_notifier.send_message(message)
+            return
+        if source == "teams" and teams_notifier is not None:
+            teams_notifier.send_message(message)
             return
         print(message, file=sys.stderr)
 
@@ -256,6 +335,10 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         if source == "feishu" and feishu_notifier is not None:
             for item in attachments:
                 feishu_notifier.send_local_file(item.path, caption=item.reason)
+            return
+        if source == "teams" and teams_notifier is not None:
+            for item in attachments:
+                teams_notifier.send_local_file(item.path, caption=item.reason)
             return
         attachment_lines = ["[btw] attachments:"] + [f"- {item.path}" for item in attachments]
         reply_to_source(source, "\n".join(attachment_lines))

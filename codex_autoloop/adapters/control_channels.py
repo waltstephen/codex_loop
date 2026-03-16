@@ -8,6 +8,7 @@ from typing import Callable
 from ..core.ports import CommandHandler, ControlCommand
 from ..daemon_bus import JsonlCommandBus
 from ..feishu_adapter import FeishuCommandPoller
+from ..teams_adapter import TeamsCommandListener, TeamsConfig, TeamsNotifier
 from ..telegram_control import TelegramCommandPoller
 
 ErrorHandler = Callable[[str], None]
@@ -114,6 +115,74 @@ class FeishuControlChannel:
             return
         self._poller.stop()
         self._poller = None
+
+
+class TeamsControlChannel:
+    def __init__(
+        self,
+        *,
+        app_id: str,
+        app_password: str,
+        endpoint_host: str = "0.0.0.0",
+        endpoint_port: int = 3978,
+        endpoint_path: str = "/api/messages",
+        conversation_id: str | None = None,
+        service_url: str | None = None,
+        tenant_id: str | None = None,
+        reference_file: str | None = None,
+        notifier: TeamsNotifier | None = None,
+        on_error: ErrorHandler | None = None,
+        plain_text_kind: str = "inject",
+        timeout_seconds: int = 10,
+    ) -> None:
+        self.app_id = app_id
+        self.app_password = app_password
+        self.endpoint_host = endpoint_host
+        self.endpoint_port = endpoint_port
+        self.endpoint_path = endpoint_path
+        self.conversation_id = conversation_id
+        self.service_url = service_url
+        self.tenant_id = tenant_id
+        self.reference_file = reference_file
+        self.notifier = notifier
+        self.on_error = on_error
+        self.plain_text_kind = plain_text_kind
+        self.timeout_seconds = timeout_seconds
+        self._listener: TeamsCommandListener | None = None
+
+    def start(self, on_command: CommandHandler) -> None:
+        if self._listener is not None:
+            return
+
+        def _forward(command) -> None:
+            on_command(ControlCommand(kind=command.kind, text=command.text, source="teams"))
+
+        self._listener = TeamsCommandListener(
+            config=TeamsConfig(
+                app_id=self.app_id,
+                app_password=self.app_password,
+                conversation_id=self.conversation_id,
+                service_url=self.service_url,
+                tenant_id=self.tenant_id,
+                reference_file=self.reference_file,
+                events=set(),
+                endpoint_host=self.endpoint_host,
+                endpoint_port=self.endpoint_port,
+                endpoint_path=self.endpoint_path,
+                timeout_seconds=self.timeout_seconds,
+            ),
+            on_command=_forward,
+            on_error=self.on_error,
+            plain_text_kind=self.plain_text_kind,
+            notifier=self.notifier,
+        )
+        self._listener.start()
+
+    def stop(self) -> None:
+        if self._listener is None:
+            return
+        self._listener.stop()
+        self._listener = None
 
 
 class LocalBusControlChannel:

@@ -91,6 +91,25 @@ def resolve_btw_messages_file(
     return str(base / "btw_messages.md")
 
 
+def resolve_teams_reference_file(
+    *,
+    explicit_path: str | None,
+    operator_messages_file: str | None,
+    control_file: str | None,
+    state_file: str | None,
+    default_root: str | None = None,
+) -> str:
+    if explicit_path:
+        return explicit_path
+    base = _resolve_artifact_dir(
+        operator_messages_file=operator_messages_file,
+        control_file=control_file,
+        state_file=state_file,
+        default_root=default_root,
+    )
+    return str(base / "teams_reference.json")
+
+
 def format_control_status(state: dict[str, Any]) -> str:
     status = state.get("status", "unknown")
     round_index = state.get("round", 0)

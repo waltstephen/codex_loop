@@ -394,6 +394,79 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Treat plain text Feishu messages as injected instruction updates.",
     )
+    parser.add_argument("--teams-app-id", default=None, help="Teams bot app id for control/notifications.")
+    parser.add_argument("--teams-app-password", default=None, help="Teams bot app password/secret for control/notifications.")
+    parser.add_argument(
+        "--teams-conversation-id",
+        default=None,
+        help="Optional Teams conversation id for proactive replies. Can also be learned from inbound messages.",
+    )
+    parser.add_argument(
+        "--teams-service-url",
+        default=None,
+        help="Optional Teams service URL for proactive replies. Can also be learned from inbound messages.",
+    )
+    parser.add_argument(
+        "--teams-tenant-id",
+        default=None,
+        help="Optional Teams tenant id used in outbound activity metadata.",
+    )
+    parser.add_argument(
+        "--teams-reference-file",
+        default=None,
+        help="Path to the persisted Teams conversation reference JSON.",
+    )
+    parser.add_argument(
+        "--teams-endpoint-host",
+        default="0.0.0.0",
+        help="Bind host for the local Teams bot callback listener.",
+    )
+    parser.add_argument(
+        "--teams-endpoint-port",
+        type=int,
+        default=3978,
+        help="Bind port for the local Teams bot callback listener.",
+    )
+    parser.add_argument(
+        "--teams-endpoint-path",
+        default="/api/messages",
+        help="HTTP path for the local Teams bot callback listener.",
+    )
+    parser.add_argument(
+        "--teams-events",
+        default="loop.started,round.review.completed,loop.completed",
+        help="Comma-separated event names to send to Teams.",
+    )
+    parser.add_argument(
+        "--teams-timeout-seconds",
+        type=int,
+        default=10,
+        help="HTTP timeout for Teams Bot Framework API calls.",
+    )
+    parser.add_argument(
+        "--teams-live-updates",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable batched live agent message push to Teams.",
+    )
+    parser.add_argument(
+        "--teams-live-interval-seconds",
+        type=int,
+        default=30,
+        help="Push interval for Teams live updates; sends only when there are changes.",
+    )
+    parser.add_argument(
+        "--teams-control",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Teams inbound control commands via the local callback listener.",
+    )
+    parser.add_argument(
+        "--teams-control-plain-text-inject",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Treat plain text Teams messages as injected instruction updates.",
+    )
     parser.add_argument(
         "--live-terminal",
         action=argparse.BooleanOptionalAction,

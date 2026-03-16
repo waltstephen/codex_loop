@@ -94,6 +94,16 @@ def test_is_config_usable_requires_token_and_run_cd() -> None:
         )
         is True
     )
+    assert (
+        codexloop.is_config_usable(
+            {
+                "teams_app_id": "app-id",
+                "teams_app_password": "secret",
+                "run_cd": ".",
+            }
+        )
+        is True
+    )
     assert codexloop.is_config_usable({"telegram_bot_token": "123:abc", "run_cd": ""}) is False
 
 
@@ -136,6 +146,26 @@ def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: P
     assert config["feishu_chat_id"] == "oc_123"
 
 
+def test_run_interactive_config_supports_teams_channel(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "teams")
+    monkeypatch.setattr(
+        codexloop,
+        "prompt_teams_config",
+        lambda: ("app-id", "secret", "conv-1", "https://smba.trafficmanager.net/amer/", "tenant-1"),
+    )
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
+    monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
+    monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
+    assert config["telegram_bot_token"] is None
+    assert config["feishu_app_id"] is None
+    assert config["teams_app_id"] == "app-id"
+    assert config["teams_conversation_id"] == "conv-1"
+    assert config["teams_service_url"] == "https://smba.trafficmanager.net/amer/"
+    assert config["teams_tenant_id"] == "tenant-1"
+
+
 def test_run_interactive_config_marks_copilot_preset_as_preferred(monkeypatch, tmp_path: Path) -> None:
     observed: dict[str, bool] = {}
 
@@ -164,6 +194,11 @@ def test_prompt_control_channel_default_is_telegram(monkeypatch) -> None:
 def test_prompt_control_channel_select_feishu(monkeypatch) -> None:
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "2")
     assert codexloop.prompt_control_channel() == "feishu"
+
+
+def test_prompt_control_channel_select_teams(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "3")
+    assert codexloop.prompt_control_channel() == "teams"
 
 
 def test_prompt_play_mode_selection(monkeypatch) -> None:
@@ -338,6 +373,41 @@ def test_build_daemon_command_includes_feishu(monkeypatch, tmp_path: Path) -> No
     assert "--feishu-app-secret" in cmd
     assert "--feishu-chat-id" in cmd
     assert "--feishu-receive-id-type" in cmd
+
+
+def test_build_daemon_command_includes_teams(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "resolve_daemon_launch_prefix", lambda: ["daemon-bin"])
+    home_dir = tmp_path / ".argusbot"
+    config = {
+        "teams_app_id": "app-id",
+        "teams_app_password": "secret",
+        "teams_conversation_id": "conv-1",
+        "teams_service_url": "https://smba.trafficmanager.net/amer/",
+        "teams_tenant_id": "tenant-1",
+        "teams_reference_file": str(home_dir / "teams_reference.json"),
+        "teams_endpoint_host": "0.0.0.0",
+        "teams_endpoint_port": 3978,
+        "teams_endpoint_path": "/api/messages",
+        "run_cd": str(tmp_path),
+        "run_check": None,
+        "run_max_rounds": 500,
+        "run_skip_git_repo_check": False,
+        "run_full_auto": False,
+        "run_yolo": True,
+        "run_planner_mode": "auto",
+        "run_plan_mode": "fully-plan",
+        "run_resume_last_session": True,
+        "run_model_preset": "quality",
+        "bus_dir": str(home_dir / "bus"),
+        "logs_dir": str(home_dir / "logs"),
+    }
+    cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
+    assert "--teams-app-id" in cmd
+    assert "--teams-app-password" in cmd
+    assert "--teams-conversation-id" in cmd
+    assert "--teams-service-url" in cmd
+    assert "--teams-tenant-id" in cmd
+    assert "--teams-reference-file" in cmd
 
 
 def test_stop_all_codexloop_loops_workspace_only_stops_current_home(monkeypatch, tmp_path: Path, capsys) -> None:

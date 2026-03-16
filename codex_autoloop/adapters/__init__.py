@@ -1,5 +1,12 @@
-from .control_channels import FeishuControlChannel, LocalBusControlChannel, TelegramControlChannel
-from .event_sinks import CompositeEventSink, DashboardEventSink, FeishuEventSink, TelegramEventSink, TerminalEventSink
+from .control_channels import FeishuControlChannel, LocalBusControlChannel, TeamsControlChannel, TelegramControlChannel
+from .event_sinks import (
+    CompositeEventSink,
+    DashboardEventSink,
+    FeishuEventSink,
+    TeamsEventSink,
+    TelegramEventSink,
+    TerminalEventSink,
+)
 
 __all__ = [
     "CompositeEventSink",
@@ -7,6 +14,8 @@ __all__ = [
     "FeishuControlChannel",
     "FeishuEventSink",
     "LocalBusControlChannel",
+    "TeamsControlChannel",
+    "TeamsEventSink",
     "TelegramControlChannel",
     "TelegramEventSink",
     "TerminalEventSink",

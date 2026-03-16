@@ -3,7 +3,7 @@ from __future__ import annotations
 ATTACHMENT_CONFIRM_THRESHOLD = 5
 ATTACHMENT_CONFIRM_COMMAND = "/confirm-send"
 ATTACHMENT_CANCEL_COMMAND = "/cancel-send"
-BOT_ATTACHMENT_SOURCES = {"telegram", "feishu"}
+BOT_ATTACHMENT_SOURCES = {"telegram", "feishu", "teams"}
 
 
 def requires_attachment_confirmation(*, source: str, attachment_count: int) -> bool:

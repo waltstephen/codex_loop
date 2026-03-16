@@ -24,6 +24,7 @@ DEFAULT_TOKEN_LOCK_DIR = "/tmp/argusbot-token-locks"
 DEFAULT_MAX_ROUNDS = 500
 CHANNEL_TELEGRAM = "telegram"
 CHANNEL_FEISHU = "feishu"
+CHANNEL_TEAMS = "teams"
 
 
 @dataclass
@@ -256,7 +257,7 @@ def supported_features_text() -> str:
             "  argusbot help",
             "      Show this feature list.",
             "  argusbot init",
-            "      Stop current workspace daemon, collect new config, and restart daemon in background.",
+            "      Stop current workspace daemon, collect new Telegram/Feishu/Teams config, and restart daemon in background.",
             "  argusbot status",
             "      Print daemon status JSON.",
             "  argusbot run <objective>",
@@ -328,13 +329,26 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     feishu_app_id = None
     feishu_app_secret = None
     feishu_chat_id = None
+    teams_app_id = None
+    teams_app_password = None
+    teams_conversation_id = None
+    teams_service_url = None
+    teams_tenant_id = None
     if channel == CHANNEL_TELEGRAM:
         token = prompt_token()
         chat_id = prompt_chat_id()
-    else:
+    elif channel == CHANNEL_FEISHU:
         feishu_app_id = prompt_input("Feishu app id: ", default="").strip() or None
         feishu_app_secret = prompt_secret("Feishu app secret: ").strip() or None
         feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
+    else:
+        (
+            teams_app_id,
+            teams_app_password,
+            teams_conversation_id,
+            teams_service_url,
+            teams_tenant_id,
+        ) = prompt_teams_config()
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
     model_preset = prompt_model_choice()
     use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = prompt_copilot_proxy_choice(
@@ -349,6 +363,15 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "feishu_app_secret": feishu_app_secret,
         "feishu_chat_id": feishu_chat_id,
         "feishu_receive_id_type": "chat_id",
+        "teams_app_id": teams_app_id,
+        "teams_app_password": teams_app_password,
+        "teams_conversation_id": teams_conversation_id,
+        "teams_service_url": teams_service_url,
+        "teams_tenant_id": teams_tenant_id,
+        "teams_reference_file": str((home_dir / "teams_reference.json").resolve()),
+        "teams_endpoint_host": "0.0.0.0",
+        "teams_endpoint_port": 3978,
+        "teams_endpoint_path": "/api/messages",
         "run_cd": str(run_cd),
         "run_check": (check_cmd if check_cmd else None),
         "run_max_rounds": DEFAULT_MAX_ROUNDS,
@@ -379,8 +402,14 @@ def is_config_usable(config: dict[str, Any]) -> bool:
     feishu_app_id = str(config.get("feishu_app_id") or "").strip()
     feishu_app_secret = str(config.get("feishu_app_secret") or "").strip()
     feishu_chat_id = str(config.get("feishu_chat_id") or "").strip()
+    teams_app_id = str(config.get("teams_app_id") or "").strip()
+    teams_app_password = str(config.get("teams_app_password") or "").strip()
     run_cd = str(config.get("run_cd") or "").strip()
-    return (looks_like_token(token) or bool(feishu_app_id and feishu_app_secret and feishu_chat_id)) and bool(run_cd)
+    return (
+        looks_like_token(token)
+        or bool(feishu_app_id and feishu_app_secret and feishu_chat_id)
+        or bool(teams_app_id and teams_app_password)
+    ) and bool(run_cd)
 
 
 def prompt_input(prompt: str, default: str) -> str:
@@ -411,8 +440,9 @@ def prompt_control_channel(*, default: str = CHANNEL_TELEGRAM) -> str:
     options = [
         ("1", CHANNEL_TELEGRAM, "Telegram"),
         ("2", CHANNEL_FEISHU, "Feishu (适合CN网络环境)"),
+        ("3", CHANNEL_TEAMS, "Teams"),
     ]
-    default_channel = default if default in {CHANNEL_TELEGRAM, CHANNEL_FEISHU} else CHANNEL_TELEGRAM
+    default_channel = default if default in {CHANNEL_TELEGRAM, CHANNEL_FEISHU, CHANNEL_TEAMS} else CHANNEL_TELEGRAM
     default_index = next(index for index, channel, _ in options if channel == default_channel)
     print("Choose control channel:")
     for index, _, label in options:
@@ -422,7 +452,7 @@ def prompt_control_channel(*, default: str = CHANNEL_TELEGRAM) -> str:
         for index, channel, _ in options:
             if raw == index:
                 return channel
-        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
+        print("Invalid selection. Enter 1, 2, or 3.", file=sys.stderr)
 
 
 def prompt_token() -> str:
@@ -439,6 +469,31 @@ def prompt_chat_id() -> str:
         if value.lower() == "auto" or looks_like_chat_id(value):
             return value
         print("Invalid chat id. Use 'auto' or numeric id like 123456 or -100123456.", file=sys.stderr)
+
+
+def prompt_teams_config() -> tuple[str, str, str | None, str | None, str | None]:
+    while True:
+        app_id = prompt_input("Teams app id: ", default="").strip()
+        app_password = prompt_secret("Teams app password/secret: ").strip()
+        conversation_id = prompt_input(
+            "Teams conversation id (optional, leave empty to learn from first inbound message): ",
+            default="",
+        ).strip()
+        service_url = prompt_input(
+            "Teams service URL (optional, required if conversation id is set): ",
+            default="",
+        ).strip()
+        tenant_id = prompt_input("Teams tenant id (optional): ", default="").strip()
+        if not app_id or not app_password:
+            print("Teams app id and app password are required.", file=sys.stderr)
+            continue
+        if (conversation_id and not service_url) or (service_url and not conversation_id):
+            print("Teams conversation id and service URL must be provided together.", file=sys.stderr)
+            continue
+        if service_url and not looks_like_teams_service_url(service_url):
+            print("Invalid Teams service URL. Expected an https:// Bot Framework service URL.", file=sys.stderr)
+            continue
+        return app_id, app_password, (conversation_id or None), (service_url or None), (tenant_id or None)
 
 
 def prompt_model_choice() -> str | None:
@@ -524,6 +579,11 @@ def looks_like_chat_id(value: str) -> bool:
     if value.startswith("-"):
         return value[1:].isdigit()
     return value.isdigit()
+
+
+def looks_like_teams_service_url(value: str) -> bool:
+    text = (value or "").strip()
+    return text.startswith("https://") and len(text) > len("https://")
 
 
 def resolve_daemon_launch_prefix() -> list[str]:
@@ -697,8 +757,12 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
     feishu_app_id = str(config.get("feishu_app_id") or "").strip()
     feishu_app_secret = str(config.get("feishu_app_secret") or "").strip()
     feishu_chat_id = str(config.get("feishu_chat_id") or "").strip()
-    if not token and not (feishu_app_id and feishu_app_secret and feishu_chat_id):
-        raise SystemExit("Missing control channel config in daemon config. Configure Telegram or Feishu.")
+    teams_app_id = str(config.get("teams_app_id") or "").strip()
+    teams_app_password = str(config.get("teams_app_password") or "").strip()
+    if not token and not (feishu_app_id and feishu_app_secret and feishu_chat_id) and not (
+        teams_app_id and teams_app_password
+    ):
+        raise SystemExit("Missing control channel config in daemon config. Configure Telegram, Feishu, or Teams.")
     run_cd = str(config.get("run_cd") or ".")
     chat_id = str(config.get("telegram_chat_id") or "auto")
     bus_dir = resolve_bus_dir(config, home_dir)
@@ -744,6 +808,32 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
                 str(config.get("feishu_receive_id_type") or "chat_id"),
             ]
         )
+    if teams_app_id and teams_app_password:
+        cmd.extend(
+            [
+                "--teams-app-id",
+                teams_app_id,
+                "--teams-app-password",
+                teams_app_password,
+                "--teams-reference-file",
+                str(config.get("teams_reference_file") or str((home_dir / "teams_reference.json").resolve())),
+                "--teams-endpoint-host",
+                str(config.get("teams_endpoint_host") or "0.0.0.0"),
+                "--teams-endpoint-port",
+                str(int(config.get("teams_endpoint_port") or 3978)),
+                "--teams-endpoint-path",
+                str(config.get("teams_endpoint_path") or "/api/messages"),
+            ]
+        )
+        teams_conversation_id = str(config.get("teams_conversation_id") or "").strip()
+        teams_service_url = str(config.get("teams_service_url") or "").strip()
+        teams_tenant_id = str(config.get("teams_tenant_id") or "").strip()
+        if teams_conversation_id:
+            cmd.extend(["--teams-conversation-id", teams_conversation_id])
+        if teams_service_url:
+            cmd.extend(["--teams-service-url", teams_service_url])
+        if teams_tenant_id:
+            cmd.extend(["--teams-tenant-id", teams_tenant_id])
     if child_command:
         cmd.extend(["--argusbot-bin", child_command])
     run_check = config.get("run_check")

@@ -24,14 +24,14 @@ Current defaults:
 ## Important Warnings
 
 1. Security risk: daemon-launched runs use `--yolo` by default. This grants Codex high local execution power. Run only in trusted repositories/workspaces.
-2. Visibility and debugging: Telegram/Feishu snippets may hide important details. If behavior looks wrong, run `argusbot` in the target workspace and watch local live output/logs first.
+2. Visibility and debugging: Telegram/Feishu/Teams snippets may hide important details. If behavior looks wrong, run `argusbot` in the target workspace and watch local live output/logs first.
 3. Cost and loop risk: long-running objectives can consume significant tokens. Planner or reviewer quality can also cause repeated loops. Always set clear acceptance checks, monitor runtime, and stop/re-scope when needed.
 
 ![ArgusBot architecture concept](Feishu_readme/cleaned_Gemini_Generated_Image_xniz1sxniz1sxniz%20(1).png)
 
-## Quick Start (24/7 Telegram Control)
+## Quick Start (24/7 Bot Control)
 
-If you want to control your main project from Telegram 24/7 with an always-on daemon, use this flow:
+If you want to control your main project from Telegram, Feishu, or Teams with an always-on daemon, use this flow:
 
 Prerequisites and cost notes:
 
@@ -43,7 +43,7 @@ Prerequisites and cost notes:
 2. Go to your target project directory (the repo you actually want to operate on).
 3. Run `argusbot init`, choose control channel (default Telegram), and complete setup prompts.
 4. After setup, daemon starts in background and keeps running.
-5. Chat with your Telegram bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
+5. Chat with your bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
 
 Example:
 
@@ -61,7 +61,7 @@ cd <your_main_project>
 argusbot init
 ```
 
-During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`), then enter the selected channel credentials. Config is persisted under `.argusbot/` in your main project.
+During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, `3. Teams`), then enter the selected channel credentials. Config is persisted under `.argusbot/` in your main project.
 
 ## Current Feature Snapshot
 
@@ -72,10 +72,11 @@ During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu 
 - Live visibility: terminal streaming, dashboard, Telegram push, typing heartbeat.
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Feishu inbound control during active run: text polling for `/run`, `/inject`, `/status`, `/stop`, `/plan`, `/review`, and plain-text routing.
+- Teams inbound control during active run: local Bot Framework callback listener for `/run`, `/inject`, `/status`, `/stop`, `/plan`, `/review`, and plain-text routing.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
 - Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
 - Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
-- Dual control channels for daemon: Telegram and terminal (`argusbot-daemon-ctl`).
+- Multi-channel daemon control: Telegram, Feishu, Teams, and terminal (`argusbot-daemon-ctl`).
 - Single-word operator entrypoint: `argusbot` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
@@ -142,7 +143,7 @@ argusbot help
 
 Behavior:
 
-- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
+- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, `3. Teams`, default Telegram), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
 - `argusbot init`: stops all current ArgusBot daemons, prompts control channel + credentials/model/play mode, starts daemon in background, then exits.
 - After `init`, run `argusbot` to attach monitor to that background daemon.
@@ -154,7 +155,7 @@ Behavior:
   - `/btw <question>`
   - `/confirm-send` (when BTW attachments > 5, confirm and continue upload)
   - `/cancel-send` (when BTW attachments > 5, skip upload)
-  - BTW attachment return supports Telegram/Feishu media upload: images/photos, videos, and generic files/documents.
+  - BTW attachment return supports Telegram/Feishu/Teams media return, with Teams using Bot Framework attachment delivery or text fallback when the channel rejects inline payloads.
   - `/plan <direction>`
   - `/review <criteria>`
   - `/show-main-prompt`
@@ -221,11 +222,37 @@ Common options:
 - `--feishu-live-updates` + `--feishu-live-interval-seconds 30`: push live agent message deltas to Feishu (only when changed)
 - `--feishu-heartbeat-interval-seconds 600`: when a run is still active, send a Feishu heartbeat (`typing...`) every 10 minutes
 - `--feishu-control`: allow Feishu inbound control (`/inject`, `/status`, `/stop`, `/plan`, `/review`) while loop is running
+- `--teams-app-id` / `--teams-app-password`: enable Teams notifications and control via Bot Framework
+- `--teams-conversation-id` + `--teams-service-url`: optional proactive Teams routing coordinates; if omitted, ArgusBot learns them from the first inbound Teams message
+- `--teams-tenant-id`: optional Teams tenant id for outbound metadata
+- `--teams-reference-file`: persisted Teams conversation reference JSON shared by daemon and child runs
+- `--teams-endpoint-host 0.0.0.0 --teams-endpoint-port 3978 --teams-endpoint-path /api/messages`: local Teams callback listener bind settings
+- `--teams-live-updates` + `--teams-live-interval-seconds 30`: push live agent message deltas to Teams (only when changed)
+- `--teams-control`: allow Teams inbound control (`/run`, `/inject`, `/status`, `/stop`, `/plan`, `/review`) while loop is running
 - `--no-live-terminal`: disable realtime terminal prints (default is on)
 - `--stall-soft-idle-seconds 3600`: after 1h no new output, run stall sub-agent diagnosis (do not force kill)
 - `--stall-hard-idle-seconds 10800`: after 3h no new output, force restart as hard safety valve
 - `--telegram-control`: allow Telegram inbound control (`/inject`, `/stop`, `/status`) while loop is running
 - `--telegram-control-whisper`: enable Telegram voice/audio transcription for control messages (default on)
+
+## Teams Setup
+
+Teams bot guide: [Teams_readme/Teams_readme.md](Teams_readme/Teams_readme.md)
+
+Use this when you want a Microsoft Teams bot instead of Telegram/Feishu.
+
+Required parameters:
+
+- `--teams-app-id`
+- `--teams-app-password`
+
+Optional proactive-routing parameters:
+
+- `--teams-conversation-id`
+- `--teams-service-url`
+- `--teams-tenant-id`
+
+If proactive-routing parameters are omitted, start the daemon, send the bot one message in Teams, and ArgusBot will persist the learned conversation reference under `.argusbot/teams_reference.json`.
 
 ## Feishu Setup Checklist
 
@@ -468,7 +495,7 @@ python -m codex_autoloop.setup_wizard --run-cd .
 The wizard will:
 
 1. Check `codex` CLI availability and basic auth probe.
-2. Prompt for control channel: Telegram, Feishu, or both.
+2. Prompt for control channel: Telegram, Feishu, Teams, or Telegram+Feishu.
 3. Prompt only for the selected channel credentials.
 4. Prompt optional default check command (empty means no forced check command).
 5. Prompt for planner mode after model selection.

@@ -222,6 +222,68 @@ def test_build_child_command_includes_feishu_args_when_configured() -> None:
     assert "--no-feishu-control" in cmd
 
 
+def test_build_child_command_includes_teams_args_when_configured() -> None:
+    args = Namespace(
+        codex_autoloop_bin="argusbot-run",
+        run_max_rounds=8,
+        run_model_preset=None,
+        run_main_model=None,
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort=None,
+        run_planner_mode="auto",
+        run_planner_model=None,
+        run_planner_reasoning_effort=None,
+        run_planner=True,
+        run_plan_update_interval_seconds=1800,
+        follow_up_auto_execute_seconds=3600,
+        telegram_bot_token=None,
+        feishu_app_id=None,
+        feishu_app_secret=None,
+        feishu_chat_id=None,
+        feishu_receive_id_type="chat_id",
+        feishu_timeout_seconds=12,
+        teams_app_id="app-id",
+        teams_app_password="secret",
+        teams_conversation_id="conv-1",
+        teams_service_url="https://smba.trafficmanager.net/amer/",
+        teams_tenant_id="tenant-1",
+        teams_timeout_seconds=15,
+        teams_reference_file="/tmp/teams_reference.json",
+        telegram_control_whisper=True,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=".argusbot/last_state.json",
+        run_resume_last_session=True,
+        run_no_dashboard=True,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        plan_report_file="/tmp/plan.md",
+        plan_todo_file="/tmp/todo.md",
+        resume_session_id=None,
+    )
+    assert "--teams-app-id" in cmd
+    assert "--teams-app-password" in cmd
+    assert "--teams-conversation-id" in cmd
+    assert "--teams-service-url" in cmd
+    assert "--teams-tenant-id" in cmd
+    assert "--teams-reference-file" in cmd
+    assert "--no-teams-control" in cmd
+
+
 def test_build_child_command_includes_copilot_proxy_args() -> None:
     args = Namespace(
         codex_autoloop_bin="argusbot-run",

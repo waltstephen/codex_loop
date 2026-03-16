@@ -8,8 +8,10 @@ from codex_autoloop.attachment_policy import (
 def test_requires_attachment_confirmation_for_bot_sources() -> None:
     assert requires_attachment_confirmation(source="telegram", attachment_count=6) is True
     assert requires_attachment_confirmation(source="feishu", attachment_count=6) is True
+    assert requires_attachment_confirmation(source="teams", attachment_count=6) is True
     assert requires_attachment_confirmation(source="telegram", attachment_count=5) is False
     assert requires_attachment_confirmation(source="feishu", attachment_count=5) is False
+    assert requires_attachment_confirmation(source="teams", attachment_count=5) is False
 
 
 def test_requires_attachment_confirmation_skips_non_bot_sources() -> None:

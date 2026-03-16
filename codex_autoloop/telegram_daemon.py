@@ -32,6 +32,7 @@ from .planner_modes import (
     planner_mode_allows_follow_up,
     resolve_planner_mode,
 )
+from .teams_adapter import TeamsCommand, TeamsCommandListener, TeamsConfig, TeamsNotifier
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -141,6 +142,11 @@ def looks_like_feishu_chat_id(value: str, *, receive_id_type: str = "chat_id") -
     return text.startswith("oc_") and len(text) > 3
 
 
+def looks_like_teams_service_url(value: str) -> bool:
+    text = (value or "").strip()
+    return text.startswith("https://") and len(text) > len("https://")
+
+
 def wait_for_process_exit(process: subprocess.Popen[str], *, timeout_seconds: float) -> bool:
     deadline = time.monotonic() + max(0.0, float(timeout_seconds))
     while time.monotonic() < deadline:
@@ -209,8 +215,12 @@ def main() -> None:
         and str(args.feishu_app_secret or "").strip()
         and str(args.feishu_chat_id or "").strip()
     )
-    if not telegram_enabled and not feishu_enabled:
-        parser.error("At least one control channel is required: Telegram or Feishu.")
+    teams_enabled = bool(
+        str(getattr(args, "teams_app_id", "") or "").strip()
+        and str(getattr(args, "teams_app_password", "") or "").strip()
+    )
+    if not telegram_enabled and not feishu_enabled and not teams_enabled:
+        parser.error("At least one control channel is required: Telegram, Feishu, or Teams.")
     if any(
         [
             str(args.feishu_app_id or "").strip(),
@@ -219,11 +229,33 @@ def main() -> None:
         ]
     ) and not feishu_enabled:
         parser.error("--feishu-app-id, --feishu-app-secret, and --feishu-chat-id must all be provided together.")
+    if any(
+        [
+            str(args.teams_app_id or "").strip(),
+            str(args.teams_app_password or "").strip(),
+        ]
+    ) and not teams_enabled:
+        parser.error("--teams-app-id and --teams-app-password must be provided together.")
     if feishu_enabled and not looks_like_feishu_chat_id(
         str(args.feishu_chat_id or "").strip(),
         receive_id_type=str(args.feishu_receive_id_type or "chat_id"),
     ):
         parser.error("Invalid Feishu chat id. For receive_id_type=chat_id, expected a value like oc_xxx.")
+    teams_conversation_id = str(args.teams_conversation_id or "").strip()
+    teams_service_url = str(args.teams_service_url or "").strip()
+    if any(
+        [
+            teams_conversation_id,
+            teams_service_url,
+            str(args.teams_tenant_id or "").strip(),
+            str(args.teams_reference_file or "").strip(),
+        ]
+    ) and not teams_enabled:
+        parser.error("--teams-app-id and --teams-app-password are required when Teams options are provided.")
+    if (teams_conversation_id and not teams_service_url) or (teams_service_url and not teams_conversation_id):
+        parser.error("--teams-conversation-id and --teams-service-url must be provided together.")
+    if teams_service_url and not looks_like_teams_service_url(teams_service_url):
+        parser.error("Invalid Teams service URL. Expected an https:// Bot Framework service URL.")
 
     chat_id = (args.telegram_chat_id or "").strip()
     if telegram_enabled and chat_id.lower() in {"", "auto", "none", "null"}:
@@ -247,6 +279,12 @@ def main() -> None:
     events_log = logs_dir / "daemon-events.jsonl"
     run_archive_log = logs_dir / "argusbot-run-archive.jsonl"
     operator_messages_path = logs_dir / "operator_messages.md"
+    teams_reference_path = (
+        Path(str(args.teams_reference_file).strip()).resolve()
+        if str(args.teams_reference_file or "").strip()
+        else (logs_dir / "teams_reference.json")
+    )
+    args.teams_reference_file = str(teams_reference_path)
 
     token_lock: TokenLock | None = None
     if telegram_enabled:
@@ -291,6 +329,24 @@ def main() -> None:
                 timeout_seconds=args.feishu_timeout_seconds,
             ),
             on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
+        )
+    teams_notifier: TeamsNotifier | None = None
+    if teams_enabled:
+        teams_notifier = TeamsNotifier(
+            TeamsConfig(
+                app_id=str(args.teams_app_id).strip(),
+                app_password=str(args.teams_app_password).strip(),
+                conversation_id=(teams_conversation_id or None),
+                service_url=(teams_service_url or None),
+                tenant_id=(str(args.teams_tenant_id or "").strip() or None),
+                reference_file=str(teams_reference_path),
+                endpoint_host=args.teams_endpoint_host,
+                endpoint_port=args.teams_endpoint_port,
+                endpoint_path=args.teams_endpoint_path,
+                timeout_seconds=args.teams_timeout_seconds,
+                events=set(),
+            ),
+            on_error=lambda msg: print(f"[teams] {msg}", file=sys.stderr),
         )
 
     child: subprocess.Popen[str] | None = None
@@ -367,6 +423,7 @@ def main() -> None:
         *,
         reply_markup: dict[str, Any] | None = None,
         include_feishu: bool = True,
+        include_teams: bool = True,
     ) -> None:
         delivered = False
         if notifier is not None:
@@ -374,6 +431,9 @@ def main() -> None:
             delivered = True
         if include_feishu and feishu_notifier is not None:
             feishu_notifier.send_message(format_external_message(message, reply_markup=reply_markup))
+            delivered = True
+        if include_teams and teams_notifier is not None:
+            teams_notifier.send_message(format_external_message(message, reply_markup=reply_markup))
             delivered = True
         if not delivered:
             print(message, file=sys.stdout)
@@ -613,6 +673,9 @@ def main() -> None:
         elif source == "feishu":
             if feishu_notifier is not None:
                 feishu_notifier.send_message(format_external_message(message))
+        elif source == "teams":
+            if teams_notifier is not None:
+                teams_notifier.send_message(format_external_message(message))
         else:
             print(message, file=sys.stdout)
         log_event("reply.sent", source=source, message=message[:700])
@@ -625,6 +688,10 @@ def main() -> None:
         if source == "feishu" and feishu_notifier is not None:
             for item in attachments:
                 feishu_notifier.send_local_file(item.path, caption=item.reason)
+            return
+        if source == "teams" and teams_notifier is not None:
+            for item in attachments:
+                teams_notifier.send_local_file(item.path, caption=item.reason)
             return
         send_reply(
             source,
@@ -890,6 +957,9 @@ def main() -> None:
     def on_feishu_command(command: FeishuCommand) -> None:
         handle_command(TelegramCommand(kind=command.kind, text=command.text), "feishu")
 
+    def on_teams_command(command: TeamsCommand) -> None:
+        handle_command(TelegramCommand(kind=command.kind, text=command.text), "teams")
+
     def schedule_plan_after_child_finish(
         *,
         objective: str,
@@ -1065,6 +1135,28 @@ def main() -> None:
             plain_text_kind="run",
         )
         feishu_poller.start()
+    teams_listener: TeamsCommandListener | None = None
+    if teams_enabled:
+        teams_listener = TeamsCommandListener(
+            config=TeamsConfig(
+                app_id=str(args.teams_app_id).strip(),
+                app_password=str(args.teams_app_password).strip(),
+                conversation_id=(teams_conversation_id or None),
+                service_url=(teams_service_url or None),
+                tenant_id=(str(args.teams_tenant_id or "").strip() or None),
+                endpoint_host=args.teams_endpoint_host,
+                endpoint_port=args.teams_endpoint_port,
+                endpoint_path=args.teams_endpoint_path,
+                timeout_seconds=args.teams_timeout_seconds,
+                events=set(),
+                reference_file=str(teams_reference_path),
+            ),
+            on_command=on_teams_command,
+            on_error=lambda msg: print(f"[teams] {msg}", file=sys.stderr),
+            plain_text_kind="run",
+            notifier=teams_notifier,
+        )
+        teams_listener.start()
     notify(
         "[daemon] online\n"
         "Send /run <objective> to start a new run.\n"
@@ -1217,6 +1309,8 @@ def main() -> None:
             poller.stop()
         if feishu_poller is not None:
             feishu_poller.stop()
+        if teams_listener is not None:
+            teams_listener.stop()
         if child is not None and child.poll() is None:
             terminate_process_tree(child)
         clear_planner_state(reason="daemon_stopped")
@@ -1236,6 +1330,8 @@ def main() -> None:
             notifier.close()
         if feishu_notifier is not None:
             feishu_notifier.close()
+        if teams_notifier is not None:
+            teams_notifier.close()
 
 
 def build_child_command(
@@ -1266,6 +1362,10 @@ def build_child_command(
         str(args.feishu_app_id or "").strip()
         and str(args.feishu_app_secret or "").strip()
         and str(args.feishu_chat_id or "").strip()
+    )
+    teams_enabled = bool(
+        str(args.teams_app_id or "").strip()
+        and str(args.teams_app_password or "").strip()
     )
     cmd = resolve_autoloop_command(args.codex_autoloop_bin) + [
         "--max-rounds",
@@ -1315,6 +1415,26 @@ def build_child_command(
                 "--no-feishu-control",
             ]
         )
+    if teams_enabled:
+        cmd.extend(
+            [
+                "--teams-app-id",
+                str(getattr(args, "teams_app_id", "")).strip(),
+                "--teams-app-password",
+                str(getattr(args, "teams_app_password", "")).strip(),
+                "--teams-timeout-seconds",
+                str(getattr(args, "teams_timeout_seconds", 10)),
+                "--teams-reference-file",
+                str(getattr(args, "teams_reference_file", "") or ""),
+                "--no-teams-control",
+            ]
+        )
+        if str(getattr(args, "teams_conversation_id", "") or "").strip():
+            cmd.extend(["--teams-conversation-id", str(getattr(args, "teams_conversation_id", "")).strip()])
+        if str(getattr(args, "teams_service_url", "") or "").strip():
+            cmd.extend(["--teams-service-url", str(getattr(args, "teams_service_url", "")).strip()])
+        if str(getattr(args, "teams_tenant_id", "") or "").strip():
+            cmd.extend(["--teams-tenant-id", str(getattr(args, "teams_tenant_id", "")).strip()])
     if main_model:
         cmd.extend(["--main-model", main_model])
     if main_reasoning_effort:
@@ -1937,7 +2057,7 @@ def build_parser() -> argparse.ArgumentParser:
     preset_names = ", ".join(p.name for p in MODEL_PRESETS)
     parser = argparse.ArgumentParser(
         prog="argusbot-daemon",
-        description="Keep an ArgusBot Telegram command daemon online and launch runs on demand.",
+        description="Keep an ArgusBot command daemon online for Telegram, Feishu, or Teams and launch runs on demand.",
     )
     parser.add_argument("--telegram-bot-token", default=None, help="Optional Telegram bot token.")
     parser.add_argument(
@@ -2196,6 +2316,50 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=600,
         help="Interval for Feishu running heartbeat messages. Set 0 to disable.",
+    )
+    parser.add_argument("--teams-app-id", default=None, help="Optional Teams bot app id.")
+    parser.add_argument("--teams-app-password", default=None, help="Optional Teams bot app password/secret.")
+    parser.add_argument(
+        "--teams-conversation-id",
+        default=None,
+        help="Optional Teams conversation id for proactive replies. Can also be learned from inbound messages.",
+    )
+    parser.add_argument(
+        "--teams-service-url",
+        default=None,
+        help="Optional Teams service URL for proactive replies. Can also be learned from inbound messages.",
+    )
+    parser.add_argument(
+        "--teams-tenant-id",
+        default=None,
+        help="Optional Teams tenant id used in outbound activity metadata.",
+    )
+    parser.add_argument(
+        "--teams-reference-file",
+        default=None,
+        help="Path to the persisted Teams conversation reference JSON.",
+    )
+    parser.add_argument(
+        "--teams-endpoint-host",
+        default="0.0.0.0",
+        help="Bind host for the local Teams bot callback listener.",
+    )
+    parser.add_argument(
+        "--teams-endpoint-port",
+        type=int,
+        default=3978,
+        help="Bind port for the local Teams bot callback listener.",
+    )
+    parser.add_argument(
+        "--teams-endpoint-path",
+        default="/api/messages",
+        help="HTTP path for the local Teams bot callback listener.",
+    )
+    parser.add_argument(
+        "--teams-timeout-seconds",
+        type=int,
+        default=10,
+        help="HTTP timeout for Teams Bot Framework API calls.",
     )
     return parser
 
