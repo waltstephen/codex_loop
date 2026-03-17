@@ -25,7 +25,7 @@ Thanks for your interest in improving `ArgusBot`.
 - **Kaitong Cai**: Lead for the Feishu integration ([CaiKaitong](https://github.com/CaiKaitong)).
 - **Zikai Zhou**: Improved Telegram image reply performance ([Klayand](https://github.com/Klayand)).
 - **Lifeng Zhuo**: Added support for Qwen models ([zhuolifeng](https://github.com/zhuolifeng)).
-- **ReinerBRO**: Successfully enabled support for the Cloud Code CL backend ([ReinerBRO](https://github.com/ReinerBRO)).
+- **ReinerBRO**: Successfully enabled support for the ClaudeCode CIL backend ([ReinerBRO](https://github.com/ReinerBRO)).
 
 ## Acknowledgements
 
