@@ -401,12 +401,13 @@ def format_event_message(event: dict[str, Any]) -> str:
             f"summary={last_message}"
         )
     if event_type == "round.review.completed":
-        reason = str(event.get("reason", "")).strip().replace("\n", " ")
-        next_action = str(event.get("next_action", "")).strip().replace("\n", " ")
+        reason = _format_event_text(event.get("reason"), fallback="unavailable")
+        confidence = _format_confidence_value(event.get("confidence"), reason=reason)
+        next_action = _format_event_text(event.get("next_action"), fallback="unavailable")
         return (
             f"[autoloop] reviewer decision {now}\n"
             f"round={event.get('round_index')} status={event.get('status')} "
-            f"confidence={event.get('confidence')}\n"
+            f"confidence={confidence}\n"
             f"reason={reason[:320]}\n"
             f"next_action={next_action[:320]}"
         )
@@ -427,3 +428,28 @@ def format_event_message(event: dict[str, Any]) -> str:
             f"next_objective={next_objective[:320]}"
         )
     return ""
+
+
+def _format_confidence_value(value: object, *, reason: str | None = None) -> str:
+    if _is_invalid_reviewer_fallback(reason) and value in {0, 0.0, None}:
+        return "unknown"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "unknown"
+    confidence = float(value)
+    if confidence < 0.0 or confidence > 1.0:
+        return "unknown"
+    if confidence.is_integer():
+        return str(int(confidence))
+    return str(confidence)
+
+
+def _format_event_text(value: object, *, fallback: str) -> str:
+    text = str(value or "").strip().replace("\n", " ")
+    return text or fallback
+
+
+def _is_invalid_reviewer_fallback(reason: str | None) -> bool:
+    normalized = str(reason or "").strip().lower()
+    return normalized.startswith("reviewer output was not valid json") or normalized.startswith(
+        "reviewer returned empty output"
+    )

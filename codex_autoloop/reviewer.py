@@ -100,6 +100,15 @@ class Reviewer:
         return (
             "You are the reviewer sub-agent for a Codex autoloop run.\n"
             "Decide whether the objective is fully complete.\n\n"
+            "Return valid JSON matching the provided schema.\n"
+            "Do not wrap the response in markdown fences.\n\n"
+            "Required JSON keys:\n"
+            "- status\n"
+            "- confidence\n"
+            "- reason\n"
+            "- next_action\n"
+            "- round_summary_markdown\n"
+            "- completion_summary_markdown\n\n"
             "Rules:\n"
             "1) `done` only when objective is fully satisfied, no blocker remains, and acceptance checks pass.\n"
             "2) If uncertain, choose `continue`.\n"
@@ -133,31 +142,32 @@ def parse_decision_text(text: str) -> ReviewDecision | None:
             parsed = _load_json(candidate[left : right + 1])
     if parsed is None:
         return None
-    status = parsed.get("status")
+    status = _parse_status(parsed)
     if status not in {"done", "continue", "blocked"}:
         return None
-    confidence = parsed.get("confidence", 0.0)
-    reason = parsed.get("reason", "")
-    next_action = parsed.get("next_action", "")
-    round_summary_markdown = parsed.get("round_summary_markdown", "")
-    completion_summary_markdown = parsed.get("completion_summary_markdown", "")
-    if not isinstance(confidence, (int, float)):
-        confidence = 0.0
-    if not isinstance(reason, str):
-        reason = str(reason)
-    if not isinstance(next_action, str):
-        next_action = str(next_action)
-    if not isinstance(round_summary_markdown, str):
-        round_summary_markdown = str(round_summary_markdown)
-    if not isinstance(completion_summary_markdown, str):
-        completion_summary_markdown = str(completion_summary_markdown)
+    confidence = _parse_confidence(parsed.get("confidence"))
+    round_summary_markdown = _parse_round_summary(parsed)
+    reason = _parse_reason(parsed, round_summary_markdown=round_summary_markdown)
+    next_action = _parse_next_action(parsed, status=status)
+    completion_summary_markdown = _parse_optional_text(parsed.get("completion_summary_markdown"))
+    if any(
+        item is None
+        for item in [
+            confidence,
+            reason,
+            next_action,
+            round_summary_markdown,
+            completion_summary_markdown,
+        ]
+    ):
+        return None
     return ReviewDecision(
         status=status,
-        confidence=max(0.0, min(float(confidence), 1.0)),
-        reason=reason.strip(),
-        next_action=next_action.strip(),
-        round_summary_markdown=round_summary_markdown.strip(),
-        completion_summary_markdown=completion_summary_markdown.strip(),
+        confidence=confidence,
+        reason=reason,
+        next_action=next_action,
+        round_summary_markdown=round_summary_markdown,
+        completion_summary_markdown=completion_summary_markdown,
     )
 
 
@@ -169,6 +179,96 @@ def _load_json(text: str) -> dict | None:
     if not isinstance(value, dict):
         return None
     return value
+
+
+def _parse_status(parsed: dict) -> str | None:
+    for key in ("status", "decision", "action"):
+        value = parsed.get(key)
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip().lower()
+        if normalized in {"done", "continue", "blocked"}:
+            return normalized
+    return None
+
+
+def _parse_confidence(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    confidence = float(value)
+    if confidence < 0.0 or confidence > 1.0:
+        return None
+    return confidence
+
+
+def _parse_required_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text
+
+
+def _parse_reason(parsed: dict, *, round_summary_markdown: str | None) -> str | None:
+    for key in ("reason", "message"):
+        text = _parse_required_text(parsed.get(key))
+        if text is not None:
+            return text
+    derived = _derive_reason_from_markdown(
+        _parse_optional_text(parsed.get("completion_summary_markdown"))
+        or round_summary_markdown
+        or ""
+    )
+    return derived
+
+
+def _parse_next_action(parsed: dict, *, status: str) -> str | None:
+    direct = _parse_required_text(parsed.get("next_action"))
+    if direct is not None:
+        return direct
+    if status == "done":
+        return "No further action needed. Objective complete."
+    if status == "blocked":
+        return "Need additional user input before continuing."
+    if status == "continue":
+        return "Continue implementation and include clear completion evidence."
+    return None
+
+
+def _parse_round_summary(parsed: dict) -> str | None:
+    direct = _parse_required_text(parsed.get("round_summary_markdown"))
+    if direct is not None:
+        return direct
+    summary = _parse_required_text(parsed.get("summary")) or _parse_required_text(parsed.get("message"))
+    if summary is None:
+        return None
+    return f"# Review Summary\n\n- {summary}\n"
+
+
+def _parse_optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value.strip()
+
+
+def _derive_reason_from_markdown(text: str) -> str | None:
+    normalized_lines: list[str] = []
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            continue
+        if line.startswith("- "):
+            line = line[2:].strip()
+        if line.startswith("**") and line.endswith("**") and len(line) > 4:
+            line = line[2:-2].strip()
+        normalized_lines.append(line)
+    if not normalized_lines:
+        return None
+    candidate = normalized_lines[0]
+    return candidate[:300].strip() or None
 
 
 GENERIC_MAIN_PATTERNS = [

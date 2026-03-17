@@ -372,6 +372,20 @@ def parse_plan_text(text: str) -> PlanSnapshot | None:
     if parsed is None:
         return None
 
+    required_fields = {
+        "summary",
+        "workstreams",
+        "done_items",
+        "remaining_items",
+        "risks",
+        "next_steps",
+        "exploration_items",
+        "suggested_next_objective",
+        "should_propose_follow_up",
+    }
+    if not required_fields.issubset(parsed):
+        return None
+
     summary = _as_text(parsed.get("summary"))
     if not summary:
         return None
@@ -387,10 +401,12 @@ def parse_plan_text(text: str) -> PlanSnapshot | None:
     if any(item is None for item in [done_items, remaining_items, risks, next_steps, exploration_items]):
         return None
 
-    should_propose_follow_up = parsed.get("should_propose_follow_up", False)
+    should_propose_follow_up = parsed.get("should_propose_follow_up")
     if not isinstance(should_propose_follow_up, bool):
         return None
     suggested_next_objective = _as_text(parsed.get("suggested_next_objective"))
+    if should_propose_follow_up and not suggested_next_objective:
+        return None
     if not should_propose_follow_up:
         suggested_next_objective = ""
 

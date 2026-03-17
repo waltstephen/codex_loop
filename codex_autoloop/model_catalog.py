@@ -34,6 +34,11 @@ MODEL_ENTRIES: list[ModelEntry] = [
     ModelEntry("gpt-5-codex", "codex", "Older codex-optimized model."),
     ModelEntry("gpt-5.1-codex-mini", "cheap", "Cheaper codex-focused model."),
     ModelEntry("gpt-5-codex-mini", "cheap", "Older cheaper codex-focused model."),
+    # Claude Series
+    ModelEntry("claude-sonnet-4-6", "general", "Claude Code high-quality balanced model."),
+    ModelEntry("claude-opus-4-6", "general", "Claude Code highest-quality model."),
+    ModelEntry("sonnet", "general", "Claude Code alias for the latest Sonnet model."),
+    ModelEntry("opus", "general", "Claude Code alias for the latest Opus model."),
     # Qwen3 Series
     ModelEntry("qwen3-30b-a3b", "general", "Qwen3 30B A3B model with strong reasoning capabilities."),
     ModelEntry("qwen3-32b", "general", "Qwen3 32B general purpose model."),
@@ -89,6 +94,26 @@ MODEL_PRESETS: list[ModelPreset] = [
         plan_model="gpt-5.4",
         plan_reasoning_effort="high",
         note="Copilot proxy-friendly preset using GPT-5.4 across main, reviewer, and planner.",
+    ),
+    ModelPreset(
+        name="claude-sonnet",
+        main_model="claude-sonnet-4-6",
+        main_reasoning_effort="high",
+        reviewer_model="claude-sonnet-4-6",
+        reviewer_reasoning_effort="high",
+        plan_model="claude-sonnet-4-6",
+        plan_reasoning_effort="high",
+        note="Claude Code preset using Sonnet across main, reviewer, and planner.",
+    ),
+    ModelPreset(
+        name="claude-opus",
+        main_model="claude-opus-4-6",
+        main_reasoning_effort="high",
+        reviewer_model="claude-sonnet-4-6",
+        reviewer_reasoning_effort="high",
+        plan_model="claude-sonnet-4-6",
+        plan_reasoning_effort="medium",
+        note="Claude Code preset using Opus main and Sonnet secondary agents.",
     ),
     ModelPreset(
         name="codex52-xhigh",

@@ -353,6 +353,19 @@ def test_build_parser_accepts_copilot_proxy_options() -> None:
     assert args.run_copilot_proxy_port == 18080
 
 
+def test_build_parser_accepts_runner_backend_options() -> None:
+    args = setup_wizard.build_parser().parse_args(
+        [
+            "--runner-backend",
+            "claude",
+            "--runner-bin",
+            "/opt/homebrew/bin/claude",
+        ]
+    )
+    assert args.runner_backend == "claude"
+    assert args.runner_bin == "/opt/homebrew/bin/claude"
+
+
 def test_resolve_copilot_proxy_settings_bootstraps_when_explicitly_enabled(monkeypatch, tmp_path: Path) -> None:
     managed_dir = tmp_path / ".argusbot" / "tools" / "copilot-proxy"
     monkeypatch.setattr(setup_wizard, "resolve_proxy_dir", lambda raw=None: None)
@@ -393,6 +406,21 @@ def test_resolve_copilot_proxy_settings_bootstraps_for_copilot_preset(monkeypatc
 
     assert enabled is True
     assert proxy_dir == str(managed_dir)
+    assert port == 18080
+
+
+def test_resolve_copilot_proxy_settings_disables_proxy_for_claude_backend() -> None:
+    enabled, proxy_dir, port = setup_wizard.resolve_copilot_proxy_settings(
+        SimpleNamespace(
+            run_copilot_proxy=True,
+            run_copilot_proxy_dir="/tmp/copilot-proxy",
+            run_copilot_proxy_port=18080,
+            run_model_preset="copilot",
+        ),
+        runner_backend="claude",
+    )
+    assert enabled is False
+    assert proxy_dir is None
     assert port == 18080
 
 

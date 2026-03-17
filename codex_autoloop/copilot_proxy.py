@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .codex_runner import CodexRunner
+from .runner_backend import RunnerBackend, backend_supports_copilot_proxy
 
 
 DEFAULT_COPILOT_PROXY_PORT = 18080
@@ -211,14 +212,22 @@ def ensure_proxy_running(
 
 def build_codex_runner(
     *,
+    backend: RunnerBackend,
     codex_bin: str,
     config: CopilotProxyConfig,
     event_callback=None,
 ) -> CodexRunner:
+    if not backend_supports_copilot_proxy(backend):
+        return CodexRunner(
+            codex_bin=codex_bin,
+            backend=backend,
+            event_callback=event_callback,
+        )
     if not config.enabled:
-        return CodexRunner(codex_bin=codex_bin, event_callback=event_callback)
+        return CodexRunner(codex_bin=codex_bin, backend=backend, event_callback=event_callback)
     return CodexRunner(
         codex_bin=codex_bin,
+        backend=backend,
         event_callback=event_callback,
         default_extra_args=codex_config_overrides(config),
         before_exec=lambda: ensure_proxy_running(config),

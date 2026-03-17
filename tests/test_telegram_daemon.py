@@ -35,6 +35,8 @@ def test_build_child_command_includes_core_args() -> None:
     args = Namespace(
         codex_autoloop_bin="argusbot-run",
         run_max_rounds=8,
+        run_runner_backend="claude",
+        run_codex_bin="/opt/homebrew/bin/claude",
         run_model_preset="quality",
         run_main_model=None,
         run_main_reasoning_effort=None,
@@ -96,11 +98,17 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--plan-update-interval-seconds" in cmd
     assert "--session-id" in cmd
     assert "--check" in cmd
+    assert "--runner-backend" in cmd
+    assert "--runner-bin" in cmd
     assert "--yolo" in cmd
     assert "--skip-git-repo-check" in cmd
     assert "--no-dashboard" in cmd
     assert "--telegram-control-whisper" in cmd
     assert "--telegram-control-whisper-model" in cmd
+    backend_index = cmd.index("--runner-backend")
+    assert cmd[backend_index + 1] == "claude"
+    runner_bin_index = cmd.index("--runner-bin")
+    assert cmd[runner_bin_index + 1] == "/opt/homebrew/bin/claude"
     assert cmd[-1] == "do work"
 
 

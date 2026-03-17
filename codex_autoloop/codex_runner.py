@@ -8,9 +8,17 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal
 
 from .models import CodexRunResult
+from .runner_backend import (
+    BACKEND_CLAUDE,
+    BACKEND_CODEX,
+    DEFAULT_RUNNER_BACKEND,
+    RunnerBackend,
+    default_runner_bin,
+)
 
 
 EventCallback = Callable[[str, str], None]
@@ -51,12 +59,15 @@ class RunnerOptions:
 class CodexRunner:
     def __init__(
         self,
-        codex_bin: str = "codex",
+        codex_bin: str | None = None,
+        *,
+        backend: RunnerBackend = DEFAULT_RUNNER_BACKEND,
         event_callback: EventCallback | None = None,
         default_extra_args: list[str] | None = None,
         before_exec: Callable[[], None] | None = None,
     ) -> None:
-        self.codex_bin = codex_bin
+        self.backend = backend
+        self.codex_bin = codex_bin or default_runner_bin(backend)
         self.event_callback = event_callback
         self.default_extra_args = list(default_extra_args or [])
         self.before_exec = before_exec
@@ -214,28 +225,19 @@ class CodexRunner:
                 if event is None:
                     continue
                 events.append(event)
-                event_type = event.get("type")
-                if event_type == "thread.started":
-                    thread_id = event.get("thread_id", thread_id)
-                elif event_type == "item.completed":
-                    item = event.get("item", {})
-                    if item.get("type") == "agent_message":
-                        message = item.get("text", "")
-                        if isinstance(message, str):
-                            agent_messages.append(message)
-                elif event_type == "turn.completed":
-                    turn_completed = True
-                elif event_type == "turn.failed":
-                    turn_failed = True
-                    err = event.get("error", {})
-                    if isinstance(err, dict):
-                        maybe_msg = err.get("message")
-                        if isinstance(maybe_msg, str):
-                            fatal_error = maybe_msg
-                elif event_type == "error" and fatal_error is None:
-                    maybe_msg = event.get("message")
-                    if isinstance(maybe_msg, str):
-                        fatal_error = maybe_msg
+                (
+                    thread_id,
+                    turn_completed,
+                    turn_failed,
+                    fatal_error,
+                ) = self._consume_event(
+                    event=event,
+                    thread_id=thread_id,
+                    agent_messages=agent_messages,
+                    turn_completed=turn_completed,
+                    turn_failed=turn_failed,
+                    fatal_error=fatal_error,
+                )
             else:
                 stderr_lines.append(text)
 
@@ -269,6 +271,11 @@ class CodexRunner:
         )
 
     def _build_command(self, *, prompt: str, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
+        if self.backend == BACKEND_CLAUDE:
+            return self._build_claude_command(resume_thread_id=resume_thread_id, options=options)
+        return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
+
+    def _build_codex_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
         command = [self.codex_bin, "exec"]
         if resume_thread_id:
             command.append("resume")
@@ -295,6 +302,34 @@ class CodexRunner:
         # Always stream the prompt through stdin so multiline prompts survive
         # Windows `.cmd` wrappers and do not appear in process lists.
         command.append("-")
+        return command
+
+    def _build_claude_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
+        command = [
+            self.codex_bin,
+            "-p",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+        ]
+        if options.model:
+            command.extend(["--model", options.model])
+        if options.reasoning_effort:
+            effort = "high" if options.reasoning_effort == "xhigh" else options.reasoning_effort
+            command.extend(["--effort", effort])
+        if options.dangerous_yolo:
+            command.extend(["--permission-mode", "bypassPermissions"])
+        elif options.full_auto:
+            command.extend(["--permission-mode", "acceptEdits"])
+        if options.output_schema_path and not resume_thread_id:
+            command.extend(["--json-schema", self._load_compact_schema_text(options.output_schema_path)])
+        merged_extra_args = [*self.default_extra_args]
+        if options.extra_args:
+            merged_extra_args.extend(options.extra_args)
+        if merged_extra_args:
+            command.extend(merged_extra_args)
+        if resume_thread_id:
+            command.extend(["--resume", resume_thread_id])
         return command
 
     @staticmethod
@@ -335,10 +370,148 @@ class CodexRunner:
             return None
         return parsed
 
+    @staticmethod
+    def _load_compact_schema_text(path: str) -> str:
+        raw = Path(path).read_text(encoding="utf-8")
+        parsed = json.loads(raw)
+        return json.dumps(parsed, ensure_ascii=True, separators=(",", ":"))
+
     def _emit(self, stream: str, line: str) -> None:
         if self.event_callback is None:
             return
         self.event_callback(stream, line)
+
+    def _consume_event(
+        self,
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        if self.backend == BACKEND_CLAUDE:
+            return self._consume_claude_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        return self._consume_codex_event(
+            event=event,
+            thread_id=thread_id,
+            agent_messages=agent_messages,
+            turn_completed=turn_completed,
+            turn_failed=turn_failed,
+            fatal_error=fatal_error,
+        )
+
+    @staticmethod
+    def _consume_codex_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        event_type = event.get("type")
+        if event_type == "thread.started":
+            thread_id = event.get("thread_id", thread_id)
+        elif event_type == "item.completed":
+            item = event.get("item", {})
+            if item.get("type") == "agent_message":
+                message = item.get("text", "")
+                if isinstance(message, str):
+                    agent_messages.append(message)
+        elif event_type == "turn.completed":
+            turn_completed = True
+        elif event_type == "turn.failed":
+            turn_failed = True
+            err = event.get("error", {})
+            if isinstance(err, dict):
+                maybe_msg = err.get("message")
+                if isinstance(maybe_msg, str):
+                    fatal_error = maybe_msg
+        elif event_type == "error" and fatal_error is None:
+            maybe_msg = event.get("message")
+            if isinstance(maybe_msg, str):
+                fatal_error = maybe_msg
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_claude_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        event_type = str(event.get("type") or "").strip()
+        session_id = event.get("session_id")
+        if isinstance(session_id, str) and session_id.strip():
+            thread_id = session_id
+
+        if event_type == "assistant":
+            message = event.get("message")
+            text = CodexRunner._extract_claude_message_text(message)
+            if text:
+                agent_messages.append(text)
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type != "result":
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        structured_output = event.get("structured_output")
+        if structured_output is not None:
+            text = json.dumps(structured_output, ensure_ascii=True)
+            if not agent_messages or agent_messages[-1] != text:
+                agent_messages.append(text)
+        else:
+            result_text = event.get("result")
+            if isinstance(result_text, str):
+                normalized = result_text.strip()
+                if normalized and (not agent_messages or agent_messages[-1].strip() != normalized):
+                    agent_messages.append(normalized)
+
+        is_error = bool(event.get("is_error", False))
+        subtype = str(event.get("subtype") or "").strip()
+        if not is_error and subtype == "success":
+            turn_completed = True
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        turn_failed = True
+        if fatal_error is None:
+            result_text = event.get("result")
+            if isinstance(result_text, str) and result_text.strip():
+                fatal_error = result_text.strip()
+            else:
+                fatal_error = f"Claude runner reported {subtype or 'error'}."
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _extract_claude_message_text(message: object) -> str:
+        if not isinstance(message, dict):
+            return ""
+        content = message.get("content")
+        if not isinstance(content, list):
+            return ""
+        parts: list[str] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "text":
+                continue
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text)
+        return "\n".join(parts).strip()
 
     @staticmethod
     def _terminate_process(process: subprocess.Popen[str]) -> None:

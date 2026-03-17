@@ -2,6 +2,7 @@ from codex_autoloop.feishu_adapter import (
     FeishuConfig,
     FeishuCommandPoller,
     FeishuNotifier,
+    format_feishu_event_message,
     is_feishu_self_message,
     parse_feishu_command_text,
     split_feishu_message,
@@ -50,6 +51,37 @@ def test_feishu_self_message_filter() -> None:
             "body": {"content": "{\"text\":\"[daemon] online\"}"},
         }
     )
+
+
+def test_format_feishu_event_message_reuses_safe_review_formatting() -> None:
+    message = format_feishu_event_message(
+        {
+            "type": "round.review.completed",
+            "round_index": 2,
+            "status": "continue",
+            "confidence": None,
+            "reason": "",
+            "next_action": "",
+        }
+    )
+    assert "confidence=unknown" in message
+    assert "reason=unavailable" in message
+    assert "next_action=unavailable" in message
+
+
+def test_format_feishu_event_message_hides_confidence_for_invalid_reviewer_fallback() -> None:
+    message = format_feishu_event_message(
+        {
+            "type": "round.review.completed",
+            "round_index": 2,
+            "status": "continue",
+            "confidence": 0.0,
+            "reason": "Reviewer output was not valid JSON.",
+            "next_action": "Continue implementation and include clear completion evidence.",
+        }
+    )
+    assert "confidence=unknown" in message
+    assert "reason=Reviewer output was not valid JSON." in message
 
 
 def test_feishu_poller_initializes_from_latest_desc_row() -> None:

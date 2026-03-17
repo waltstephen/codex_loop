@@ -21,9 +21,9 @@ argusbot help
 ```
 
 Behavior:
-- First run: prompts you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon.
+- First run: prompts you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then choose runner backend (`1. Codex CLI`, `2. Claude Code CLI`), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon.
 - Later runs: auto-reuse previous config, auto-start daemon if needed, and attach to live logs.
-- `argusbot init`: stop current workspace daemon, prompt control channel + credentials/model preset/play mode, start a fresh daemon in background, and exit.
+- `argusbot init`: stop current workspace daemon, prompt control channel + backend + credentials/model preset/play mode, start a fresh daemon in background, and exit.
 - After `init`, run `argusbot` to attach monitor.
 - In attach console, terminal control works directly:
   - `/run <objective>`
@@ -58,6 +58,8 @@ argusbot daemon-stop
 
 ```bash
 argusbot-run \
+  --runner-backend claude \
+  --runner-bin /opt/homebrew/bin/claude \
   --max-rounds 500 \
   "帮我在这个文件夹写一下pipeline"
 ```
@@ -79,7 +81,7 @@ Notes:
 - Live terminal streaming is on by default.
 - Telegram live deltas are sent every 30s only when content changes.
 - Telegram control commands are enabled by default (`/inject`, `/status`, `/stop`).
-- Daemon defaults to the `codex-xhigh` model preset (`gpt-5.3-codex` + `xhigh`) unless you override it.
+- Daemon child defaults inherit the selected backend configuration unless you set a preset or explicit model override.
 
 Control examples from Telegram Web:
 
@@ -115,7 +117,7 @@ If the command is missing, use:
 python -m codex_autoloop.setup_wizard --run-cd .
 ```
 
-Setup now asks for planner mode after model selection:
+Setup now asks for execution backend first, then planner mode after model selection:
 
 - `1` No Planner
 - `2` Auto Planner (default)
@@ -138,7 +140,8 @@ Defaults:
 - Idle daemon tries to resume from the last saved `session_id`.
 - One Telegram token can only be used by one active daemon.
 - Operator messages are recorded into per-run markdown files in `.argusbot/logs/`.
-- Daemon child model preset defaults to `codex-xhigh`.
+- Copilot proxy is Codex-only; Claude backend ignores proxy flags.
+- Claude maps `xhigh` effort down to `high`.
 - Re-running setup/start will stop the previous daemon for the same `.argusbot` before starting a new one.
 
 One-click kill:

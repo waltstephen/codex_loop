@@ -32,6 +32,57 @@ def test_parse_plan_text_plain_json() -> None:
     assert snapshot.should_propose_follow_up is True
 
 
+def test_parse_plan_text_rejects_missing_required_field() -> None:
+    snapshot = parse_plan_text(
+        """
+        {
+          "summary": "Core loop is implemented and planner wiring is in progress.",
+          "workstreams": [
+            {
+              "area": "Planner wiring",
+              "status": "in_progress",
+              "evidence": "Planner module exists.",
+              "next_step": "Connect it to daemon."
+            }
+          ],
+          "done_items": ["Planner schema added"],
+          "remaining_items": ["Daemon follow-up buttons"],
+          "risks": ["Need callback parsing"],
+          "next_steps": ["Finish Telegram callback flow"],
+          "exploration_items": ["Inspect Telegram callback UX patterns from similar bots"],
+          "suggested_next_objective": "Ship daemon callback buttons for planner follow-up"
+        }
+        """
+    )
+    assert snapshot is None
+
+
+def test_parse_plan_text_rejects_empty_follow_up_objective() -> None:
+    snapshot = parse_plan_text(
+        """
+        {
+          "summary": "Core loop is implemented and planner wiring is in progress.",
+          "workstreams": [
+            {
+              "area": "Planner wiring",
+              "status": "in_progress",
+              "evidence": "Planner module exists.",
+              "next_step": "Connect it to daemon."
+            }
+          ],
+          "done_items": ["Planner schema added"],
+          "remaining_items": ["Daemon follow-up buttons"],
+          "risks": ["Need callback parsing"],
+          "next_steps": ["Finish Telegram callback flow"],
+          "exploration_items": ["Inspect Telegram callback UX patterns from similar bots"],
+          "suggested_next_objective": "",
+          "should_propose_follow_up": true
+        }
+        """
+    )
+    assert snapshot is None
+
+
 def test_format_plan_markdown_includes_follow_up() -> None:
     snapshot = PlanSnapshot(
         plan_id="plan-1",

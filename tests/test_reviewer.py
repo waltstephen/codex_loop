@@ -1,4 +1,5 @@
-from codex_autoloop.reviewer import _coerce_decision_against_main_summary, parse_decision_text
+from codex_autoloop.models import CheckResult
+from codex_autoloop.reviewer import Reviewer, _coerce_decision_against_main_summary, parse_decision_text
 
 
 def test_parse_decision_plain_json() -> None:
@@ -23,6 +24,37 @@ def test_parse_decision_embedded_json() -> None:
 def test_parse_decision_invalid() -> None:
     decision = parse_decision_text("not json")
     assert decision is None
+
+
+def test_parse_decision_rejects_missing_required_fields() -> None:
+    decision = parse_decision_text(
+        '{"status":"done","reason":"all checks pass","next_action":"stop","round_summary_markdown":"# Round\\n","completion_summary_markdown":"# Final\\n"}'
+    )
+    assert decision is None
+
+
+def test_parse_decision_rejects_out_of_range_confidence() -> None:
+    decision = parse_decision_text(
+        '{"status":"done","confidence":1.2,"reason":"all checks pass","next_action":"stop","round_summary_markdown":"# Round\\n","completion_summary_markdown":"# Final\\n"}'
+    )
+    assert decision is None
+
+
+def test_parse_decision_derives_reason_from_completion_summary() -> None:
+    decision = parse_decision_text(
+        '{"status":"done","confidence":0.97,"next_action":"No further action needed. Objective complete.","round_summary_markdown":"## Round 1 Summary\\n\\n- Completed the analysis.\\n","completion_summary_markdown":"## Project Understanding Complete\\n\\nThe project objective is fully satisfied.\\n"}'
+    )
+    assert decision is not None
+    assert decision.status == "done"
+    assert decision.reason == "The project objective is fully satisfied."
+
+
+def test_parse_decision_derives_next_action_for_continue() -> None:
+    decision = parse_decision_text(
+        '{"status":"continue","confidence":0.5,"reason":"Need to finish the test fixes.","round_summary_markdown":"# Review Summary\\n\\n- Need to finish the test fixes.\\n","completion_summary_markdown":""}'
+    )
+    assert decision is not None
+    assert decision.next_action == "Continue implementation and include clear completion evidence."
 
 
 def test_coerce_decision_downgrades_generic_main_summary() -> None:
@@ -97,3 +129,19 @@ def test_coerce_decision_downgrades_when_thread_id_contains_read_substring() -> 
     )
     assert coerced.status == "continue"
     assert "generic role acknowledgment" in coerced.reason
+
+
+def test_reviewer_prompt_requires_raw_json_response() -> None:
+    reviewer = Reviewer(runner=None)  # type: ignore[arg-type]
+    prompt = reviewer._build_prompt(
+        objective="ship feature",
+        operator_messages=["keep it concise"],
+        planner_review_instruction="focus on acceptance evidence",
+        round_index=1,
+        session_id="thread-1",
+        main_summary="Implemented the feature.",
+        main_error=None,
+        checks=[CheckResult(command="pytest -q", exit_code=0, passed=True, output_tail="ok")],
+    )
+    assert "Return valid JSON matching the provided schema." in prompt
+    assert "Do not wrap the response in markdown fences." in prompt

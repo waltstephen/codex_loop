@@ -31,6 +31,15 @@ from .planner_modes import (
     planner_mode_description,
     planner_mode_label,
 )
+from .runner_backend import (
+    BACKEND_CODEX,
+    DEFAULT_RUNNER_BACKEND,
+    RUNNER_BACKEND_CHOICES,
+    backend_label,
+    backend_supports_copilot_proxy,
+    default_runner_bin,
+    normalize_runner_backend,
+)
 from .telegram_notifier import resolve_chat_id
 from .token_lock import acquire_token_lock, default_token_lock_dir
 
@@ -48,13 +57,20 @@ def main() -> None:
     if args.follow_up_auto_execute_seconds < 0:
         parser.error("--follow-up-auto-execute-seconds must be >= 0")
 
-    codex_bin = shutil.which("codex")
-    if not codex_bin:
-        print("codex CLI not found in PATH. Install/configure codex first.", file=sys.stderr)
-        raise SystemExit(2)
+    runner_backend = normalize_runner_backend(getattr(args, "runner_backend", None))
+    if getattr(args, "runner_backend", None) is None:
+        runner_backend = normalize_runner_backend(prompt_runner_backend_choice())
+    runner_bin = str(getattr(args, "runner_bin", "") or "").strip()
+    if not runner_bin:
+        runner_bin = shutil.which(default_runner_bin(runner_backend)) or default_runner_bin(runner_backend)
 
-    if not check_codex_binary(codex_bin):
-        print("codex CLI executable check failed.", file=sys.stderr)
+    if runner_backend == BACKEND_CODEX:
+        binary_ok = check_codex_binary(runner_bin)
+    else:
+        binary_ok = check_runner_binary(runner_bin)
+
+    if not binary_ok:
+        print(f"{backend_label(runner_backend)} executable check failed.", file=sys.stderr)
         raise SystemExit(2)
 
     channel = resolve_setup_channel(args)
@@ -84,6 +100,7 @@ def main() -> None:
             inherit_codex_defaults = True
     use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = resolve_copilot_proxy_settings(
         args,
+        runner_backend=runner_backend,
         preferred_preset_name=preset_name,
     )
     copilot_proxy = CopilotProxyConfig(
@@ -91,15 +108,22 @@ def main() -> None:
         proxy_dir=copilot_proxy_dir,
         port=copilot_proxy_port,
     )
-    auth_ok = check_codex_auth(
-        codex_bin=codex_bin,
-        cwd=Path(args.run_cd).resolve(),
-        timeout_seconds=45,
-        extra_args=codex_config_overrides(copilot_proxy),
-        before_exec=(lambda: ensure_proxy_running(copilot_proxy)) if copilot_proxy.enabled else None,
-    )
+    auth_kwargs = {
+        "runner_bin": runner_bin,
+        "cwd": Path(args.run_cd).resolve(),
+        "timeout_seconds": 45,
+        "extra_args": codex_config_overrides(copilot_proxy),
+        "before_exec": (lambda: ensure_proxy_running(copilot_proxy)) if copilot_proxy.enabled else None,
+    }
+    if runner_backend == BACKEND_CODEX:
+        auth_ok = check_codex_auth(**auth_kwargs)
+    else:
+        auth_ok = check_runner_auth(
+            runner_backend=runner_backend,
+            **auth_kwargs,
+        )
     if not auth_ok:
-        print("Could not verify Codex auth by probe request.", file=sys.stderr)
+        print(f"Could not verify {backend_label(runner_backend)} auth by probe request.", file=sys.stderr)
         choice = prompt_input("Continue anyway? [y/N]: ", default="n").lower()
         if choice not in {"y", "yes"}:
             raise SystemExit(2)
@@ -181,6 +205,8 @@ def main() -> None:
         "run_full_auto": args.run_full_auto,
         "run_yolo": args.run_yolo,
         "run_resume_last_session": args.run_resume_last_session,
+        "run_runner_backend": runner_backend,
+        "run_codex_bin": runner_bin,
         "run_main_reasoning_effort": main_reasoning_effort,
         "run_reviewer_reasoning_effort": reviewer_reasoning_effort,
         "run_main_model": main_model,
@@ -209,6 +235,8 @@ def main() -> None:
         str(Path(args.run_cd).resolve()),
         "--run-max-rounds",
         str(args.run_max_rounds),
+        "--run-runner-backend",
+        runner_backend,
         "--bus-dir",
         str(bus_dir),
         "--logs-dir",
@@ -220,6 +248,8 @@ def main() -> None:
         "--follow-up-auto-execute-seconds",
         str(args.follow_up_auto_execute_seconds),
     ]
+    if runner_bin:
+        daemon_cmd.extend(["--run-runner-bin", runner_bin])
     if token and chat_id:
         daemon_cmd.extend(
             [
@@ -310,11 +340,13 @@ def main() -> None:
             f"/ {resolved_preset.reviewer_model}/{resolved_preset.reviewer_reasoning_effort})"
         )
     else:
-        print(f"Main model: {main_model or '<codex default>'} effort={main_reasoning_effort or '<default>'}")
+        print(f"Main model: {main_model or '<backend default>'} effort={main_reasoning_effort or '<default>'}")
         print(
-            f"Reviewer model: {reviewer_model or '<codex default>'} "
+            f"Reviewer model: {reviewer_model or '<backend default>'} "
             f"effort={reviewer_reasoning_effort or '<default>'}"
         )
+    print(f"Runner backend: {runner_backend} ({backend_label(runner_backend)})")
+    print(f"Runner binary: {runner_bin}")
     print(f"Copilot proxy: {format_proxy_summary(copilot_proxy)}")
     print("")
     ctl_hint = resolve_daemon_ctl_hint()
@@ -339,10 +371,10 @@ def main() -> None:
         print("  /stop")
 
 
-def check_codex_binary(codex_bin: str) -> bool:
+def check_runner_binary(runner_bin: str) -> bool:
     try:
         completed = subprocess.run(
-            [codex_bin, "--version"],
+            [runner_bin, "--version"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -352,9 +384,14 @@ def check_codex_binary(codex_bin: str) -> bool:
     return completed.returncode == 0
 
 
-def check_codex_auth(
+def check_codex_binary(codex_bin: str) -> bool:
+    return check_runner_binary(codex_bin)
+
+
+def check_runner_auth(
     *,
-    codex_bin: str,
+    runner_backend: str,
+    runner_bin: str,
     cwd: Path,
     timeout_seconds: int,
     extra_args: list[str] | None = None,
@@ -363,34 +400,73 @@ def check_codex_auth(
     try:
         if before_exec is not None:
             before_exec()
-        completed = subprocess.run(
-            [
-                codex_bin,
-                "exec",
-                "--skip-git-repo-check",
-                "--json",
-                *(extra_args or []),
-                "Reply exactly: ok",
-            ],
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
+        if runner_backend == BACKEND_CODEX:
+            completed = subprocess.run(
+                [
+                    runner_bin,
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--json",
+                    *(extra_args or []),
+                    "Reply exactly: ok",
+                ],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        else:
+            completed = subprocess.run(
+                [
+                    runner_bin,
+                    "-p",
+                    "--output-format",
+                    "json",
+                    "--permission-mode",
+                    "bypassPermissions",
+                    *(extra_args or []),
+                    "Reply exactly: ok",
+                ],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
     except Exception:
         return False
     text = (completed.stdout or "") + "\n" + (completed.stderr or "")
     lowered = text.lower()
     if "unauthorized" in lowered or "missing bearer" in lowered:
         return False
-    return '"text":"ok"' in text or '"text": "ok"' in text
+    return '"text":"ok"' in text or '"text": "ok"' in text or '"result":"ok"' in text or '"result": "ok"' in text
+
+
+def check_codex_auth(
+    *,
+    runner_bin: str,
+    cwd: Path,
+    timeout_seconds: int,
+    extra_args: list[str] | None = None,
+    before_exec: Callable[[], None] | None = None,
+) -> bool:
+    return check_runner_auth(
+        runner_backend=BACKEND_CODEX,
+        runner_bin=runner_bin,
+        cwd=cwd,
+        timeout_seconds=timeout_seconds,
+        extra_args=extra_args,
+        before_exec=before_exec,
+    )
 
 
 def resolve_copilot_proxy_settings(
     args: argparse.Namespace,
     *,
+    runner_backend: str = DEFAULT_RUNNER_BACKEND,
     preferred_preset_name: str | None = None,
 ) -> tuple[bool, str | None, int]:
+    if not backend_supports_copilot_proxy(normalize_runner_backend(runner_backend)):
+        return False, None, max(1, int(getattr(args, "run_copilot_proxy_port", 18080)))
     explicit_enabled = getattr(args, "run_copilot_proxy", None)
     raw_dir = getattr(args, "run_copilot_proxy_dir", None)
     raw_port = getattr(args, "run_copilot_proxy_port", 18080)
@@ -774,7 +850,7 @@ def prompt_feishu_config() -> tuple[str, str, str]:
 
 def prompt_model_choice() -> str | None:
     print("Choose a model preset:")
-    print("  0. inherit codex default (recommended)")
+    print("  0. inherit backend default (recommended)")
     for idx, preset in enumerate(MODEL_PRESETS, start=1):
         print(
             f"  {idx}. {preset.name}: "
@@ -796,6 +872,26 @@ def prompt_model_choice() -> str | None:
         if index == len(MODEL_PRESETS) + 1:
             return "custom"
         print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
+
+
+def prompt_runner_backend_choice(default: str = DEFAULT_RUNNER_BACKEND) -> str:
+    options = [
+        ("1", "codex", "Codex CLI"),
+        ("2", "claude", "Claude Code CLI"),
+    ]
+    default_backend = normalize_runner_backend(default)
+    default_index = next(index for index, backend, _ in options if backend == default_backend)
+    print("Choose execution backend:")
+    for index, _, label in options:
+        print(f"  {index}. {label}")
+    while True:
+        raw = prompt_input("Backend number: ", default=default_index).strip()
+        if not raw:
+            raw = default_index
+        for index, backend, _ in options:
+            if raw == index:
+                return backend
+        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
 
 
 def prompt_reasoning_effort(prompt: str) -> str | None:
@@ -916,7 +1012,18 @@ def resolve_feishu_config(args: argparse.Namespace) -> tuple[str, str, str]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="argusbot-setup",
-        description="Interactive ArgusBot setup: verify codex, choose Telegram/Feishu control, and launch daemon.",
+        description="Interactive ArgusBot setup: verify backend CLI, choose Telegram/Feishu control, and launch daemon.",
+    )
+    parser.add_argument(
+        "--runner-backend",
+        default=None,
+        choices=RUNNER_BACKEND_CHOICES,
+        help="Execution backend to verify and launch.",
+    )
+    parser.add_argument(
+        "--runner-bin",
+        default=None,
+        help="CLI binary path for the selected execution backend.",
     )
     parser.add_argument(
         "--home-dir",

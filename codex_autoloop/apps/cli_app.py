@@ -25,6 +25,7 @@ from ..dashboard import DashboardServer, DashboardStore
 from ..feishu_adapter import FeishuConfig, FeishuNotifier
 from ..planner import Planner
 from ..reviewer import Reviewer
+from ..runner_backend import backend_supports_copilot_proxy
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .shell_utils import (
     control_help_text,
@@ -97,7 +98,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         )
         sinks.append(DashboardEventSink(dashboard_store))
 
-    if copilot_proxy.enabled:
+    if copilot_proxy.enabled and backend_supports_copilot_proxy(args.runner_backend):
         print(f"Copilot proxy mode: {format_proxy_summary(copilot_proxy)}", file=sys.stderr)
 
     telegram_notifier: TelegramNotifier | None = None
@@ -238,7 +239,11 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         print(message, file=sys.stderr)
 
     btw_agent = BtwAgent(
-        runner=build_codex_runner(codex_bin=args.codex_bin, config=copilot_proxy),
+        runner=build_codex_runner(
+            backend=args.runner_backend,
+            codex_bin=args.codex_bin,
+            config=copilot_proxy,
+        ),
         config=BtwConfig(
             working_dir=str(Path.cwd()),
             model=args.plan_model or args.reviewer_model or args.main_model,
@@ -418,6 +423,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
 
     event_sink = CompositeEventSink(sinks)
     runner = build_codex_runner(
+        backend=args.runner_backend,
         codex_bin=args.codex_bin,
         config=copilot_proxy,
         event_callback=event_sink.handle_stream_line,

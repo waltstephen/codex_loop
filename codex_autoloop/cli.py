@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .copilot_proxy import AUTO_DETECTED_PROXY_DIR_HELP
 from .apps.cli_app import run_cli
+from .runner_backend import DEFAULT_RUNNER_BACKEND, RUNNER_BACKEND_CHOICES
 from .apps.shell_utils import (
     control_help_text,
     format_control_status,
@@ -79,7 +80,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("objective", nargs="+", help="Task objective passed to the primary agent.")
-    parser.add_argument("--codex-bin", default="codex", help="Codex CLI binary path.")
+    parser.add_argument(
+        "--runner-backend",
+        default=DEFAULT_RUNNER_BACKEND,
+        choices=RUNNER_BACKEND_CHOICES,
+        help="Execution backend used for agent runs.",
+    )
+    parser.add_argument(
+        "--runner-bin",
+        "--codex-bin",
+        dest="codex_bin",
+        default=None,
+        help="CLI binary path for the selected execution backend.",
+    )
     parser.add_argument(
         "--copilot-proxy",
         action=argparse.BooleanOptionalAction,

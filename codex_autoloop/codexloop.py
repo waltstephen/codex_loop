@@ -19,6 +19,12 @@ from .banner import maybe_print_banner
 from .copilot_proxy import bootstrap_proxy_checkout, managed_proxy_dir, resolve_proxy_dir
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
 from .model_catalog import MODEL_PRESETS
+from .runner_backend import (
+    DEFAULT_RUNNER_BACKEND,
+    backend_supports_copilot_proxy,
+    default_runner_bin,
+    normalize_runner_backend,
+)
 
 DEFAULT_HOME_DIR = ".argusbot"
 DEFAULT_TOKEN_LOCK_DIR = "/tmp/argusbot-token-locks"
@@ -71,9 +77,6 @@ def main() -> None:
         return
     home_dir = Path(args.home_dir).resolve()
     home_dir.mkdir(parents=True, exist_ok=True)
-
-    if shutil.which("codex") is None:
-        parser.error("codex CLI not found in PATH. Install/configure codex first.")
 
     config_path = home_dir / "daemon_config.json"
     config = load_config(config_path)
@@ -325,6 +328,12 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     run_cd = run_cd.resolve()
     print("ArgusBot first-time setup")
     channel = prompt_control_channel(default=CHANNEL_TELEGRAM)
+    runner_backend = prompt_runner_backend_choice()
+    runner_bin = shutil.which(default_runner_bin(normalize_runner_backend(runner_backend))) or default_runner_bin(
+        normalize_runner_backend(runner_backend)
+    )
+    if shutil.which(runner_bin) is None and not Path(runner_bin).expanduser().exists():
+        raise SystemExit(f"{runner_backend} CLI not found in PATH. Install/configure it first.")
     token = None
     chat_id = None
     feishu_app_id = None
@@ -339,9 +348,12 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         feishu_chat_id = prompt_input("Feishu chat id: ", default="").strip() or None
     check_cmd = prompt_input("Default check command (optional): ", default="").strip()
     model_preset = prompt_model_choice()
-    use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = prompt_copilot_proxy_choice(
-        preferred=(model_preset == "copilot")
-    )
+    if backend_supports_copilot_proxy(normalize_runner_backend(runner_backend)):
+        use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = prompt_copilot_proxy_choice(
+            preferred=(model_preset == "copilot")
+        )
+    else:
+        use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = (False, None, 18080)
     play_mode = prompt_play_mode()
     print(f"Run working directory: {run_cd}")
     return {
@@ -363,6 +375,8 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_plan_auto_execute_delay_seconds": 600,
         "run_plan_record_file": None,
         "run_resume_last_session": True,
+        "run_runner_backend": runner_backend,
+        "run_codex_bin": runner_bin,
         "run_main_reasoning_effort": None,
         "run_reviewer_reasoning_effort": None,
         "run_main_model": None,
@@ -445,7 +459,7 @@ def prompt_chat_id() -> str:
 
 def prompt_model_choice() -> str | None:
     print("Choose model preset:")
-    print("  0. inherit codex default (recommended)")
+    print("  0. inherit backend default (recommended)")
     for idx, preset in enumerate(MODEL_PRESETS, start=1):
         print(
             f"  {idx}. {preset.name}: "
@@ -464,6 +478,26 @@ def prompt_model_choice() -> str | None:
         if 1 <= index <= len(MODEL_PRESETS):
             return MODEL_PRESETS[index - 1].name
         print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
+
+
+def prompt_runner_backend_choice(default: str = DEFAULT_RUNNER_BACKEND) -> str:
+    options = [
+        ("1", "codex", "Codex CLI"),
+        ("2", "claude", "Claude Code CLI"),
+    ]
+    default_backend = normalize_runner_backend(default)
+    default_index = next(index for index, backend, _ in options if backend == default_backend)
+    print("Choose execution backend:")
+    for index, _, label in options:
+        print(f"  {index}. {label}")
+    while True:
+        raw = prompt_input("Backend number: ", default=default_index).strip()
+        if not raw:
+            raw = default_index
+        for index, backend, _ in options:
+            if raw == index:
+                return backend
+        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
 
 
 def prompt_copilot_proxy_choice(*, preferred: bool = False) -> tuple[bool, str | None, int]:
@@ -759,6 +793,11 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
     run_model_preset = str(config.get("run_model_preset") or "").strip()
     if run_model_preset:
         cmd.extend(["--run-model-preset", run_model_preset])
+    run_runner_backend = str(config.get("run_runner_backend") or DEFAULT_RUNNER_BACKEND).strip() or DEFAULT_RUNNER_BACKEND
+    cmd.extend(["--run-runner-backend", run_runner_backend])
+    run_codex_bin = str(config.get("run_codex_bin") or "").strip()
+    if run_codex_bin:
+        cmd.extend(["--run-runner-bin", run_codex_bin])
     if bool(config.get("run_copilot_proxy")):
         cmd.append("--run-copilot-proxy")
     else:
