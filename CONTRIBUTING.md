@@ -25,6 +25,7 @@ Thanks for your interest in improving `ArgusBot`.
 - Kaitong Cai: [https://github.com/CaiKaitong](https://github.com/CaiKaitong)
 - Zikai Zhou: [https://github.com/Klayand](https://github.com/Klayand)
 - Lifeng Zhuo: [https://github.com/zhuolifeng](https://github.com/zhuolifeng)
+- ReinerBRO: [https://github.com/ReinerBRO](https://github.com/ReinerBRO)
 
 ## Acknowledgements
 
