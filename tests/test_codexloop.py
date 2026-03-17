@@ -226,6 +226,49 @@ def test_main_init_starts_background_without_attach(monkeypatch, tmp_path: Path,
     assert "Use `argusbot` to attach monitor" in captured.out
 
 
+def test_main_init_calls_banner_once(monkeypatch, tmp_path: Path) -> None:
+    home_dir = tmp_path / ".argusbot"
+    config = {
+        "telegram_bot_token": "123:abc",
+        "telegram_chat_id": "auto",
+        "run_cd": str(tmp_path),
+        "run_check": None,
+        "run_max_rounds": 500,
+        "run_skip_git_repo_check": False,
+        "run_full_auto": False,
+        "run_yolo": True,
+        "run_planner_mode": "auto",
+        "run_plan_mode": "fully-plan",
+        "run_plan_request_delay_seconds": 600,
+        "run_plan_auto_execute_delay_seconds": 600,
+        "run_resume_last_session": True,
+        "run_main_reasoning_effort": None,
+        "run_reviewer_reasoning_effort": None,
+        "run_main_model": None,
+        "run_reviewer_model": None,
+        "run_model_preset": "codex-xhigh",
+        "bus_dir": str(home_dir / "bus"),
+        "logs_dir": str(home_dir / "logs"),
+    }
+    observed: list[str | None] = []
+
+    monkeypatch.setattr(sys, "argv", ["argusbot", "--home-dir", str(home_dir), "init"])
+    monkeypatch.setattr(codexloop.shutil, "which", lambda name: "/usr/bin/codex")
+    monkeypatch.setattr(codexloop, "load_config", lambda path: None)
+    monkeypatch.setattr(codexloop, "run_interactive_config", lambda **kwargs: config)
+    monkeypatch.setattr(codexloop, "stop_all_codexloop_loops", lambda **kwargs: None)
+    monkeypatch.setattr(codexloop, "ensure_daemon_running", lambda **kwargs: 4321)
+    monkeypatch.setattr(codexloop, "save_config", lambda path, payload: None)
+    monkeypatch.setattr(
+        codexloop,
+        "maybe_print_banner",
+        lambda *, subcommand, stream=None: observed.append(subcommand),
+    )
+
+    codexloop.main()
+    assert observed == ["init"]
+
+
 def test_parse_pid_supports_int_and_digit_string() -> None:
     assert codexloop.parse_pid(123) == 123
     assert codexloop.parse_pid("456") == 456

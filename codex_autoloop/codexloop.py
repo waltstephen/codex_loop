@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .apps.daemon_app import render_plan_context, render_review_context
+from .banner import maybe_print_banner
 from .copilot_proxy import bootstrap_proxy_checkout, managed_proxy_dir, resolve_proxy_dir
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status
 from .model_catalog import MODEL_PRESETS
@@ -78,6 +79,7 @@ def main() -> None:
     config = load_config(config_path)
     current_run_cwd = Path(args.run_cd).resolve() if args.run_cd else Path.cwd().resolve()
     if args.subcommand == "init":
+        maybe_print_banner(subcommand=args.subcommand)
         stop_all_codexloop_loops(
             home_dir=home_dir,
             config=config,
