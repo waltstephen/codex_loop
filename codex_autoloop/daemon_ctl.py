@@ -25,7 +25,7 @@ def main() -> None:
 
     if args.subcommand == "status":
         payload = load_status_for_cli(status_path, require_live=False)
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         raise SystemExit(0 if payload.get("daemon_status_state") != "stale" else 1)
 
     if args.subcommand == "show-plan":

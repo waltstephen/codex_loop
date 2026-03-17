@@ -122,7 +122,7 @@ def main() -> None:
         if payload is None:
             print("No daemon status found.")
             raise SystemExit(1)
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     if args.subcommand in {"run", "inject", "new", "mode", "plan", "review", "btw", "daemon-stop"}:
@@ -931,7 +931,7 @@ def run_monitor_console(
             if payload is None:
                 print("No daemon status found.")
             else:
-                print(json.dumps(payload, ensure_ascii=True, indent=2))
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
             continue
         if parsed.kind == "show-main-prompt":
             payload = read_status(status_path) or {}

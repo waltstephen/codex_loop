@@ -67,7 +67,7 @@ def main() -> None:
             todo_path=args.plan_todo_file,
         )
 
-    print(json.dumps(payload, ensure_ascii=True, indent=2))
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     raise SystemExit(exit_code)
 
 

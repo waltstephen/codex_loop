@@ -314,7 +314,7 @@ def main() -> None:
             "models": [asdict(item) for item in MODEL_ENTRIES],
             "presets": [asdict(item) for item in MODEL_PRESETS],
         }
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     print("Model presets:")
