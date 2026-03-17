@@ -1471,7 +1471,7 @@ def set_force_fresh_session_marker(state_file: str | None, *, enabled: bool, rea
     payload[FORCE_FRESH_SESSION_KEY] = bool(enabled)
     if enabled:
         payload["session_id"] = None
-        payload["force_fresh_updated_at"] = dt.datetime.utcnow().isoformat() + "Z"
+        payload["force_fresh_updated_at"] = dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
         if reason:
             payload[FORCE_FRESH_REASON_KEY] = reason
     else:

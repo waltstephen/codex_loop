@@ -149,6 +149,39 @@ def test_invalid_encrypted_content_resets_session_and_retries_fresh() -> None:
     assert reset_events[0].get("previous_session_id") == "thread-old"
 
 
+def test_quota_exhaustion_stops_immediately_without_reviewer_retry() -> None:
+    runner = _SequenceRunner(
+        outputs=[
+            CodexRunResult(
+                command=["codex", "exec"],
+                exit_code=1,
+                thread_id=None,
+                agent_messages=[],
+                turn_completed=False,
+                turn_failed=True,
+                fatal_error="You exceeded your current quota, please check your plan and billing details.",
+            )
+        ]
+    )
+    orchestrator = AutoLoopOrchestrator(
+        runner=runner,  # type: ignore[arg-type]
+        reviewer=_UnusedReviewer(),  # type: ignore[arg-type]
+        config=AutoLoopConfig(
+            objective="继续修复",
+            max_rounds=5,
+        ),
+    )
+
+    result = orchestrator.run()
+
+    assert result.success is False
+    assert len(result.rounds) == 1
+    assert "quota" in result.stop_reason.lower()
+    round_summary = result.rounds[0]
+    assert round_summary.review.status == "blocked"
+    assert "quota" in round_summary.review.reason.lower()
+
+
 def test_no_progress_stops_when_repeated_empty_failures() -> None:
     runner = _SequenceRunner(
         outputs=[

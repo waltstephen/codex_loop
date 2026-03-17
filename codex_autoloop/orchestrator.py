@@ -8,6 +8,12 @@ from typing import Any, Callable
 
 from .checks import all_checks_passed, run_checks
 from .codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
+from .failure_modes import (
+    build_progress_signature,
+    build_quota_exhaustion_stop_reason,
+    looks_like_invalid_encrypted_content,
+    looks_like_quota_exhaustion,
+)
 from .models import ReviewDecision, RoundSummary
 from .reviewer import Reviewer, ReviewerConfig
 from .stall_subagent import analyze_stall
@@ -131,7 +137,8 @@ class AutoLoopOrchestrator:
                 main_result.fatal_error is not None
                 and main_result.fatal_error.startswith("External interrupt:")
             )
-            invalid_encrypted_content = self._looks_like_invalid_encrypted_content(main_result.fatal_error)
+            invalid_encrypted_content = looks_like_invalid_encrypted_content(main_result.fatal_error)
+            quota_exhausted = looks_like_quota_exhaustion(main_result.fatal_error)
             self._emit(
                 {
                     "type": "round.main.completed",
@@ -254,6 +261,44 @@ class AutoLoopOrchestrator:
                 self._emit({"type": "loop.completed", "success": result.success, "stop_reason": result.stop_reason})
                 return result
 
+            if quota_exhausted:
+                review = ReviewDecision(
+                    status="blocked",
+                    confidence=1.0,
+                    reason="Main agent hit a non-recoverable Codex quota or billing limit.",
+                    next_action="Wait for quota reset or increase available quota, then rerun the objective.",
+                )
+                self._emit(
+                    {
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                    }
+                )
+                round_summary = RoundSummary(
+                    round_index=round_index,
+                    thread_id=session_id,
+                    main_exit_code=main_result.exit_code,
+                    main_turn_completed=main_result.turn_completed,
+                    main_turn_failed=main_result.turn_failed,
+                    checks=[],
+                    review=review,
+                    main_last_message=main_result.last_agent_message,
+                )
+                rounds.append(round_summary)
+                self._persist_state(rounds=rounds, session_id=session_id, current_review=review)
+                result = AutoLoopResult(
+                    success=False,
+                    session_id=session_id,
+                    rounds=rounds,
+                    stop_reason=build_quota_exhaustion_stop_reason(main_result.fatal_error),
+                )
+                self._emit({"type": "loop.completed", "success": result.success, "stop_reason": result.stop_reason})
+                return result
+
             checks = run_checks(self.config.check_commands or [], self.config.check_timeout_seconds)
             self._emit(
                 {
@@ -335,7 +380,7 @@ class AutoLoopOrchestrator:
                 self._emit({"type": "loop.completed", "success": result.success, "stop_reason": result.stop_reason})
                 return result
 
-            current_progress_signature = self._build_progress_signature(main_result=main_result)
+            current_progress_signature = build_progress_signature(main_result=main_result)
             if current_progress_signature and current_progress_signature == previous_progress_signature:
                 no_progress_rounds += 1
             else:
@@ -519,12 +564,6 @@ class AutoLoopOrchestrator:
         )
 
     @staticmethod
-    def _looks_like_invalid_encrypted_content(fatal_error: str | None) -> bool:
-        if not fatal_error:
-            return False
-        return "invalid_encrypted_content" in fatal_error.lower() or "invalid encrypted content" in fatal_error.lower()
-
-    @staticmethod
     def _build_fresh_session_retry_prompt(*, objective: str, fatal_error: str) -> str:
         if AutoLoopOrchestrator._request_style(objective) == "response":
             return (
@@ -539,20 +578,6 @@ class AutoLoopOrchestrator:
             f"Objective:\n{objective}\n\n"
             f"Prior fatal error:\n{fatal_error}\n\n"
             "Execute concrete work now and end with DONE/REMAINING/BLOCKERS."
-        )
-
-    @staticmethod
-    def _build_progress_signature(*, main_result: Any) -> str:
-        last_message = str(getattr(main_result, "last_agent_message", "") or "").strip()
-        if last_message:
-            return f"msg:{last_message}"
-        fatal_error = str(getattr(main_result, "fatal_error", "") or "").strip()
-        exit_code = int(getattr(main_result, "exit_code", 0))
-        turn_completed = bool(getattr(main_result, "turn_completed", False))
-        turn_failed = bool(getattr(main_result, "turn_failed", False))
-        return (
-            "nomsg:"
-            f"exit={exit_code}|completed={int(turn_completed)}|failed={int(turn_failed)}|fatal={fatal_error[:240]}"
         )
 
     @staticmethod

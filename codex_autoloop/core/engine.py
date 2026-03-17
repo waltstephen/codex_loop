@@ -6,6 +6,7 @@ from typing import Any
 
 from ..checks import all_checks_passed, run_checks
 from ..codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
+from ..failure_modes import build_progress_signature, build_quota_exhaustion_stop_reason, looks_like_quota_exhaustion
 from ..models import PlanDecision, PlanMode, ReviewDecision, RoundSummary
 from ..planner import Planner, PlannerConfig
 from ..reviewer import Reviewer, ReviewerConfig
@@ -69,7 +70,7 @@ class LoopEngine:
         rounds: list[RoundSummary] = []
         session_id = self.config.initial_session_id
         no_progress_rounds = 0
-        previous_main_message = ""
+        previous_progress_signature = ""
         self._emit(
             {
                 "type": "loop.started",
@@ -232,6 +233,54 @@ class LoopEngine:
                     next_main_prompt_phase = "continue"
                 continue
 
+            if looks_like_quota_exhaustion(main_result.fatal_error):
+                review = ReviewDecision(
+                    status="blocked",
+                    confidence=1.0,
+                    reason="Main agent hit a non-recoverable Codex quota or billing limit.",
+                    next_action="Wait for quota reset or increase available quota, then rerun the objective.",
+                    round_summary_markdown=(
+                        "# Review Summary\n\n"
+                        "- Main agent hit a non-recoverable Codex quota or billing limit.\n"
+                        f"- Fatal error: {main_result.fatal_error or 'none'}\n"
+                        "- Automatic retries would not make progress.\n"
+                    ),
+                )
+                self._emit(
+                    {
+                        "type": "round.review.completed",
+                        "round_index": round_index,
+                        "status": review.status,
+                        "confidence": review.confidence,
+                        "reason": review.reason,
+                        "next_action": review.next_action,
+                    }
+                )
+                round_summary = RoundSummary(
+                    round_index=round_index,
+                    thread_id=session_id,
+                    main_exit_code=main_result.exit_code,
+                    main_turn_completed=main_result.turn_completed,
+                    main_turn_failed=main_result.turn_failed,
+                    checks=[],
+                    review=review,
+                    main_last_message=main_result.last_agent_message,
+                    plan=current_plan,
+                )
+                rounds.append(round_summary)
+                self.state_store.record_round(
+                    round_summary,
+                    session_id=session_id,
+                    current_review=review,
+                    current_plan=current_plan,
+                )
+                return self._complete(
+                    success=False,
+                    session_id=session_id,
+                    rounds=rounds,
+                    stop_reason=build_quota_exhaustion_stop_reason(main_result.fatal_error),
+                )
+
             checks = run_checks(self.config.check_commands or [], self.config.check_timeout_seconds)
             self._emit(
                 {
@@ -329,7 +378,7 @@ class LoopEngine:
                     )
                 current_plan = planned_follow_up
                 no_progress_rounds = 0
-                previous_main_message = ""
+                previous_progress_signature = ""
                 next_main_prompt = self._build_follow_up_prompt(
                     objective=self.config.objective,
                     operator_messages=self.state_store.list_messages_for_role("main"),
@@ -346,12 +395,12 @@ class LoopEngine:
                     stop_reason=f"Reviewer blocked: {review.reason}",
                 )
 
-            current_main_message = (main_result.last_agent_message or "").strip()
-            if current_main_message and current_main_message == previous_main_message:
+            current_progress_signature = build_progress_signature(main_result=main_result)
+            if current_progress_signature and current_progress_signature == previous_progress_signature:
                 no_progress_rounds += 1
             else:
                 no_progress_rounds = 0
-                previous_main_message = current_main_message
+                previous_progress_signature = current_progress_signature
 
             if no_progress_rounds >= self.config.max_no_progress_rounds:
                 return self._complete(
