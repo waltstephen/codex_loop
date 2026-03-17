@@ -19,13 +19,13 @@ Thanks for your interest in improving `ArgusBot`.
 
 ## Project Contributors
 
-- Yijia Fan: original migration source for ArgusBot [https://github.com/waltstephen](https://github.com/waltstephen).
-- Zimo Wen: [https://github.com/nssmd](https://github.com/nssmd)
-- Boxiu Li: [https://github.com/lbx154](https://github.com/lbx154)
-- Kaitong Cai: [https://github.com/CaiKaitong](https://github.com/CaiKaitong)
-- Zikai Zhou: [https://github.com/Klayand](https://github.com/Klayand)
-- Lifeng Zhuo: [https://github.com/zhuolifeng](https://github.com/zhuolifeng)
-- ReinerBRO: [https://github.com/ReinerBRO](https://github.com/ReinerBRO)
+- **Yijia Fan**: Original Contributor and original migration source for ArgusBot ([waltstephen](https://github.com/waltstephen)).
+- **Zimo Wen**: Co-Original Contributor ([nssmd](https://github.com/nssmd)).
+- **Boxiu Li**: Teams lead, Co-Original Contributor, and provider of API support during development ([lbx154](https://github.com/lbx154)).
+- **Kaitong Cai**: Lead for the Feishu integration ([CaiKaitong](https://github.com/CaiKaitong)).
+- **Zikai Zhou**: Improved Telegram image reply performance ([Klayand](https://github.com/Klayand)).
+- **Lifeng Zhuo**: Added support for Qwen models ([zhuolifeng](https://github.com/zhuolifeng)).
+- **ReinerBRO**: Successfully enabled support for the Cloud Code CL backend ([ReinerBRO](https://github.com/ReinerBRO)).
 
 ## Acknowledgements
 
