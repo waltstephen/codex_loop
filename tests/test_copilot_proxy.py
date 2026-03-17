@@ -107,3 +107,20 @@ def test_ensure_proxy_running_raises_when_proxy_dir_missing(monkeypatch) -> None
     monkeypatch.setattr(copilot_proxy, "proxy_is_healthy", lambda cfg: False)
     with pytest.raises(RuntimeError):
         copilot_proxy.ensure_proxy_running(config, startup_timeout_seconds=1)
+
+
+def test_build_codex_runner_skips_proxy_overrides_for_claude_backend() -> None:
+    config = copilot_proxy.CopilotProxyConfig(
+        enabled=True,
+        proxy_dir="/tmp/copilot-proxy",
+        port=18080,
+    )
+    runner = copilot_proxy.build_codex_runner(
+        backend="claude",
+        codex_bin="claude",
+        config=config,
+    )
+    assert runner.backend == "claude"
+    assert runner.codex_bin == "claude"
+    assert runner.default_extra_args == []
+    assert runner.before_exec is None

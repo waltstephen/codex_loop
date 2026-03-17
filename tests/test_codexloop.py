@@ -118,10 +118,12 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["run_yolo"] is True
     assert config["run_full_auto"] is False
     assert config["run_copilot_proxy"] is False
+    assert config["run_runner_backend"] == "codex"
+    assert config["run_codex_bin"]
 
 
 def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: Path) -> None:
-    answers = iter(["cli_xxx", "oc_123", ""])
+    answers = iter(["1", "cli_xxx", "oc_123", ""])
     monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "feishu")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
     monkeypatch.setattr(codexloop, "prompt_secret", lambda prompt: "secret")
@@ -134,6 +136,7 @@ def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: P
     assert config["feishu_app_id"] == "cli_xxx"
     assert config["feishu_app_secret"] == "secret"
     assert config["feishu_chat_id"] == "oc_123"
+    assert config["run_runner_backend"] == "codex"
 
 
 def test_run_interactive_config_marks_copilot_preset_as_preferred(monkeypatch, tmp_path: Path) -> None:
@@ -252,6 +255,8 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "follow_up_auto_execute_seconds": 900,
         "run_resume_last_session": True,
         "run_model_preset": "quality",
+        "run_runner_backend": "claude",
+        "run_codex_bin": "/opt/homebrew/bin/claude",
         "run_copilot_proxy": True,
         "run_copilot_proxy_dir": "/home/v-boxiuli/copilot-proxy",
         "run_copilot_proxy_port": 18080,
@@ -273,6 +278,8 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert "--follow-up-auto-execute-seconds" in cmd
     assert "--run-check" in cmd
     assert "--run-model-preset" in cmd
+    assert "--run-runner-backend" in cmd
+    assert "--run-runner-bin" in cmd
     assert "--run-copilot-proxy" in cmd
     assert "--run-copilot-proxy-dir" in cmd
     assert "--run-copilot-proxy-port" in cmd
@@ -284,6 +291,10 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert cmd[follow_up_index + 1] == "900"
     child_command_index = cmd.index("--argusbot-bin")
     assert cmd[child_command_index + 1] == r"C:\Users\wen25\codex_loop\.venv\Scripts\python.exe -m codex_autoloop.cli"
+    backend_index = cmd.index("--run-runner-backend")
+    assert cmd[backend_index + 1] == "claude"
+    runner_bin_index = cmd.index("--run-runner-bin")
+    assert cmd[runner_bin_index + 1] == "/opt/homebrew/bin/claude"
 
 
 def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:

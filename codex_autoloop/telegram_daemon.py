@@ -32,6 +32,8 @@ from .planner_modes import (
     planner_mode_allows_follow_up,
     resolve_planner_mode,
 )
+from .runner_backend import DEFAULT_RUNNER_BACKEND, RUNNER_BACKEND_CHOICES
+from .runner_backend import backend_supports_copilot_proxy
 from .telegram_control import TelegramCommand, TelegramCommandPoller
 from .telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from .token_lock import TokenLock, acquire_token_lock
@@ -319,10 +321,14 @@ def main() -> None:
     feishu_heartbeat_interval_seconds = max(0, int(args.feishu_heartbeat_interval_seconds))
     last_feishu_heartbeat_monotonic = time.monotonic()
     run_copilot_proxy = config_from_args(args, prefix="run_")
-    if run_copilot_proxy.enabled:
+    if run_copilot_proxy.enabled and backend_supports_copilot_proxy(args.run_runner_backend):
         print(f"[daemon] Copilot proxy mode: {format_proxy_summary(run_copilot_proxy)}", file=sys.stderr)
     btw_agent = BtwAgent(
-        runner=build_codex_runner(codex_bin="codex", config=run_copilot_proxy),
+        runner=build_codex_runner(
+            backend=args.run_runner_backend,
+            codex_bin=args.run_codex_bin,
+            config=run_copilot_proxy,
+        ),
         config=BtwConfig(
             working_dir=str(run_cwd),
             model=(
@@ -1342,6 +1348,10 @@ def build_child_command(
         cmd.append("--copilot-proxy")
     else:
         cmd.append("--no-copilot-proxy")
+    cmd.extend(["--runner-backend", getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)])
+    run_codex_bin = str(getattr(args, "run_codex_bin", "") or "").strip()
+    if run_codex_bin:
+        cmd.extend(["--runner-bin", run_codex_bin])
     run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
     if run_copilot_proxy_dir:
         cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])
@@ -1999,6 +2009,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Working directory for child ArgusBot runs.",
     )
     parser.add_argument("--run-max-rounds", type=int, default=500, help="Child ArgusBot max rounds.")
+    parser.add_argument(
+        "--run-runner-backend",
+        default=DEFAULT_RUNNER_BACKEND,
+        choices=RUNNER_BACKEND_CHOICES,
+        help="Execution backend used by child ArgusBot runs.",
+    )
+    parser.add_argument(
+        "--run-runner-bin",
+        "--run-codex-bin",
+        dest="run_codex_bin",
+        default=None,
+        help="CLI binary path for the selected child execution backend.",
+    )
     parser.add_argument(
         "--run-model-preset",
         default=None,

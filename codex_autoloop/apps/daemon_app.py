@@ -17,6 +17,7 @@ from ..btw_agent import BtwAgent, BtwConfig
 from ..copilot_proxy import build_codex_runner, config_from_args, format_proxy_summary
 from ..daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from ..model_catalog import get_preset
+from ..runner_backend import DEFAULT_RUNNER_BACKEND, backend_supports_copilot_proxy
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from ..token_lock import TokenLock, acquire_token_lock
 from .shell_utils import format_mode_menu
@@ -51,7 +52,7 @@ class TelegramDaemonApp:
         self.next_run_new_session_flag_path = self.bus_dir / "next_run_new_session.flag"
         preset = get_preset(args.run_model_preset) if getattr(args, "run_model_preset", None) else None
         run_copilot_proxy = config_from_args(args, prefix="run_")
-        if run_copilot_proxy.enabled:
+        if run_copilot_proxy.enabled and backend_supports_copilot_proxy(getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)):
             print(f"[daemon] Copilot proxy mode: {format_proxy_summary(run_copilot_proxy)}", file=sys.stderr)
 
         self.token_lock: TokenLock | None = None
@@ -68,7 +69,11 @@ class TelegramDaemonApp:
         self.child_control_bus: JsonlCommandBus | None = None
         self.pending_attachment_batches: dict[str, list[Any]] = {}
         self.btw_agent = BtwAgent(
-            runner=build_codex_runner(codex_bin="codex", config=run_copilot_proxy),
+            runner=build_codex_runner(
+                backend=getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND),
+                codex_bin=getattr(args, "run_codex_bin", None),
+                config=run_copilot_proxy,
+            ),
             config=BtwConfig(
                 working_dir=str(self.run_cwd),
                 model=(
@@ -634,6 +639,10 @@ def build_child_command(
         cmd.append("--copilot-proxy")
     else:
         cmd.append("--no-copilot-proxy")
+    cmd.extend(["--runner-backend", getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)])
+    run_codex_bin = str(getattr(args, "run_codex_bin", "") or "").strip()
+    if run_codex_bin:
+        cmd.extend(["--runner-bin", run_codex_bin])
     run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
     if run_copilot_proxy_dir:
         cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])

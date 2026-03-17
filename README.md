@@ -6,9 +6,9 @@
 [![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
 
 
-`ArgusBot` is a Python supervisor plugin for Codex CLI:
+`ArgusBot` is a Python supervisor plugin for Codex CLI and Claude Code CLI:
 
-- Main agent executes the task (`codex exec` or `codex exec resume`)
+- Main agent executes the task through the selected runner backend
 - Reviewer sub-agent evaluates completion (`done` / `continue` / `blocked`)
 - Planner sub-agent maintains a live framework view and proposes next-session objectives
 - Loop only stops when reviewer says `done` and all acceptance checks pass
@@ -18,12 +18,12 @@ This solves the common "agent stopped early and asked for next instruction" prob
 Current defaults:
 
 - `max_rounds` defaults to `500`.
-- Daemon child model defaults now inherit Codex CLI global settings unless you explicitly set a preset/override.
+- Daemon child model defaults now inherit the selected backend's defaults unless you explicitly set a preset/override.
 - Daemon-launched idle runs try to resume from the last saved `session_id` before starting a fresh thread.
 
 ## Important Warnings
 
-1. Security risk: daemon-launched runs use `--yolo` by default. This grants Codex high local execution power. Run only in trusted repositories/workspaces.
+1. Security risk: daemon-launched runs use `--yolo` by default. This grants the selected backend high local execution power. Run only in trusted repositories/workspaces.
 2. Visibility and debugging: Telegram/Feishu snippets may hide important details. If behavior looks wrong, run `argusbot` in the target workspace and watch local live output/logs first.
 3. Cost and loop risk: long-running objectives can consume significant tokens. Planner or reviewer quality can also cause repeated loops. Always set clear acceptance checks, monitor runtime, and stop/re-scope when needed.
 
@@ -35,13 +35,13 @@ If you want to control your main project from Telegram 24/7 with an always-on da
 
 Prerequisites and cost notes:
 
-- You must have Codex CLI installed and authenticated first (make sure `codex` works before running `argusbot init`).
+- You must have your chosen backend CLI installed and authenticated first (make sure `codex` or `claude` works before running `argusbot init`).
 - For 24/7 daemon operation, choosing `high` or `xhigh` reasoning can lead to token usage close to running one Codex session continuously for 24 hours. Plan budget carefully.
 - `medium` reasoning is usually a good quality/cost tradeoff for long-running background control.
 
 1. Clone this repo and install it in editable mode.
 2. Go to your target project directory (the repo you actually want to operate on).
-3. Run `argusbot init`, choose control channel (default Telegram), and complete setup prompts.
+3. Run `argusbot init`, choose control channel and execution backend, then complete setup prompts.
 4. After setup, daemon starts in background and keeps running.
 5. Chat with your Telegram bot (`/run`, `/inject`, `/status`, `/stop`) to control work at any time.
 
@@ -61,7 +61,7 @@ cd <your_main_project>
 argusbot init
 ```
 
-During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`), then enter the selected channel credentials. Config is persisted under `.argusbot/` in your main project.
+During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`), then choose execution backend (`1. Codex CLI`, `2. Claude Code CLI`), then enter the selected channel credentials. Config is persisted under `.argusbot/` in your main project.
 
 ## Current Feature Snapshot
 
@@ -82,9 +82,19 @@ During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu 
 - Run archive persisted as JSONL with date/workspace/session metadata for resume continuity.
 - Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
 
+## Runner Backends
+
+ArgusBot keeps the same `/run`, `/inject`, `/btw`, planner, reviewer, and daemon flows across both backends.
+
+- `--runner-backend codex` uses Codex CLI.
+- `--runner-backend claude` uses Claude Code CLI.
+- `--runner-bin` selects the underlying executable path; `--codex-bin` remains as a compatibility alias.
+- Copilot proxy applies only to the Codex backend.
+- Claude accepts `low|medium|high` effort only, so ArgusBot maps `xhigh -> high` when Claude is selected.
+
 ## Why this is a plugin, not a native flag
 
-Current Codex CLI does not expose a built-in `--autoloop` flag, so this repo adds a wrapper layer around `codex exec`.
+Current Codex CLI and Claude Code CLI do not expose a built-in `--autoloop` flag, so this repo adds a wrapper layer around their native task execution commands.
 
 ## Install
 
@@ -96,7 +106,7 @@ pip install -e .
 
 ## GitHub Copilot via `copilot-proxy`
 
-ArgusBot can route every `codex exec` call through a local `copilot-proxy` checkout, so main/reviewer/planner/BTW runs can use GitHub Copilot-backed quota instead of OpenAI API billing.
+ArgusBot can route Codex backend calls through a local `copilot-proxy` checkout, so main/reviewer/planner/BTW runs can use GitHub Copilot-backed quota instead of OpenAI API billing.
 
 Simplest setup:
 
@@ -124,6 +134,7 @@ Notes:
 
 - `--copilot-proxy-dir` is only needed when your proxy checkout lives outside the auto-detected locations above.
 - When enabled, ArgusBot auto-starts `proxy.mjs` if needed and injects Codex provider overrides per run, so you do not have to rewrite your global `~/.codex/config.toml`.
+- Claude backend ignores Copilot proxy settings by design.
 - Prefer Copilot-supported models such as `gpt-5.4`, `gpt-5.2`, `gpt-5.1`, `gpt-4o`, `claude-sonnet-4.6`, `claude-opus-4.6`, or `gemini-3-pro-preview`.
 
 ## One-word operator workflow (`argusbot`)
@@ -142,9 +153,9 @@ argusbot help
 
 Behavior:
 
-- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
+- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then choose runner backend (`1. Codex CLI`, `2. Claude Code CLI`), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
-- `argusbot init`: stops all current ArgusBot daemons, prompts control channel + credentials/model/play mode, starts daemon in background, then exits.
+- `argusbot init`: stops all current ArgusBot daemons, prompts control channel + backend + credentials/model/play mode, starts daemon in background, then exits.
 - After `init`, run `argusbot` to attach monitor to that background daemon.
 - Same terminal can control daemon/run:
   - `/run <objective>`
@@ -199,10 +210,12 @@ argusbot-run \
 
 Common options:
 
-- `--session-id <id>`: continue an existing Codex session
+- `--runner-backend {codex,claude}`: select the execution backend
+- `--runner-bin <path>`: select the backend executable path
+- `--session-id <id>`: continue an existing runner session
 - `--main-model` / `--reviewer-model`: set model(s)
 - `--planner-model`: override the manager/planner model (defaults to reviewer settings when omitted)
-- `--copilot-proxy [--copilot-proxy-port 18080] [--copilot-proxy-dir /custom/path]`: route Codex through local `copilot-proxy`
+- `--copilot-proxy [--copilot-proxy-port 18080] [--copilot-proxy-dir /custom/path]`: route Codex backend through local `copilot-proxy`
 - `python -m codex_autoloop.model_catalog`: list common models and presets
 - `--yolo`: pass dangerous no-sandbox mode to Codex
 - `--full-auto`: pass full-auto mode to Codex
@@ -467,7 +480,7 @@ python -m codex_autoloop.setup_wizard --run-cd .
 
 The wizard will:
 
-1. Check `codex` CLI availability and basic auth probe.
+1. Check the selected runner CLI availability and basic auth probe.
 2. Prompt for control channel: Telegram, Feishu, or both.
 3. Prompt only for the selected channel credentials.
 4. Prompt optional default check command (empty means no forced check command).
@@ -478,7 +491,7 @@ Default behavior for daemon-launched runs:
 
 - `--yolo` is enabled by default.
 - No default `--check` is enforced unless you set one.
-- Daemon-launched runs inherit Codex CLI default model settings unless you explicitly set preset/overrides.
+- Daemon-launched runs inherit the selected backend defaults unless you explicitly set preset/overrides.
 - When the daemon is idle, a new `/run` or terminal `run` command will reuse the last saved `session_id` if available.
 - One Telegram token can only be owned by one active daemon process (second daemon returns an error).
 - In daemon mode, only daemon polls Telegram updates; child runs receive control via daemon bus (avoids getUpdates 409 conflicts).

@@ -37,6 +37,37 @@ def test_format_review() -> None:
     assert "status=continue" in message
 
 
+def test_format_review_uses_safe_fallbacks_for_invalid_values() -> None:
+    message = format_event_message(
+        {
+            "type": "round.review.completed",
+            "round_index": 2,
+            "status": "continue",
+            "confidence": "n/a",
+            "reason": "",
+            "next_action": None,
+        }
+    )
+    assert "confidence=unknown" in message
+    assert "reason=unavailable" in message
+    assert "next_action=unavailable" in message
+
+
+def test_format_review_hides_confidence_for_invalid_reviewer_fallback() -> None:
+    message = format_event_message(
+        {
+            "type": "round.review.completed",
+            "round_index": 2,
+            "status": "continue",
+            "confidence": 0.0,
+            "reason": "Reviewer output was not valid JSON.",
+            "next_action": "Continue implementation and include clear completion evidence.",
+        }
+    )
+    assert "confidence=unknown" in message
+    assert "reason=Reviewer output was not valid JSON." in message
+
+
 def test_unknown_event_empty() -> None:
     assert format_event_message({"type": "x.unknown"}) == ""
 
