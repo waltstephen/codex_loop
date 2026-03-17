@@ -21,7 +21,7 @@ Thanks for your interest in improving `ArgusBot`.
 
 - **Yijia Fan**: Original Contributor and original migration source for ArgusBot ([waltstephen](https://github.com/waltstephen)).
 - **Zimo Wen**: Co-Original Contributor ([nssmd](https://github.com/nssmd)).
-- **Boxiu Li**: Teams lead, Co-Original Contributor, and provider of API support during development ([lbx154](https://github.com/lbx154)).
+- **Boxiu Li**: Teams bot, Co-Original Contributor, and provider of API support during development ([lbx154](https://github.com/lbx154)).
 - **Kaitong Cai**: Lead for the Feishu integration ([CaiKaitong](https://github.com/CaiKaitong)).
 - **Zikai Zhou**: Improved Telegram image reply performance ([Klayand](https://github.com/Klayand)).
 - **Lifeng Zhuo**: Added support for Qwen models ([zhuolifeng](https://github.com/zhuolifeng)).
