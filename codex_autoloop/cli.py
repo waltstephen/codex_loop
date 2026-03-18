@@ -407,12 +407,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Treat plain text Feishu messages as injected instruction updates.",
     )
     parser.add_argument(
-        "--feishu-disable-ssl-verify",
-        action="store_true",
-        default=False,
-        help="Disable SSL certificate verification for Feishu API calls. Use as last resort for SSL connection issues.",
-    )
-    parser.add_argument(
         "--live-terminal",
         action=argparse.BooleanOptionalAction,
         default=True,

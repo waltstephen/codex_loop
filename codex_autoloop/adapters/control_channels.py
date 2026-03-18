@@ -82,7 +82,6 @@ class FeishuControlChannel:
         on_error: ErrorHandler | None = None,
         poll_interval_seconds: int = 2,
         plain_text_kind: str = "inject",
-        disable_ssl_verify: bool = False,
     ) -> None:
         self.app_id = app_id
         self.app_secret = app_secret
@@ -90,7 +89,6 @@ class FeishuControlChannel:
         self.on_error = on_error
         self.poll_interval_seconds = poll_interval_seconds
         self.plain_text_kind = plain_text_kind
-        self.disable_ssl_verify = disable_ssl_verify
         self._poller: FeishuCommandPoller | None = None
 
     def start(self, on_command: CommandHandler) -> None:
@@ -108,7 +106,6 @@ class FeishuControlChannel:
             on_error=self.on_error,
             poll_interval_seconds=self.poll_interval_seconds,
             plain_text_kind=self.plain_text_kind,
-            disable_ssl_verify=self.disable_ssl_verify,
         )
         self._poller.start()
 

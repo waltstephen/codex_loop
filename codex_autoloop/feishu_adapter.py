@@ -280,7 +280,6 @@ class FeishuConfig:
     events: set[str]
     receive_id_type: str = "chat_id"
     timeout_seconds: int = 10
-    disable_ssl_verify: bool = False
     wide_screen_mode: bool = True
     card_template_id: str | None = None
 
@@ -293,13 +292,11 @@ class FeishuTokenManager:
         app_secret: str,
         timeout_seconds: int,
         on_error: ErrorCallback | None,
-        disable_ssl_verify: bool = False,
     ) -> None:
         self.app_id = app_id
         self.app_secret = app_secret
         self.timeout_seconds = timeout_seconds
         self.on_error = on_error
-        self.disable_ssl_verify = disable_ssl_verify
         self._token: str | None = None
         self._expires_at = 0.0
 
@@ -322,7 +319,6 @@ class FeishuTokenManager:
             timeout_seconds=self.timeout_seconds,
             on_error=self.on_error,
             label="feishu auth",
-            disable_ssl_verify=self.disable_ssl_verify,
         )
         if not isinstance(parsed, dict):
             return None
@@ -345,7 +341,6 @@ class FeishuNotifier:
             app_secret=config.app_secret,
             timeout_seconds=config.timeout_seconds,
             on_error=on_error,
-            disable_ssl_verify=config.disable_ssl_verify,
         )
 
     def notify_event(self, event: dict[str, Any]) -> None:
@@ -706,7 +701,6 @@ class FeishuCommandPoller:
         on_error: ErrorCallback | None = None,
         poll_interval_seconds: int = 2,
         plain_text_kind: str = "inject",
-        disable_ssl_verify: bool = False,
     ) -> None:
         self.chat_id = chat_id
         self.on_command = on_command
@@ -720,7 +714,6 @@ class FeishuCommandPoller:
             app_secret=app_secret,
             timeout_seconds=20,
             on_error=on_error,
-            disable_ssl_verify=disable_ssl_verify,
         )
         self._last_message_id: str | None = None
 
@@ -1036,32 +1029,18 @@ def _perform_json_request(
     on_error: ErrorCallback | None,
     label: str,
     max_retries: int = 2,
-    disable_ssl_verify: bool = False,
 ) -> dict[str, Any] | None:
     """Perform HTTP request with optional retry for transient errors.
 
     Retries on SSL/EOF errors and connection reset errors that are often transient.
-    If disable_ssl_verify is True, creates an SSL context that disables certificate verification.
     """
     attempt = 0
     last_error: Exception | None = None
 
-    # Create SSL context if SSL verification is disabled
-    ssl_context = None
-    if disable_ssl_verify:
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-
     while attempt <= max_retries:
         try:
-            # Use custom SSL context if provided
-            if ssl_context is not None:
-                with urllib.request.urlopen(req, timeout=timeout_seconds, context=ssl_context) as resp:
-                    raw = resp.read().decode("utf-8")
-            else:
-                with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
-                    raw = resp.read().decode("utf-8")
+            with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+                raw = resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             body = ""
             try:

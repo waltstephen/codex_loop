@@ -780,8 +780,6 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
                 str(config.get("feishu_receive_id_type") or "chat_id"),
             ]
         )
-        if config.get("feishu_disable_ssl_verify"):
-            cmd.append("--feishu-disable-ssl-verify")
     if child_command:
         cmd.extend(["--argusbot-bin", child_command])
     run_check = config.get("run_check")
