@@ -193,6 +193,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
                 receive_id_type=args.feishu_receive_id_type,
                 events=parse_telegram_events(args.feishu_events),
                 timeout_seconds=args.feishu_timeout_seconds,
+                disable_ssl_verify=args.feishu_disable_ssl_verify,
             ),
             on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
         )
@@ -214,6 +215,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
                     on_error=lambda msg: print(f"[feishu-control] {msg}", file=sys.stderr),
                     poll_interval_seconds=args.feishu_control_poll_interval_seconds,
                     plain_text_kind=("inject" if args.feishu_control_plain_text_inject else "run"),
+                    disable_ssl_verify=args.feishu_disable_ssl_verify,
                 )
             )
             print("Feishu control channel enabled.", file=sys.stderr)

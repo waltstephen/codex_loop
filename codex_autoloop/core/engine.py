@@ -473,7 +473,7 @@ class LoopEngine:
         current_plan_mode = self._current_plan_mode()
         if current_plan_mode == "off" or self.planner is None:
             return None
-        plan = self.planner.evaluate(
+        plan, raw_output = self.planner.evaluate_with_raw_output(
             objective=self.config.objective,
             plan_messages=self.state_store.list_messages_for_role("plan"),
             round_index=round_index,
@@ -500,6 +500,7 @@ class LoopEngine:
                 "next_explore": plan.next_explore,
                 "main_instruction": plan.main_instruction,
                 "review_instruction": plan.review_instruction,
+                "raw_output": raw_output,
             }
         )
         return plan

@@ -291,6 +291,7 @@ def main() -> None:
                 receive_id_type=args.feishu_receive_id_type,
                 events=set(),
                 timeout_seconds=args.feishu_timeout_seconds,
+                disable_ssl_verify=args.feishu_disable_ssl_verify,
             ),
             on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
         )
@@ -1069,6 +1070,7 @@ def main() -> None:
             on_error=lambda msg: print(f"[feishu] {msg}", file=sys.stderr),
             poll_interval_seconds=args.feishu_control_poll_interval_seconds,
             plain_text_kind="run",
+            disable_ssl_verify=args.feishu_disable_ssl_verify,
         )
         feishu_poller.start()
     notify(
@@ -1318,6 +1320,7 @@ def build_child_command(
                 args.feishu_receive_id_type,
                 "--feishu-timeout-seconds",
                 str(args.feishu_timeout_seconds),
+                "--feishu-disable-ssl-verify" if args.feishu_disable_ssl_verify else "--no-feishu-disable-ssl-verify",
                 "--no-feishu-control",
             ]
         )
@@ -2206,6 +2209,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="HTTP timeout for Feishu API calls.",
+    )
+    parser.add_argument(
+        "--feishu-disable-ssl-verify",
+        action="store_true",
+        default=False,
+        help="Disable SSL certificate verification for Feishu API calls. Use as last resort for SSL connection issues.",
     )
     parser.add_argument(
         "--feishu-control-poll-interval-seconds",
