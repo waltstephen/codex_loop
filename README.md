@@ -373,7 +373,7 @@ Constraints:
 2. Prefer small verifiable steps over large speculative rewrites.
 ```
 
-Example with live dashboard:
+Example with live dashboard (Do not expose yourself on the public internet! It's extremely dangerous!):
 
 ```bash
 argusbot-run \
