@@ -88,8 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--runner-bin",
-        "--codex-bin",
-        dest="codex_bin",
+        dest="runner_bin",
         default=None,
         help="CLI binary path for the selected execution backend.",
     )

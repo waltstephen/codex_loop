@@ -241,7 +241,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     btw_agent = BtwAgent(
         runner=build_codex_runner(
             backend=args.runner_backend,
-            codex_bin=args.codex_bin,
+            runner_bin=args.runner_bin,
             config=copilot_proxy,
         ),
         config=BtwConfig(
@@ -424,7 +424,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
     event_sink = CompositeEventSink(sinks)
     runner = build_codex_runner(
         backend=args.runner_backend,
-        codex_bin=args.codex_bin,
+        runner_bin=args.runner_bin,
         config=copilot_proxy,
         event_callback=event_sink.handle_stream_line,
     )
