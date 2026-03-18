@@ -29,6 +29,18 @@ Current defaults:
 
 ![ArgusBot architecture concept](Feishu_readme/cleaned_Gemini_Generated_Image_xniz1sxniz1sxniz%20(1).png)
 
+## Community
+
+If you're using ArgusBot for research workflows, welcome to join our user community.
+
+- WeChat user group: scan the QR code below
+- Please note your background / use case when joining
+
+<p align="center">
+  <img src="Feishu_readme/wechat-group.jpg" alt="ArgusBot WeChat Group" width="260" />
+</p>
+
+
 ## Quick Start (24/7 Telegram Control)
 
 If you want to control your main project from Telegram 24/7 with an always-on daemon, use this flow:
@@ -665,17 +677,6 @@ Safety stop conditions:
 - `max_rounds` reached
 - repeated no-progress rounds
 - reviewer returns `blocked`
-
-## Community
-
-If you're using ArgusBot for research workflows, welcome to join our user community.
-
-- WeChat user group: scan the QR code below
-- Please note your background / use case when joining
-
-<p align="center">
-  <img src="Feishu_readme/wechat-group.jpg" alt="ArgusBot WeChat Group" width="260" />
-</p>
 
 ## Contributing
 
