@@ -24,9 +24,42 @@ from .output_extractor import (
     extract_message_content,
 )
 
+__all__ = [
+    # Core classes
+    'FeishuNotifier',
+    'FeishuCommandPoller',
+    'FeishuConfig',
+    'FeishuCommand',
+    # Constants
+    'FEISHU_CARD_MAX_BYTES',
+    'FEISHU_TEXT_MAX_BYTES',
+    'FEISHU_ERROR_CODE_MESSAGE_TOO_LONG',
+    'FEISHU_ERROR_CODE_CARD_CONTENT_FAILED',
+    # Utilities
+    'split_feishu_message',
+    'markdown_to_feishu_post',
+    'build_interactive_card',
+    'format_feishu_event_card',
+    'format_feishu_event_message',
+    'strip_leading_feishu_mentions',
+    'parse_feishu_command_text',
+    'is_feishu_self_message',
+    'extract_feishu_text',
+]
+
 _FEISHU_MENTION_PREFIX = re.compile(r"^(?:@[_\w-]+\s+)+")
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 _VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+
+# 飞书消息长度限制 (官方文档)
+# 卡片消息：30 KB (请求体最大长度，包含模板数据)
+# 文本消息：150 KB
+# 错误码：230025 - 消息体长度超出限制
+#        230099 - 创建卡片内容失败
+FEISHU_CARD_MAX_BYTES = 30 * 1024  # 30 KB
+FEISHU_TEXT_MAX_BYTES = 150 * 1024  # 150 KB
+FEISHU_ERROR_CODE_MESSAGE_TOO_LONG = 230025
+FEISHU_ERROR_CODE_CARD_CONTENT_FAILED = 230099
 
 
 def markdown_to_feishu_post(text: str, title: str = "ArgusBot Update") -> dict[str, Any]:
@@ -347,6 +380,9 @@ class FeishuNotifier:
         - Unclosed code blocks
         - Missing newlines after headers
         - Incorrect list formatting
+
+        Note: Message chunks are limited to FEISHU_CARD_MAX_BYTES (30 KB) to avoid
+        error 230025 (message too long) and 230099 (card content failed).
         """
         token = self._tokens.get_token()
         if not token:
@@ -356,7 +392,7 @@ class FeishuNotifier:
         fixed_message = validate_and_fix_markdown(message)
 
         ok = True
-        for chunk in split_feishu_message(fixed_message):
+        for chunk in split_feishu_message(fixed_message, max_chunk_bytes=FEISHU_CARD_MAX_BYTES):
             # Build card content with markdown element for Markdown support
             card_content = {
                 "config": {
@@ -484,40 +520,46 @@ class FeishuNotifier:
     #         is not None
     #     )
 
-    # def _send_structured_message(
-    #     self,
-    #     *,
-    #     token: str,
-    #     msg_type: str,
-    #     content: dict[str, Any],
-    # ) -> bool:
-    #     body = json.dumps(
-    #         {
-    #             "receive_id": self.config.chat_id,
-    #             "msg_type": msg_type,
-    #             "content": json.dumps(content, ensure_ascii=False),
-    #         },
-    #         ensure_ascii=False,
-    #     ).encode("utf-8")
-    #     req = urllib.request.Request(
-    #         "https://open.feishu.cn/open-apis/im/v1/messages"
-    #         + f"?{urllib.parse.urlencode({'receive_id_type': self.config.receive_id_type})}",
-    #         data=body,
-    #         method="POST",
-    #         headers={
-    #             "Content-Type": "application/json; charset=utf-8",
-    #             "Authorization": f"Bearer {token}",
-    #         },
-    #     )
-    #     return (
-    #         _perform_json_request(
-    #             req,
-    #             timeout_seconds=self.config.timeout_seconds,
-    #             on_error=self.on_error,
-    #             label="feishu send",
-    #         )
-    #         is not None
-    #     )
+    def _send_structured_message(
+        self,
+        *,
+        token: str,
+        msg_type: str,
+        content: dict[str, Any],
+    ) -> bool:
+        """Send a structured message (interactive card, image, file, etc.).
+
+        Handles Feishu API error codes:
+        - 230025: Message too long - truncates content and retries
+        - 230099: Card content failed - logs detailed error
+        """
+        body = json.dumps(
+            {
+                "receive_id": self.config.chat_id,
+                "msg_type": msg_type,
+                "content": json.dumps(content, ensure_ascii=False),
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/im/v1/messages"
+            + f"?{urllib.parse.urlencode({'receive_id_type': self.config.receive_id_type})}",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {token}",
+            },
+        )
+        return (
+            _perform_json_request(
+                req,
+                timeout_seconds=self.config.timeout_seconds,
+                on_error=self.on_error,
+                label="feishu send",
+            )
+            is not None
+        )
 
     def _upload_image(self, *, token: str, file_name: str, file_bytes: bytes) -> str | None:
         parsed = self._post_multipart(
@@ -907,30 +949,84 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
     return None
 
 
-def split_feishu_message(message: str, *, max_chunk_chars: int = 1500) -> list[str]:
+def split_feishu_message(
+    message: str,
+    *,
+    max_chunk_chars: int = 1500,
+    max_chunk_bytes: int | None = None,
+) -> list[str]:
+    """Split message into chunks that fit within Feishu API limits.
+
+    Args:
+        message: Message text to split
+        max_chunk_chars: Maximum characters per chunk (default: 1500)
+        max_chunk_bytes: Maximum bytes per chunk (default: None, use char limit only)
+                        When set, ensures JSON-encoded message fits within limit
+
+    Returns:
+        List of message chunks with [n/total] prefix for multi-chunk messages
+
+    Note:
+        When max_chunk_bytes is set, the function accounts for JSON encoding overhead
+        (escape sequences like \\n, unicode, etc.) to ensure the final request body
+        stays within Feishu's 30 KB card message limit.
+    """
     text = (message or "").strip()
     if not text:
         return []
-    if len(text) <= max_chunk_chars:
-        return [text]
+
+    # Determine effective limit (bytes-aware)
+    effective_limit = max_chunk_chars
+    if max_chunk_bytes is not None:
+        # Reserve ~30% space for JSON overhead when encoding
+        # JSON escapes: \n → \\n, unicode → \\uXXXX, quotes → \\"
+        estimated_overhead_factor = 1.3
+        byte_limit = int(max_chunk_bytes / estimated_overhead_factor)
+        # Use the smaller of char limit or byte-derived limit
+        # (UTF-8: 1 char ≈ 1-3 bytes for common text)
+        effective_limit = min(max_chunk_chars, byte_limit)
+
+    if len(text.encode('utf-8')) <= (max_chunk_bytes or float('inf')):
+        # Entire message fits within byte limit
+        if len(text) <= effective_limit:
+            return [text]
+        # Message fits in bytes but exceeds char limit - use char-based splitting
+
     chunks: list[str] = []
     remaining = text
     while remaining:
-        if len(remaining) <= max_chunk_chars:
+        current_limit = effective_limit
+        if max_chunk_bytes is not None:
+            # Adjust limit based on actual byte size of current segment
+            test_segment = remaining[:current_limit]
+            test_bytes = len(_json_encode_for_feishu(test_segment).encode('utf-8'))
+            # If exceeds byte limit, reduce character count
+            while test_bytes > max_chunk_bytes and current_limit > 50:
+                current_limit -= 50
+                test_segment = remaining[:current_limit]
+                test_bytes = len(_json_encode_for_feishu(test_segment).encode('utf-8'))
+
+        if len(remaining) <= current_limit:
             chunks.append(remaining)
             break
-        cut = remaining.rfind("\n", 0, max_chunk_chars)
+        cut = remaining.rfind("\n", 0, current_limit)
         if cut <= 0:
-            cut = remaining.rfind(" ", 0, max_chunk_chars)
+            cut = remaining.rfind(" ", 0, current_limit)
         if cut <= 0:
-            cut = max_chunk_chars
+            cut = current_limit
         chunks.append(remaining[:cut].rstrip())
         remaining = remaining[cut:].lstrip()
+
     total = len(chunks)
     if total <= 1:
         return chunks
     width = len(str(total))
     return [f"[{index + 1}/{total:0{width}d}]\n{chunk}" for index, chunk in enumerate(chunks)]
+
+
+def _json_encode_for_feishu(text: str) -> str:
+    """JSON encode text as Feishu API would receive it (for size estimation)."""
+    return json.dumps(text, ensure_ascii=False)
 
 
 def _perform_json_request(
@@ -1008,7 +1104,18 @@ def _perform_json_request(
             return None
         code = parsed.get("code", 0)
         if code not in {0, "0", None}:
-            _emit(on_error, f"{label} api error: code={code} msg={parsed.get('msg', '')}")
+            # Handle Feishu-specific error codes
+            code_str = str(code)
+            msg = parsed.get('msg', '')
+
+            if code_str == str(FEISHU_ERROR_CODE_MESSAGE_TOO_LONG):
+                # 230025: Message too long - caller should truncate and retry
+                _emit(on_error, f"{label} message too long (code={code}): {msg}")
+            elif code_str == str(FEISHU_ERROR_CODE_CARD_CONTENT_FAILED):
+                # 230099: Card content failed - may contain markdown syntax issues
+                _emit(on_error, f"{label} card content failed (code={code}): {msg}")
+            else:
+                _emit(on_error, f"{label} api error: code={code} msg={msg}")
             return None
         return parsed
 
