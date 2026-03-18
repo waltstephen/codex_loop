@@ -19,7 +19,7 @@ argusbot-setup = "codex_autoloop.setup_wizard:main"
 argusbot-models = "codex_autoloop.model_catalog:main"
 
 [tool.setuptools]
-packages = ["codex_autoloop"]
+packages = ["codex_autoloop", "codex_autoloop.core", "codex_autoloop.adapters", "codex_autoloop.apps"]
 
 [tool.setuptools.package-data]
 codex_autoloop = ["planner_schema.json", "reviewer_schema.json"]
