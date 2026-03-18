@@ -117,7 +117,7 @@ def test_build_codex_runner_skips_proxy_overrides_for_claude_backend() -> None:
     )
     runner = copilot_proxy.build_codex_runner(
         backend="claude",
-        codex_bin="claude",
+        runner_bin="claude",
         config=config,
     )
     assert runner.backend == "claude"

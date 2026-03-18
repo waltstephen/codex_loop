@@ -36,7 +36,7 @@ def test_build_child_command_includes_core_args() -> None:
         codex_autoloop_bin="argusbot-run",
         run_max_rounds=8,
         run_runner_backend="claude",
-        run_codex_bin="/opt/homebrew/bin/claude",
+        run_runner_bin="/opt/homebrew/bin/claude",
         run_model_preset="quality",
         run_main_model=None,
         run_main_reasoning_effort=None,

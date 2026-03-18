@@ -71,7 +71,7 @@ class TelegramDaemonApp:
         self.btw_agent = BtwAgent(
             runner=build_codex_runner(
                 backend=getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND),
-                codex_bin=getattr(args, "run_codex_bin", None),
+                runner_bin=getattr(args, "run_runner_bin", None),
                 config=run_copilot_proxy,
             ),
             config=BtwConfig(
@@ -640,9 +640,9 @@ def build_child_command(
     else:
         cmd.append("--no-copilot-proxy")
     cmd.extend(["--runner-backend", getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)])
-    run_codex_bin = str(getattr(args, "run_codex_bin", "") or "").strip()
-    if run_codex_bin:
-        cmd.extend(["--runner-bin", run_codex_bin])
+    run_runner_bin = str(getattr(args, "run_runner_bin", "") or "").strip()
+    if run_runner_bin:
+        cmd.extend(["--runner-bin", run_runner_bin])
     run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
     if run_copilot_proxy_dir:
         cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])

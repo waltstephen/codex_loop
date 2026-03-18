@@ -17,20 +17,41 @@ def extract_agent_message(stream: str, line: str) -> tuple[str, str] | None:
         return None
     if not isinstance(payload, dict):
         return None
-    if payload.get("type") != "item.completed":
+
+    # Codex format: item.completed with agent_message
+    if payload.get("type") == "item.completed":
+        item = payload.get("item", {})
+        if not isinstance(item, dict):
+            return None
+        if item.get("type") != "agent_message":
+            return None
+        text = item.get("text", "")
+        if not isinstance(text, str):
+            return None
+        message = text.strip()
+        if message:
+            return actor, message
         return None
-    item = payload.get("item", {})
-    if not isinstance(item, dict):
+
+    # Claude format: assistant message
+    if payload.get("type") == "assistant":
+        message_obj = payload.get("message", {})
+        if not isinstance(message_obj, dict):
+            return None
+        content = message_obj.get("content", [])
+        if not isinstance(content, list):
+            return None
+        parts: list[str] = []
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "text":
+                text = c.get("text", "")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+        if parts:
+            return actor, "\n".join(parts)
         return None
-    if item.get("type") != "agent_message":
-        return None
-    text = item.get("text", "")
-    if not isinstance(text, str):
-        return None
-    message = text.strip()
-    if not message:
-        return None
-    return actor, message
+
+    return None
 
 
 @dataclass

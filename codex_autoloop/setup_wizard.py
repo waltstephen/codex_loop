@@ -206,7 +206,7 @@ def main() -> None:
         "run_yolo": args.run_yolo,
         "run_resume_last_session": args.run_resume_last_session,
         "run_runner_backend": runner_backend,
-        "run_codex_bin": runner_bin,
+        "run_runner_bin": runner_bin,
         "run_main_reasoning_effort": main_reasoning_effort,
         "run_reviewer_reasoning_effort": reviewer_reasoning_effort,
         "run_main_model": main_model,

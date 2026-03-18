@@ -326,7 +326,7 @@ def main() -> None:
     btw_agent = BtwAgent(
         runner=build_codex_runner(
             backend=args.run_runner_backend,
-            codex_bin=args.run_codex_bin,
+            runner_bin=args.run_runner_bin,
             config=run_copilot_proxy,
         ),
         config=BtwConfig(
@@ -1349,9 +1349,9 @@ def build_child_command(
     else:
         cmd.append("--no-copilot-proxy")
     cmd.extend(["--runner-backend", getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)])
-    run_codex_bin = str(getattr(args, "run_codex_bin", "") or "").strip()
-    if run_codex_bin:
-        cmd.extend(["--runner-bin", run_codex_bin])
+    run_runner_bin = str(getattr(args, "run_runner_bin", "") or "").strip()
+    if run_runner_bin:
+        cmd.extend(["--runner-bin", run_runner_bin])
     run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
     if run_copilot_proxy_dir:
         cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])
@@ -1481,7 +1481,7 @@ def set_force_fresh_session_marker(state_file: str | None, *, enabled: bool, rea
     payload[FORCE_FRESH_SESSION_KEY] = bool(enabled)
     if enabled:
         payload["session_id"] = None
-        payload["force_fresh_updated_at"] = dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
+        payload["force_fresh_updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
         if reason:
             payload[FORCE_FRESH_REASON_KEY] = reason
     else:
@@ -2017,8 +2017,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-runner-bin",
-        "--run-codex-bin",
-        dest="run_codex_bin",
+        dest="run_runner_bin",
         default=None,
         help="CLI binary path for the selected child execution backend.",
     )

@@ -99,12 +99,14 @@ def test_is_config_usable_requires_token_and_run_cd() -> None:
 
 def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "telegram")
+    monkeypatch.setattr(codexloop, "prompt_runner_backend_choice", lambda default="codex": "codex")
     monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
     monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
     assert config["feishu_app_id"] is None
@@ -119,17 +121,19 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["run_full_auto"] is False
     assert config["run_copilot_proxy"] is False
     assert config["run_runner_backend"] == "codex"
-    assert config["run_codex_bin"]
+    assert config["run_runner_bin"]
 
 
 def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: Path) -> None:
-    answers = iter(["1", "cli_xxx", "oc_123", ""])
+    answers = iter(["cli_xxx", "oc_123", ""])
     monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "feishu")
+    monkeypatch.setattr(codexloop, "prompt_runner_backend_choice", lambda default="codex": "codex")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: next(answers))
     monkeypatch.setattr(codexloop, "prompt_secret", lambda prompt: "secret")
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["telegram_bot_token"] is None
     assert config["telegram_chat_id"] is None
@@ -147,12 +151,14 @@ def test_run_interactive_config_marks_copilot_preset_as_preferred(monkeypatch, t
         return False, None, 18080
 
     monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "telegram")
+    monkeypatch.setattr(codexloop, "prompt_runner_backend_choice", lambda default="codex": "codex")
     monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
     monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: "copilot")
     monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", fake_prompt_copilot_proxy_choice)
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
 
     codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
 
@@ -297,9 +303,9 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "run_plan_auto_execute_delay_seconds": 600,
         "follow_up_auto_execute_seconds": 900,
         "run_resume_last_session": True,
-        "run_model_preset": "quality",
+        "run_model_preset": "claude-sonnet",
         "run_runner_backend": "claude",
-        "run_codex_bin": "/opt/homebrew/bin/claude",
+        "run_runner_bin": "/opt/homebrew/bin/claude",
         "run_copilot_proxy": True,
         "run_copilot_proxy_dir": "/home/v-boxiuli/copilot-proxy",
         "run_copilot_proxy_port": 18080,

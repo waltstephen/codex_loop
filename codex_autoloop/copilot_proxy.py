@@ -213,20 +213,20 @@ def ensure_proxy_running(
 def build_codex_runner(
     *,
     backend: RunnerBackend,
-    codex_bin: str,
+    runner_bin: str | None,
     config: CopilotProxyConfig,
     event_callback=None,
 ) -> CodexRunner:
     if not backend_supports_copilot_proxy(backend):
         return CodexRunner(
-            codex_bin=codex_bin,
+            codex_bin=runner_bin,
             backend=backend,
             event_callback=event_callback,
         )
     if not config.enabled:
-        return CodexRunner(codex_bin=codex_bin, backend=backend, event_callback=event_callback)
+        return CodexRunner(codex_bin=runner_bin, backend=backend, event_callback=event_callback)
     return CodexRunner(
-        codex_bin=codex_bin,
+        codex_bin=runner_bin,
         backend=backend,
         event_callback=event_callback,
         default_extra_args=codex_config_overrides(config),
