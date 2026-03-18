@@ -26,6 +26,7 @@ Thanks for your interest in improving `ArgusBot`.
 - **Zikai Zhou**: Improved Telegram image reply performance ([Klayand](https://github.com/Klayand)).
 - **Lifeng Zhuo**: Added support for Qwen models ([zhuolifeng](https://github.com/zhuolifeng)).
 - **ReinerBRO**: Successfully enabled support for the ClaudeCode CIL backend ([ReinerBRO](https://github.com/ReinerBRO)).
+- **Mowenhao**: Claudecode adaptation and cil optimization ([Mowenhao13](https://github.com/Mowenhao13)).
 
 ## Acknowledgements
 
