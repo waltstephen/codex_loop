@@ -1,9 +1,9 @@
 
-# Feishu Setup Guide up to Entering the `chat_id` in `codexloop init`
+# Feishu Setup Guide up to Entering the `chat_id` in `argusbot init`
 
 This document focuses on one specific task only:
 
-starting from scratch, preparing all information required for a Feishu bot, and then running `codexloop init` in the current project until the `Feishu chat id` field is filled in.
+starting from scratch, preparing all information required for a Feishu bot, and then running `argusbot init` in the current project until the `Feishu chat id` field is filled in.
 
 It does **not** cover subsequent steps such as `/run`, `/inject`, message delivery validation, or troubleshooting.
 
@@ -15,14 +15,14 @@ Enter the current repository directory:
 cd ./ArgusBot
 ```
 
-Confirm that both codex and codexloop are available:
+Confirm that both codex/claude and argusbot are available:
 
 ```bash
-codex --help
-codexloop help
+codex --help # or claude: claude --help
+argusbot help
 ```
 
-If codexloop is not available in your PATH, install the current repository in editable mode first:
+If argusbot is not available in your PATH, install the current repository in editable mode first:
 
 ```bash
 pip install -e .
@@ -41,7 +41,7 @@ You will need the following two values later:
 - `App ID`
 - `App Secret`
 
-Please save them, as `codexloop init` will later prompt you for:
+Please save them, as `argusbot init` will later prompt you for:
 
 - `Feishu app id`
 - `Feishu app secret`
@@ -98,7 +98,7 @@ A typical chat_id looks like:
 oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-## 5. Run `codexloop init` in the Current Project
+## 5. Run `argusbot init` in the Current Project
 
 Make sure you are inside the target project directory:
 
@@ -109,7 +109,7 @@ cd ./ArgusBot
 Then run:
 
 ```bash
-codexloop init
+argusbot init
 ```
 
 During initialization, you will see prompts similar to the following:
@@ -142,7 +142,7 @@ At this point, this document ends.
 
 ## 6. Where the Configuration Will Be Written
 
-After `codexloop init` completes, the configuration will be written to:
+After `argusbot init` completes, the configuration will be written to:
 
 ```text
 .codex_daemon/daemon_config.json
@@ -160,11 +160,11 @@ The Feishu-related fields are:
 
 ## 7. Minimal Checklist
 
-Before running `codexloop init`, you only need to confirm the following four items:
+Before running `argusbot init`, you only need to confirm the following four items:
 
 - a Feishu custom app has been created
 - the `App ID` has been obtained
 - the `App Secret` has been obtained
 - the target group `chat_id` has been obtained
 
-Once these four values are ready, you can start `codexloop init` and enter the `Feishu chat id`.
+Once these four values are ready, you can start `argusbot init` and enter the `Feishu chat id`.

@@ -1,9 +1,9 @@
 
-# Feishu 配置到 `codexloop init` 输入 `chat id` 为止
+# Feishu 配置到 `argusbot init` 输入 `chat id` 为止
 
 这份文档只覆盖一件事：
 
-从 0 开始准备飞书机器人所需信息，然后在当前项目里执行 `codexloop init`，并把 `Feishu chat id` 填进去为止。
+从 0 开始准备飞书机器人所需信息，然后在当前项目里执行 `argusbot init`，并把 `Feishu chat id` 填进去为止。
 
 不展开后续 `/run`、`/inject`、消息收发验证和故障排查。
 
@@ -15,14 +15,14 @@
 cd ./ArgusBot
 ```
 
-确认 `codex` 和 `codexloop` 可用：
+确认 `codex`/`claude` 和 `argusbot` 可用：
 
 ```bash
-codex --help
-codexloop help
+codex --help # 检查claude: claude --help
+argusbot help
 ```
 
-如果 `codexloop` 不在 PATH，先在当前仓库安装：
+如果 `argusbot` 不在 PATH，先在当前仓库安装：
 
 ```bash
 pip install -e .
@@ -41,7 +41,7 @@ pip install -e .
 - `App ID`
 - `App Secret`
 
-把它们记下来，后面 `codexloop init` 会要求输入：
+把它们记下来，后面 `argusbot init` 会要求输入：
 
 - `Feishu app id`
 - `Feishu app secret`
@@ -100,7 +100,7 @@ pip install -e .
 oc_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-## 5. 在当前项目里执行 `codexloop init`
+## 5. 在当前项目里执行 `argusbot init`
 
 确认你当前就在目标项目目录下：
 
@@ -111,7 +111,7 @@ cd ./ArgusBot
 然后执行：
 
 ```bash
-codexloop init
+argusbot init
 ```
 
 初始化过程中会出现类似下面这些问题：
@@ -144,7 +144,7 @@ Feishu chat id:
 
 ## 6. 你填完以后，配置会写到哪里
 
-`codexloop init` 会把配置写到当前项目下的：
+`argusbot init` 会把配置写到当前项目下的：
 
 ```text
 .codex_daemon/daemon_config.json
@@ -162,11 +162,11 @@ Feishu chat id:
 
 ## 7. 一个最短检查清单
 
-在执行 `codexloop init` 之前，你只需要确认这 4 件事：
+在执行 `argusbot init` 之前，你只需要确认这 4 件事：
 
 - 已创建飞书自建应用
 - 已拿到 `App ID`
 - 已拿到 `App Secret`
 - 已拿到目标群的 `chat_id`
 
-如果这 4 个值齐了，就可以开始 `codexloop init` 并把 `Feishu chat id` 填进去。
+如果这 4 个值齐了，就可以开始 `argusbot init` 并把 `Feishu chat id` 填进去。
