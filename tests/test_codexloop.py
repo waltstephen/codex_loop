@@ -303,7 +303,7 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "run_plan_auto_execute_delay_seconds": 600,
         "follow_up_auto_execute_seconds": 900,
         "run_resume_last_session": True,
-        "run_model_preset": "quality",
+        "run_model_preset": "claude-sonnet",
         "run_runner_backend": "claude",
         "run_runner_bin": "/opt/homebrew/bin/claude",
         "run_copilot_proxy": True,
