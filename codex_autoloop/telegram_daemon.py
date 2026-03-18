@@ -326,7 +326,7 @@ def main() -> None:
     btw_agent = BtwAgent(
         runner=build_codex_runner(
             backend=args.run_runner_backend,
-            codex_bin=args.run_codex_bin,
+            runner_bin=args.run_runner_bin,
             config=run_copilot_proxy,
         ),
         config=BtwConfig(
@@ -1349,9 +1349,9 @@ def build_child_command(
     else:
         cmd.append("--no-copilot-proxy")
     cmd.extend(["--runner-backend", getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)])
-    run_codex_bin = str(getattr(args, "run_codex_bin", "") or "").strip()
-    if run_codex_bin:
-        cmd.extend(["--runner-bin", run_codex_bin])
+    run_runner_bin = str(getattr(args, "run_runner_bin", "") or "").strip()
+    if run_runner_bin:
+        cmd.extend(["--runner-bin", run_runner_bin])
     run_copilot_proxy_dir = str(getattr(args, "run_copilot_proxy_dir", "") or "").strip()
     if run_copilot_proxy_dir:
         cmd.extend(["--copilot-proxy-dir", run_copilot_proxy_dir])
@@ -2017,8 +2017,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-runner-bin",
-        "--run-codex-bin",
-        dest="run_codex_bin",
+        dest="run_runner_bin",
         default=None,
         help="CLI binary path for the selected child execution backend.",
     )

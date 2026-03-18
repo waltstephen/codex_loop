@@ -376,7 +376,7 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_plan_record_file": None,
         "run_resume_last_session": True,
         "run_runner_backend": runner_backend,
-        "run_codex_bin": runner_bin,
+        "run_runner_bin": runner_bin,
         "run_main_reasoning_effort": None,
         "run_reviewer_reasoning_effort": None,
         "run_main_model": None,
@@ -795,9 +795,9 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         cmd.extend(["--run-model-preset", run_model_preset])
     run_runner_backend = str(config.get("run_runner_backend") or DEFAULT_RUNNER_BACKEND).strip() or DEFAULT_RUNNER_BACKEND
     cmd.extend(["--run-runner-backend", run_runner_backend])
-    run_codex_bin = str(config.get("run_codex_bin") or "").strip()
-    if run_codex_bin:
-        cmd.extend(["--run-runner-bin", run_codex_bin])
+    run_runner_bin = str(config.get("run_runner_bin") or "").strip()
+    if run_runner_bin:
+        cmd.extend(["--run-runner-bin", run_runner_bin])
     if bool(config.get("run_copilot_proxy")):
         cmd.append("--run-copilot-proxy")
     else:
