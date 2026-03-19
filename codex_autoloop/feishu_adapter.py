@@ -364,16 +364,22 @@ class FeishuNotifier:
         if event_type not in self.config.events:
             return
 
-        # Try to format as interactive card first
+        # Always use interactive card format for all events
         card_result = format_feishu_event_card(event)
         if card_result:
+            # Use formatted card for known event types
             title, content, template = card_result
             self.send_card_message(title=title, content=content, template=template)
         else:
-            # Fallback to text-based message for events that don't support cards
+            # For unknown event types, still send as card (not raw text)
+            # Extract message content and wrap in card format
             message = format_feishu_event_message(event)
             if message:
-                self.send_message(message)
+                self.send_card_message(
+                    title="ArgusBot 通知",
+                    content=message,
+                    template="blue"
+                )
 
     def send_message(self, message: str) -> bool:
         """Send a text message using interactive card format with markdown element.
