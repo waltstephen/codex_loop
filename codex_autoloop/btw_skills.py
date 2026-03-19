@@ -39,7 +39,10 @@ def resolve_btw_skill_result(*, working_dir: str, question: str, max_attachments
     lowered = normalized.lower()
     explicit_names = _extract_explicit_file_names(normalized)
     image_request = any(keyword in lowered for keyword in config.image_request_keywords) or "图" in normalized
-    file_request = image_request or explicit_names or any(keyword in lowered for keyword in config.file_request_keywords)
+    file_request = image_request or bool(explicit_names) or (
+        any(keyword in lowered for keyword in config.file_request_keywords)
+        and _has_file_intent_context(normalized)
+    )
     if not file_request:
         return BtwSkillResult(is_file_request=False, attachments=[], summary_lines=[])
 
@@ -169,7 +172,7 @@ def _score_candidate(
         if path.suffix.lower() in config.textual_file_extensions:
             score += 20
             reasons.append("document/code extension")
-        if name_lower in {"readme.md", "readme.txt"}:
+        if name_lower in {"readme.md", "readme.txt"} and any("readme" in n for n in explicit_names):
             score += 50
             reasons.append("README priority")
 
@@ -188,6 +191,29 @@ def _iter_files(root: Path, *, skip_dir_names: set[str]):
         current_path = Path(current_root)
         for name in filenames:
             yield current_path / name
+
+
+def _has_file_intent_context(question: str) -> bool:
+    """Return True when the question looks like a file request, not a general question that happens to contain a keyword."""
+    lowered = question.lower()
+    # Short queries with a file keyword are likely file requests
+    if len(question.split()) <= 4:
+        return True
+    # Patterns that strongly suggest "give me a file"
+    intent_patterns = [
+        r"发我\s*\S+",
+        r"给我\s*\S+",
+        r"send\s+(me\s+)?the\s+",
+        r"send\s+(me\s+)?\S+\.\S+",
+        r"上传\s*\S+",
+        r"把\s*\S+.*发",
+        r"file\s+for\b",
+        r"files?\s+named\b",
+    ]
+    for pat in intent_patterns:
+        if re.search(pat, lowered):
+            return True
+    return False
 
 
 def _extract_explicit_file_names(question: str) -> list[str]:
