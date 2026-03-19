@@ -14,18 +14,22 @@
     },
     "reason": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 5000
     },
     "next_action": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 1500
     },
     "round_summary_markdown": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 6000
     },
     "completion_summary_markdown": {
-      "type": "string"
+      "type": "string",
+      "maxLength": 5000
     }
   },
   "required": [

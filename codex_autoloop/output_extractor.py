@@ -320,28 +320,45 @@ def format_reviewer_markdown(output: ReviewerOutput) -> str:
     lines.append(f"**置信度**: {output.confidence:.0%}")
     lines.append("")
 
-    # 评审原因
+    # 评审原因 (截断保护 - 单字段最大 3000 字符)
     if output.reason:
         lines.append("**评审原因**")
-        lines.append(output.reason)
+        reason = output.reason
+        if len(reason) > 3000:
+            reason = reason[:3000] + "...(truncated)"
+        # 移除代码块，替换为简洁描述
+        reason = _remove_code_blocks(reason)
+        lines.append(reason)
         lines.append("")
 
-    # 本轮总结
+    # 本轮总结 (截断保护 - 单字段最大 5000 字符)
     if output.round_summary:
         lines.append("**本轮总结**")
-        lines.append(output.round_summary)
+        summary = output.round_summary
+        if len(summary) > 5000:
+            summary = summary[:5000] + "...(truncated)"
+        # 移除代码块，保持简洁
+        summary = _remove_code_blocks(summary)
+        lines.append(summary)
         lines.append("")
 
-    # 完成总结
+    # 完成总结 (截断保护 - 单字段最大 4000 字符)
     if output.completion_summary:
         lines.append("**完成证据**")
-        lines.append(output.completion_summary)
+        completion = output.completion_summary
+        if len(completion) > 4000:
+            completion = completion[:4000] + "...(truncated)"
+        completion = _remove_code_blocks(completion)
+        lines.append(completion)
         lines.append("")
 
-    # 下一步行动
+    # 下一步行动 (截断保护 - 单字段最大 1000 字符)
     if output.next_action:
+        action = output.next_action
+        if len(action) > 1000:
+            action = action[:1000] + "...(truncated)"
         lines.append("**下一步行动**")
-        lines.append(output.next_action)
+        lines.append(action)
 
     return "\n".join(lines)
 
@@ -361,13 +378,17 @@ def format_planner_markdown(output: PlannerOutput) -> str:
     lines.append("## 📋 Planner 规划报告")
     lines.append("")
 
-    # 经理总结
+    # 经理总结 (截断保护 - 单字段最大 2000 字符)
     if output.summary:
         lines.append("**经理总结**")
-        lines.append(output.summary)
+        summary = output.summary
+        if len(summary) > 2000:
+            summary = summary[:2000] + "...(truncated)"
+        summary = _remove_code_blocks(summary)
+        lines.append(summary)
         lines.append("")
 
-    # 工作流表格
+    # 工作流表格 (简化证据和下一步显示)
     if output.workstreams:
         lines.append("**工作流状态**")
         lines.append("")
@@ -383,6 +404,23 @@ def format_planner_markdown(output: PlannerOutput) -> str:
                 "blocked": "🚫 阻塞",
             }.get(status, status)
             lines.append(f"| {area} | {status_label} |")
+        lines.append("")
+
+        # 详细工作流信息 (带截断 - evidence 最大 1000 字符，next_step 最大 500 字符)
+        lines.append("**工作流详情**")
+        for ws in output.workstreams:
+            area = ws.get("area", "未知")
+            evidence = ws.get("evidence", "")
+            next_step = ws.get("next_step", "")
+            if evidence:
+                if len(evidence) > 1000:
+                    evidence = evidence[:1000] + "...(truncated)"
+                evidence = _remove_code_blocks(evidence)
+                lines.append(f"- **{area}**: {evidence}")
+            if next_step:
+                if len(next_step) > 500:
+                    next_step = next_step[:500] + "...(truncated)"
+                lines.append(f"  - 下一步：{next_step}")
         lines.append("")
 
     # 完成项
@@ -421,6 +459,22 @@ def format_planner_markdown(output: PlannerOutput) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _remove_code_blocks(text: str) -> str:
+    """移除文本中的代码块，替换为简洁描述。
+
+    Args:
+        text: 可能包含代码块的文本
+
+    Returns:
+        移除代码块后的文本
+    """
+    # 移除 ```xxx ... ``` 代码块
+    result = re.sub(r'```\w*\n[\s\S]*?```', '[code block removed]', text)
+    # 移除单行代码引用
+    result = re.sub(r'`[^`]+`', '[code]', result)
+    return result
 
 
 def extract_and_format_reviewer(json_text: str) -> str:
