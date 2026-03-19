@@ -1006,7 +1006,7 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         raw_output = event.get("raw_output", "")
         if raw_output:
             formatted = extract_and_format_reviewer(raw_output)
-            return ("🔍 Reviewer 评审报告", formatted, FEISHU_COLOR_BLUE)
+            return ("🔍 Reviewer 评审报告", formatted, FEISHU_COLOR_YELLOW)
         return None
 
     if event_type == "planner.output":
@@ -1014,7 +1014,7 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         raw_output = event.get("raw_output", "")
         if raw_output:
             formatted = extract_and_format_planner(raw_output)
-            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_PURPLE)
+            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_YELLOW)
         return None
 
     if event_type == "plan.completed":
@@ -1022,10 +1022,10 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         raw_output = event.get("raw_output", "")
         if raw_output:
             formatted = extract_and_format_planner(raw_output)
-            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_PURPLE)
+            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_YELLOW)
         # 如果没有 raw_output，使用传统格式
         summary = str(event.get("main_instruction", ""))[:400]
-        return ("📋 Planner 更新", summary, FEISHU_COLOR_PURPLE)
+        return ("📋 Planner 更新", summary, FEISHU_COLOR_YELLOW)
 
     if event_type == "loop.completed":
         rounds = event.get("rounds", [])
