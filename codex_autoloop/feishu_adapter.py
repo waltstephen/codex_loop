@@ -35,6 +35,13 @@ __all__ = [
     'FEISHU_TEXT_MAX_BYTES',
     'FEISHU_ERROR_CODE_MESSAGE_TOO_LONG',
     'FEISHU_ERROR_CODE_CARD_CONTENT_FAILED',
+    'FEISHU_COLOR_GREEN',
+    'FEISHU_COLOR_BLUE',
+    'FEISHU_COLOR_YELLOW',
+    'FEISHU_COLOR_RED',
+    'FEISHU_COLOR_ORANGE',
+    'FEISHU_COLOR_PURPLE',
+    'FEISHU_COLOR_GRAY',
     # Utilities
     'split_feishu_message',
     'markdown_to_feishu_post',
@@ -60,6 +67,15 @@ FEISHU_CARD_MAX_BYTES = 30 * 1024  # 30 KB
 FEISHU_TEXT_MAX_BYTES = 150 * 1024  # 150 KB
 FEISHU_ERROR_CODE_MESSAGE_TOO_LONG = 230025
 FEISHU_ERROR_CODE_CARD_CONTENT_FAILED = 230099
+
+# 飞书卡片颜色模板 (用于不同事件状态)
+FEISHU_COLOR_GREEN = "green"    # 成功/完成
+FEISHU_COLOR_BLUE = "blue"      # 进行中/信息
+FEISHU_COLOR_YELLOW = "yellow"  # 警告/继续
+FEISHU_COLOR_RED = "red"        # 失败/受阻
+FEISHU_COLOR_ORANGE = "orange"  # 已停止
+FEISHU_COLOR_PURPLE = "purple"  # 规划相关
+FEISHU_COLOR_GRAY = "gray"      # 中性/默认
 
 
 def markdown_to_feishu_post(text: str, title: str = "ArgusBot Update") -> dict[str, Any]:
@@ -877,7 +893,7 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         return (
             "任务启动",
             f"**目标:** {objective}\n\nArgusBot 已开始执行任务...",
-            "blue"
+            FEISHU_COLOR_BLUE
         )
 
     if event_type == "round.review.completed":
@@ -887,11 +903,11 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         round_num = event.get("round", 1)
 
         status_map = {
-            "done": ("审核通过", "green"),
-            "continue": ("继续执行", "yellow"),
-            "blocked": ("执行受阻", "red"),
+            "done": ("审核通过", FEISHU_COLOR_GREEN),
+            "continue": ("继续执行", FEISHU_COLOR_YELLOW),
+            "blocked": ("执行受阻", FEISHU_COLOR_RED),
         }
-        title, color = status_map.get(status, ("审核状态", "blue"))
+        title, color = status_map.get(status, ("审核状态", FEISHU_COLOR_BLUE))
 
         content = f"**第 {round_num} 轮审核**\n\n"
         content += f"**状态:** {status}\n"
@@ -905,7 +921,7 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         raw_output = event.get("raw_output", "")
         if raw_output:
             formatted = extract_and_format_reviewer(raw_output)
-            return ("🔍 Reviewer 评审报告", formatted, "blue")
+            return ("🔍 Reviewer 评审报告", formatted, FEISHU_COLOR_BLUE)
         return None
 
     if event_type == "planner.output":
@@ -913,7 +929,7 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         raw_output = event.get("raw_output", "")
         if raw_output:
             formatted = extract_and_format_planner(raw_output)
-            return ("📋 Planner 规划报告", formatted, "purple")
+            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_PURPLE)
         return None
 
     if event_type == "plan.completed":
@@ -921,23 +937,47 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         raw_output = event.get("raw_output", "")
         if raw_output:
             formatted = extract_and_format_planner(raw_output)
-            return ("📋 Planner 规划报告", formatted, "purple")
+            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_PURPLE)
         # 如果没有 raw_output，使用传统格式
         summary = str(event.get("main_instruction", ""))[:400]
-        return ("📋 Planner 更新", summary, "purple")
+        return ("📋 Planner 更新", summary, FEISHU_COLOR_PURPLE)
 
     if event_type == "loop.completed":
         rounds = event.get("rounds", [])
         total_rounds = len(rounds)
         exit_code = event.get("exit_code", 0)
         objective = event.get("objective", "任务")
+        stop_reason = event.get("stop_reason", "")
 
-        content = f"**任务完成**\n\n"
+        # 根据结束原因选择不同颜色
+        # - FEISHU_COLOR_GREEN: 成功完成 (exit_code=0 且通过检查)
+        # - FEISHU_COLOR_RED: 失败/受阻
+        # - FEISHU_COLOR_YELLOW: 达到最大轮次
+        # - FEISHU_COLOR_ORANGE: 被用户停止
+        color = FEISHU_COLOR_GREEN
+        status_text = "成功"
+
+        if exit_code != 0:
+            color = FEISHU_COLOR_RED
+            status_text = "失败"
+        elif "blocked" in str(stop_reason).lower():
+            color = FEISHU_COLOR_RED
+            status_text = "受阻"
+        elif "max rounds" in str(stop_reason).lower():
+            color = FEISHU_COLOR_YELLOW
+            status_text = "达到最大轮次"
+        elif "stopped" in str(stop_reason).lower() or "operator" in str(stop_reason).lower():
+            color = FEISHU_COLOR_ORANGE
+            status_text = "已停止"
+
+        content = f"**任务{status_text}**\n\n"
         content += f"**目标:** {objective}\n"
         content += f"**总轮数:** {total_rounds}\n"
-        content += f"**状态:** {'成功' if exit_code == 0 else '失败'}"
+        content += f"**状态码:** {exit_code}\n"
+        if stop_reason:
+            content += f"**原因:** {stop_reason[:200]}"
 
-        return "任务完成", content, "green"
+        return "任务完成", content, color
 
     return None
 

@@ -54,6 +54,10 @@ class RunnerOptions:
     watchdog_hard_idle_seconds: int | None = None
     inactivity_callback: InactivityCallback | None = None
     external_interrupt_reason_provider: ExternalInterruptProvider | None = None
+    add_dirs: list[str] | None = None
+    plugin_dirs: list[str] | None = None
+    file_specs: list[str] | None = None
+    worktree_name: str | None = None
 
 
 class CodexRunner:
@@ -323,6 +327,26 @@ class CodexRunner:
             command.extend(["--permission-mode", "acceptEdits"])
         if options.output_schema_path and not resume_thread_id:
             command.extend(["--json-schema", self._load_compact_schema_text(options.output_schema_path)])
+
+        # --add-dir
+        if options.add_dirs:
+            for dir_path in options.add_dirs:
+                command.extend(["--add-dir", dir_path])
+
+        # --plugin-dir
+        if options.plugin_dirs:
+            for dir_path in options.plugin_dirs:
+                command.extend(["--plugin-dir", dir_path])
+
+        # --file
+        if options.file_specs:
+            for file_spec in options.file_specs:
+                command.extend(["--file", file_spec])
+
+        # --worktree
+        if options.worktree_name:
+            command.extend(["--worktree", options.worktree_name])
+
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)

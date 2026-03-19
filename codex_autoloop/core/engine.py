@@ -38,6 +38,10 @@ class LoopConfig:
     plan_model: str | None = None
     plan_reasoning_effort: str | None = None
     plan_extra_args: list[str] | None = None
+    main_add_dirs: list[str] | None = None
+    main_plugin_dirs: list[str] | None = None
+    main_file_specs: list[str] | None = None
+    main_worktree_name: str | None = None
 
 
 @dataclass
@@ -127,6 +131,10 @@ class LoopEngine:
                     watchdog_hard_idle_seconds=self.config.stall_hard_idle_seconds,
                     inactivity_callback=inactivity_callback,
                     external_interrupt_reason_provider=self.state_store.consume_interrupt_reason,
+                    add_dirs=self.config.main_add_dirs,
+                    plugin_dirs=self.config.main_plugin_dirs,
+                    file_specs=self.config.main_file_specs,
+                    worktree_name=self.config.main_worktree_name,
                 ),
                 run_label="main",
             )
