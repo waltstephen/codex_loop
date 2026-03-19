@@ -294,11 +294,12 @@ def _extract_planner_fields_regex(json_text: str) -> PlannerOutput | None:
     )
 
 
-def format_reviewer_markdown(output: ReviewerOutput) -> str:
+def format_reviewer_markdown(output: ReviewerOutput, *, enable_length_protection: bool = True) -> str:
     """将 Reviewer 输出格式化为多层级 Markdown。
 
     Args:
         output: ReviewerOutput 对象
+        enable_length_protection: 是否启用长度保护 (截断 + 移除代码块)
 
     Returns:
         格式化的 Markdown 文本
@@ -320,54 +321,59 @@ def format_reviewer_markdown(output: ReviewerOutput) -> str:
     lines.append(f"**置信度**: {output.confidence:.0%}")
     lines.append("")
 
-    # 评审原因 (截断保护 - 单字段最大 3000 字符)
+    # 评审原因
     if output.reason:
         lines.append("**评审原因**")
         reason = output.reason
-        if len(reason) > 3000:
-            reason = reason[:3000] + "...(truncated)"
-        # 移除代码块，替换为简洁描述
-        reason = _remove_code_blocks(reason)
+        if enable_length_protection:
+            if len(reason) > 3000:
+                reason = reason[:3000] + "...(truncated)"
+            # 移除代码块，替换为简洁描述
+            reason = _remove_code_blocks(reason)
         lines.append(reason)
         lines.append("")
 
-    # 本轮总结 (截断保护 - 单字段最大 5000 字符)
+    # 本轮总结
     if output.round_summary:
         lines.append("**本轮总结**")
         summary = output.round_summary
-        if len(summary) > 5000:
-            summary = summary[:5000] + "...(truncated)"
-        # 移除代码块，保持简洁
-        summary = _remove_code_blocks(summary)
+        if enable_length_protection:
+            if len(summary) > 5000:
+                summary = summary[:5000] + "...(truncated)"
+            # 移除代码块，保持简洁
+            summary = _remove_code_blocks(summary)
         lines.append(summary)
         lines.append("")
 
-    # 完成总结 (截断保护 - 单字段最大 4000 字符)
+    # 完成总结
     if output.completion_summary:
         lines.append("**完成证据**")
         completion = output.completion_summary
-        if len(completion) > 4000:
-            completion = completion[:4000] + "...(truncated)"
-        completion = _remove_code_blocks(completion)
+        if enable_length_protection:
+            if len(completion) > 4000:
+                completion = completion[:4000] + "...(truncated)"
+            completion = _remove_code_blocks(completion)
         lines.append(completion)
         lines.append("")
 
-    # 下一步行动 (截断保护 - 单字段最大 1000 字符)
+    # 下一步行动
     if output.next_action:
         action = output.next_action
-        if len(action) > 1000:
-            action = action[:1000] + "...(truncated)"
+        if enable_length_protection:
+            if len(action) > 1000:
+                action = action[:1000] + "...(truncated)"
         lines.append("**下一步行动**")
         lines.append(action)
 
     return "\n".join(lines)
 
 
-def format_planner_markdown(output: PlannerOutput) -> str:
+def format_planner_markdown(output: PlannerOutput, *, enable_length_protection: bool = True) -> str:
     """将 Planner 输出格式化为多层级 Markdown。
 
     Args:
         output: PlannerOutput 对象
+        enable_length_protection: 是否启用长度保护 (截断 + 移除代码块)
 
     Returns:
         格式化的 Markdown 文本
@@ -378,17 +384,18 @@ def format_planner_markdown(output: PlannerOutput) -> str:
     lines.append("## 📋 Planner 规划报告")
     lines.append("")
 
-    # 经理总结 (截断保护 - 单字段最大 2000 字符)
+    # 经理总结
     if output.summary:
         lines.append("**经理总结**")
         summary = output.summary
-        if len(summary) > 2000:
-            summary = summary[:2000] + "...(truncated)"
-        summary = _remove_code_blocks(summary)
+        if enable_length_protection:
+            if len(summary) > 2000:
+                summary = summary[:2000] + "...(truncated)"
+            summary = _remove_code_blocks(summary)
         lines.append(summary)
         lines.append("")
 
-    # 工作流表格 (简化证据和下一步显示)
+    # 工作流表格
     if output.workstreams:
         lines.append("**工作流状态**")
         lines.append("")
@@ -406,20 +413,22 @@ def format_planner_markdown(output: PlannerOutput) -> str:
             lines.append(f"| {area} | {status_label} |")
         lines.append("")
 
-        # 详细工作流信息 (带截断 - evidence 最大 1000 字符，next_step 最大 500 字符)
+        # 详细工作流信息
         lines.append("**工作流详情**")
         for ws in output.workstreams:
             area = ws.get("area", "未知")
             evidence = ws.get("evidence", "")
             next_step = ws.get("next_step", "")
             if evidence:
-                if len(evidence) > 1000:
-                    evidence = evidence[:1000] + "...(truncated)"
-                evidence = _remove_code_blocks(evidence)
+                if enable_length_protection:
+                    if len(evidence) > 1000:
+                        evidence = evidence[:1000] + "...(truncated)"
+                    evidence = _remove_code_blocks(evidence)
                 lines.append(f"- **{area}**: {evidence}")
             if next_step:
-                if len(next_step) > 500:
-                    next_step = next_step[:500] + "...(truncated)"
+                if enable_length_protection:
+                    if len(next_step) > 500:
+                        next_step = next_step[:500] + "...(truncated)"
                 lines.append(f"  - 下一步：{next_step}")
         lines.append("")
 
@@ -477,33 +486,35 @@ def _remove_code_blocks(text: str) -> str:
     return result
 
 
-def extract_and_format_reviewer(json_text: str) -> str:
+def extract_and_format_reviewer(json_text: str, *, enable_length_protection: bool = True) -> str:
     """提取并格式化 Reviewer 输出。
 
     Args:
         json_text: Reviewer JSON 输出
+        enable_length_protection: 是否启用长度保护
 
     Returns:
         格式化的 Markdown 文本，如果解析失败则返回原始文本
     """
     output = extract_reviewer_output(json_text)
     if output:
-        return format_reviewer_markdown(output)
+        return format_reviewer_markdown(output, enable_length_protection=enable_length_protection)
     return json_text
 
 
-def extract_and_format_planner(json_text: str) -> str:
+def extract_and_format_planner(json_text: str, *, enable_length_protection: bool = True) -> str:
     """提取并格式化 Planner 输出。
 
     Args:
         json_text: Planner JSON 输出
+        enable_length_protection: 是否启用长度保护
 
     Returns:
         格式化的 Markdown 文本，如果解析失败则返回原始文本
     """
     output = extract_planner_output(json_text)
     if output:
-        return format_planner_markdown(output)
+        return format_planner_markdown(output, enable_length_protection=enable_length_protection)
     return json_text
 
 

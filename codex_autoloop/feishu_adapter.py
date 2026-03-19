@@ -42,6 +42,7 @@ __all__ = [
     'FEISHU_COLOR_ORANGE',
     'FEISHU_COLOR_PURPLE',
     'FEISHU_COLOR_GRAY',
+    'FEISHU_OUTPUT_LENGTH_PROTECTION',
     # Utilities
     'split_feishu_message',
     'markdown_to_feishu_post',
@@ -52,6 +53,8 @@ __all__ = [
     'parse_feishu_command_text',
     'is_feishu_self_message',
     'extract_feishu_text',
+    'format_reviewer_json_to_markdown',
+    'format_planner_json_to_markdown',
 ]
 
 _FEISHU_MENTION_PREFIX = re.compile(r"^(?:@[_\w-]+\s+)+")
@@ -76,6 +79,245 @@ FEISHU_COLOR_RED = "red"        # 失败/受阻
 FEISHU_COLOR_ORANGE = "orange"  # 已停止
 FEISHU_COLOR_PURPLE = "purple"  # 规划相关
 FEISHU_COLOR_GRAY = "gray"      # 中性/默认
+
+# 输出长度保护开关 - 测试时可设为 False
+# 当设置为 True 时，会对 reviewer/planner 输出进行截断保护
+# 当设置为 False 时，会输出完整内容 (可能导致飞书 API 报错)
+FEISHU_OUTPUT_LENGTH_PROTECTION = True
+
+
+def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection: bool = True) -> str:
+    """将 Reviewer JSON 输出转换为分层 Markdown 格式（飞书卡片专用）。
+
+    与 output_extractor 中的版本不同，此函数专为飞书卡片优化：
+    - 更紧凑的格式
+    - 适合卡片阅读的层级结构
+    - 可选的长度保护
+
+    Args:
+        raw_json: Reviewer JSON 输出
+        enable_length_protection: 是否启用长度保护
+
+    Returns:
+        格式化的 Markdown 文本
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return raw_json
+
+    if not isinstance(data, dict):
+        return raw_json
+
+    lines: list[str] = []
+
+    # 标题：状态
+    status = data.get("status", "unknown")
+    status_icons = {
+        "done": "✅",
+        "continue": "🔄",
+        "blocked": "🚫",
+    }
+    icon = status_icons.get(status, "❓")
+    lines.append(f"## {icon} Reviewer 评审")
+    lines.append("")
+
+    # 核心状态行
+    confidence = data.get("confidence", 0)
+    lines.append(f"**状态**: `{status}` | **置信度**: {confidence:.0%}")
+    lines.append("")
+
+    # 评审原因 (优先级最高)
+    reason = data.get("reason", "")
+    if reason:
+        if enable_length_protection:
+            if len(reason) > 2000:
+                reason = reason[:2000] + "...(truncated)"
+            reason = _remove_code_blocks(reason)
+        lines.append("### 评审原因")
+        lines.append(reason)
+        lines.append("")
+
+    # 本轮总结
+    round_summary = data.get("round_summary_markdown", "") or data.get("round_summary", "")
+    if round_summary:
+        if enable_length_protection:
+            if len(round_summary) > 3000:
+                round_summary = round_summary[:3000] + "...(truncated)"
+            round_summary = _remove_code_blocks(round_summary)
+        lines.append("### 本轮总结")
+        lines.append(round_summary)
+        lines.append("")
+
+    # 完成证据
+    completion = data.get("completion_summary_markdown", "") or data.get("completion_summary", "")
+    if completion:
+        if enable_length_protection:
+            if len(completion) > 2500:
+                completion = completion[:2500] + "...(truncated)"
+            completion = _remove_code_blocks(completion)
+        lines.append("### 完成证据")
+        lines.append(completion)
+        lines.append("")
+
+    # 下一步行动
+    next_action = data.get("next_action", "")
+    if next_action:
+        if enable_length_protection:
+            if len(next_action) > 800:
+                next_action = next_action[:800] + "...(truncated)"
+        lines.append("### 下一步行动")
+        lines.append(next_action)
+
+    return "\n".join(lines)
+
+
+def format_planner_json_to_markdown(raw_json: str, *, enable_length_protection: bool = True) -> str:
+    """将 Planner JSON 输出转换为分层 Markdown 格式（飞书卡片专用）。
+
+    与 output_extractor 中的版本不同，此函数专为飞书卡片优化：
+    - 表格展示工作流状态
+    - 紧凑的摘要格式
+    - 可选的长度保护
+
+    Args:
+        raw_json: Planner JSON 输出
+        enable_length_protection: 是否启用长度保护
+
+    Returns:
+        格式化的 Markdown 文本
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return raw_json
+
+    if not isinstance(data, dict):
+        return raw_json
+
+    lines: list[str] = []
+
+    # 标题
+    lines.append("## 📋 Planner 规划")
+    lines.append("")
+
+    # 经理总结
+    summary = data.get("summary", "")
+    if summary:
+        if enable_length_protection:
+            if len(summary) > 1500:
+                summary = summary[:1500] + "...(truncated)"
+            summary = _remove_code_blocks(summary)
+        lines.append("**经理总结**")
+        lines.append(summary)
+        lines.append("")
+
+    # 工作流状态表格
+    workstreams = data.get("workstreams", [])
+    if workstreams:
+        lines.append("**工作流状态**")
+        lines.append("")
+        lines.append("| 工作流 | 状态 |")
+        lines.append("|--------|------|")
+        for ws in workstreams:
+            area = ws.get("area", "未知")
+            status = ws.get("status", "unknown")
+            status_label = {
+                "done": "✅",
+                "in_progress": "🔄",
+                "todo": "⏳",
+                "blocked": "🚫",
+            }.get(status, status)
+            lines.append(f"| {area} | {status_label} |")
+        lines.append("")
+
+        # 工作流详情（仅在有证据或下一步时显示）
+        has_details = any(ws.get("evidence") or ws.get("next_step") for ws in workstreams)
+        if has_details:
+            lines.append("**详情**")
+            for ws in workstreams:
+                area = ws.get("area", "未知")
+                evidence = ws.get("evidence", "")
+                next_step = ws.get("next_step", "")
+                if evidence:
+                    if enable_length_protection:
+                        if len(evidence) > 500:
+                            evidence = evidence[:500] + "...(truncated)"
+                        evidence = _remove_code_blocks(evidence)
+                    lines.append(f"- **{area}**: {evidence}")
+                if next_step:
+                    if enable_length_protection:
+                        if len(next_step) > 300:
+                            next_step = next_step[:300] + "...(truncated)"
+                    lines.append(f"  - ➡️ {next_step}")
+            lines.append("")
+
+    # 完成项和剩余项（合并显示）
+    done_items = data.get("done_items", [])
+    remaining_items = data.get("remaining_items", [])
+    if done_items or remaining_items:
+        if done_items:
+            done_count = len(done_items)
+            show_items = done_items[:5] if enable_length_protection and done_count > 5 else done_items
+            lines.append(f"**✅ 已完成 ({done_count}项)**")
+            for item in show_items:
+                lines.append(f"- {item}")
+            if enable_length_protection and done_count > 5:
+                lines.append(f"- ... 还有{done_count - 5}项")
+            lines.append("")
+
+        if remaining_items:
+            remaining_count = len(remaining_items)
+            show_items = remaining_items[:5] if enable_length_protection and remaining_count > 5 else remaining_items
+            lines.append(f"**⏳ 剩余 ({remaining_count}项)**")
+            for item in show_items:
+                lines.append(f"- {item}")
+            if enable_length_protection and remaining_count > 5:
+                lines.append(f"- ... 还有{remaining_count - 5}项")
+            lines.append("")
+
+    # 风险
+    risks = data.get("risks", [])
+    if risks:
+        lines.append("**⚠️ 风险**")
+        for risk in risks:
+            lines.append(f"- {risk}")
+        lines.append("")
+
+    # 推荐下一步
+    next_steps = data.get("next_steps", [])
+    if next_steps:
+        lines.append("**➡️ 推荐下一步**")
+        for step in next_steps:
+            lines.append(f"- {step}")
+        lines.append("")
+
+    # 建议的下一目标
+    suggested_objective = data.get("suggested_next_objective", "")
+    if suggested_objective:
+        if enable_length_protection:
+            if len(suggested_objective) > 500:
+                suggested_objective = suggested_objective[:500] + "...(truncated)"
+        lines.append("**🎯 建议下一目标**")
+        lines.append(suggested_objective)
+
+    return "\n".join(lines)
+
+
+def _remove_code_blocks(text: str) -> str:
+    """移除文本中的代码块，替换为简洁描述。
+
+    Args:
+        text: 可能包含代码块的文本
+
+    Returns:
+        移除代码块后的文本
+    """
+    # 移除 ```xxx ... ``` 代码块
+    result = re.sub(r'```\w*\n[\s\S]*?```', '[code block removed]', text)
+    # 移除单行代码引用
+    result = re.sub(r'`[^`]+`', '[code]', result)
+    return result
 
 
 def markdown_to_feishu_post(text: str, title: str = "ArgusBot Update") -> dict[str, Any]:
@@ -1005,7 +1247,8 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         # 处理 Reviewer JSON 输出，提取并格式化为结构化 Markdown
         raw_output = event.get("raw_output", "")
         if raw_output:
-            formatted = extract_and_format_reviewer(raw_output)
+            # 使用飞书专用的 JSON 转 Markdown 处理函数
+            formatted = format_reviewer_json_to_markdown(raw_output, enable_length_protection=FEISHU_OUTPUT_LENGTH_PROTECTION)
             return ("🔍 Reviewer 评审报告", formatted, FEISHU_COLOR_YELLOW)
         return None
 
@@ -1013,7 +1256,8 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         # 处理 Planner JSON 输出，提取并格式化为结构化 Markdown
         raw_output = event.get("raw_output", "")
         if raw_output:
-            formatted = extract_and_format_planner(raw_output)
+            # 使用飞书专用的 JSON 转 Markdown 处理函数
+            formatted = format_planner_json_to_markdown(raw_output, enable_length_protection=FEISHU_OUTPUT_LENGTH_PROTECTION)
             return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_YELLOW)
         return None
 
@@ -1021,7 +1265,8 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         # 处理 Planner 完成事件，包含原始 JSON 输出
         raw_output = event.get("raw_output", "")
         if raw_output:
-            formatted = extract_and_format_planner(raw_output)
+            # 使用飞书专用的 JSON 转 Markdown 处理函数
+            formatted = format_planner_json_to_markdown(raw_output, enable_length_protection=FEISHU_OUTPUT_LENGTH_PROTECTION)
             return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_YELLOW)
         # 如果没有 raw_output，使用传统格式
         summary = str(event.get("main_instruction", ""))[:400]
