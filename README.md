@@ -26,8 +26,21 @@ Current defaults:
 1. Security risk: daemon-launched runs use `--yolo` by default. This grants the selected backend high local execution power. Run only in trusted repositories/workspaces.
 2. Visibility and debugging: Telegram/Feishu snippets may hide important details. If behavior looks wrong, run `argusbot` in the target workspace and watch local live output/logs first.
 3. Cost and loop risk: long-running objectives can consume significant tokens. Planner or reviewer quality can also cause repeated loops. Always set clear acceptance checks, monitor runtime, and stop/re-scope when needed.
+4. Credential and remote-control security: ArgusBot supports daemonized remote control through channels such as Telegram and Feishu, while daemon-launched runs may execute with high local privileges. **Treat bot tokens, app secrets, and related credentials as highly sensitive.** If these credentials are leaked, an unauthorized party may be able to issue remote commands that execute on your local machine or workspace. Never share tokens, never commit them to a repository, and rotate them immediately if exposure is suspected.
 
 ![ArgusBot architecture concept](Feishu_readme/cleaned_Gemini_Generated_Image_xniz1sxniz1sxniz%20(1).png)
+
+## Community
+
+If you're using ArgusBot for research workflows, welcome to join our user community.
+
+- WeChat user group: scan the QR code below
+- Please note your background / use case when joining
+
+<p align="center">
+  <img src="Feishu_readme/wechat-group.jpg" alt="ArgusBot WeChat Group" width="260" />
+</p>
+
 
 ## Quick Start (24/7 Telegram Control)
 
@@ -360,7 +373,7 @@ Constraints:
 2. Prefer small verifiable steps over large speculative rewrites.
 ```
 
-Example with live dashboard:
+Example with live dashboard (Do not expose yourself on the public internet! It's extremely dangerous!):
 
 ```bash
 argusbot-run \
@@ -665,17 +678,6 @@ Safety stop conditions:
 - `max_rounds` reached
 - repeated no-progress rounds
 - reviewer returns `blocked`
-
-## Community
-
-If you're using ArgusBot for research workflows, welcome to join our user community.
-
-- WeChat user group: scan the QR code below
-- Please note your background / use case when joining
-
-<p align="center">
-  <img src="Feishu_readme/wechat-group.jpg" alt="ArgusBot WeChat Group" width="260" />
-</p>
 
 ## Contributing
 
