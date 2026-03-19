@@ -7,3 +7,5 @@ __pycache__/
 .argusbot/
 *.egg-info/
 *.log
+build/
+CLAUDE.md
