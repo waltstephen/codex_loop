@@ -372,14 +372,21 @@ class FeishuNotifier:
             self.send_card_message(title=title, content=content, template=template)
         else:
             # For unknown event types, still send as card (not raw text)
-            # Extract message content and wrap in card format
-            message = format_feishu_event_message(event)
-            if message:
-                self.send_card_message(
-                    title="ArgusBot 通知",
-                    content=message,
-                    template="blue"
-                )
+            # Build a generic card from event data
+            title = "ArgusBot 通知"
+            content = f"**事件类型:** `{event_type}`\n\n"
+
+            # Add event data as key-value pairs
+            for key, value in event.items():
+                if key != "type":
+                    value_str = str(value)[:500]  # Truncate long values
+                    content += f"**{key}:** {value_str}\n"
+
+            self.send_card_message(
+                title=title,
+                content=content.strip(),
+                template="blue"
+            )
 
     def send_message(self, message: str) -> bool:
         """Send a text message using interactive card format with markdown element.
@@ -682,11 +689,20 @@ class FeishuNotifier:
         template: str = "blue",
         actions: list[dict] | None = None,
     ) -> bool:
-        """Send an interactive card message.
+        """Send an interactive card message with markdown element.
+
+        Uses markdown element for proper Markdown rendering instead of lark_md.
+        This supports:
+        - Headers: # H1, ## H2, ### H3
+        - Bold: **text**
+        - Italic: *text*
+        - Lists: - item
+        - Links: [text](url)
+        - Code blocks: ```lang ... ```
 
         Args:
             title: Card header title
-            content: Main content (supports lark_md Markdown-like syntax)
+            content: Main content (supports full Markdown syntax)
             template: Header color (blue, green, red, yellow, purple, gray)
             actions: Optional list of button actions
 
@@ -697,13 +713,39 @@ class FeishuNotifier:
         if not token:
             return False
 
-        card_content = build_interactive_card(
-            title=title,
-            content=content,
-            template=template,
-            actions=actions,
-            wide_screen_mode=self.config.wide_screen_mode,
-        )
+        # Validate and fix Markdown before sending
+        fixed_content = validate_and_fix_markdown(content)
+
+        # Build elements array
+        elements: list[dict] = []
+
+        # Add content as markdown element
+        if fixed_content:
+            elements.append({
+                "tag": "markdown",
+                "content": fixed_content
+            })
+
+        # Add action buttons if provided
+        if actions:
+            elements.append({
+                "tag": "action",
+                "actions": actions
+            })
+
+        card_content = {
+            "config": {
+                "wide_screen_mode": self.config.wide_screen_mode
+            },
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": title
+                },
+                "template": template
+            },
+            "elements": elements
+        }
 
         return self._send_structured_message(
             token=token,
@@ -887,10 +929,14 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
 
     Event types handled:
         - loop.started: Blue card with objective
+        - loop.completed: Color based on exit status
+        - round.started: Blue card with round info
+        - round.main.completed: Blue card with round completion
         - round.review.completed: Color based on status (green=done, yellow=continue, red=blocked)
-        - loop.completed: Green summary card
+        - round.checks.completed: Color based on check results
         - reviewer.output: Reviewer 输出，提取 Markdown 字段
         - planner.output: Planner 输出，提取 Markdown 字段
+        - plan.completed: Planner 完成事件
     """
     event_type = str(event.get("type", ""))
 
@@ -902,11 +948,28 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
             FEISHU_COLOR_BLUE
         )
 
+    if event_type == "round.started":
+        round_num = event.get("round_index", 0) + 1
+        return (
+            "新一轮执行",
+            f"**第 {round_num} 轮**\n\n开始执行任务...",
+            FEISHU_COLOR_BLUE
+        )
+
+    if event_type == "round.main.completed":
+        round_num = event.get("round_index", 0) + 1
+        turn_completed = event.get("main_turn_completed", 0)
+        return (
+            "本轮执行完成",
+            f"**第 {round_num} 轮**\n\n完成 {turn_completed} 步操作",
+            FEISHU_COLOR_BLUE
+        )
+
     if event_type == "round.review.completed":
         review = event.get("review", {})
         status = str(review.get("status", "unknown"))
         reason = review.get("reason", "")
-        round_num = event.get("round", 1)
+        round_num = event.get("round_index", 0) + 1
 
         status_map = {
             "done": ("审核通过", FEISHU_COLOR_GREEN),
@@ -921,6 +984,22 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
             content += f"\n{reason}"
 
         return title, content, color
+
+    if event_type == "round.checks.completed":
+        round_num = event.get("round_index", 0) + 1
+        checks = event.get("checks", [])
+        all_passed = all(c.get("passed", False) for c in checks)
+
+        content = f"**第 {round_num} 轮验收检查**\n\n"
+        for check in checks:
+            cmd = check.get("command", "")[:100]
+            passed = check.get("passed", False)
+            status_icon = "✅" if passed else "❌"
+            content += f"{status_icon} `{cmd}`\n"
+
+        title = "验收检查通过" if all_passed else "验收检查失败"
+        color = FEISHU_COLOR_GREEN if all_passed else FEISHU_COLOR_RED
+        return (title, content, color)
 
     if event_type == "reviewer.output":
         # 处理 Reviewer JSON 输出，提取并格式化为结构化 Markdown
@@ -985,6 +1064,7 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
 
         return "任务完成", content, color
 
+    # Default fallback - still return a card format for unknown events
     return None
 
 
