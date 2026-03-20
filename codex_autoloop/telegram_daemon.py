@@ -2139,6 +2139,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resume from last saved session_id when daemon starts a new idle run.",
     )
     parser.add_argument(
+        "--run-add-dir",
+        action="append",
+        default=[],
+        help="Additional directory to allow tool access for child runs (repeatable).",
+    )
+    parser.add_argument(
+        "--run-plugin-dir",
+        action="append",
+        default=[],
+        help="Load plugins from a directory for child runs (repeatable).",
+    )
+    parser.add_argument(
+        "--run-file",
+        dest="run_file_specs",
+        action="append",
+        default=[],
+        help="File resource to download for child runs. Format: file_id:relative_path (repeatable).",
+    )
+    parser.add_argument(
+        "--run-worktree",
+        dest="run_worktree_name",
+        nargs="?",
+        const="default",
+        default=None,
+        help="Create a new git worktree for child runs (optionally specify a name).",
+    )
+    parser.add_argument(
         "--run-plan-mode",
         default=PLAN_MODE_FULLY_PLAN,
         choices=sorted(PLAN_MODES),

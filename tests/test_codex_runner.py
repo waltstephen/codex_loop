@@ -188,3 +188,89 @@ def test_extract_claude_message_text_joins_text_parts() -> None:
         }
     )
     assert text == "line one\nline two"
+
+
+def test_build_command_claude_add_dirs(tmp_path) -> None:
+    runner = CodexRunner(codex_bin="claude", backend="claude")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            add_dirs=["/tmp", "/var/log"],
+        ),
+    )
+    assert "--add-dir" in command
+    assert command[command.index("--add-dir") + 1] == "/tmp"
+    assert command[command.index("--add-dir", command.index("--add-dir") + 1) + 1] == "/var/log"
+
+
+def test_build_command_claude_plugin_dirs(tmp_path) -> None:
+    runner = CodexRunner(codex_bin="claude", backend="claude")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            plugin_dirs=["/plugins", "/custom/plugins"],
+        ),
+    )
+    assert "--plugin-dir" in command
+    assert command[command.index("--plugin-dir") + 1] == "/plugins"
+    assert command[command.index("--plugin-dir", command.index("--plugin-dir") + 1) + 1] == "/custom/plugins"
+
+
+def test_build_command_claude_file_specs(tmp_path) -> None:
+    runner = CodexRunner(codex_bin="claude", backend="claude")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            file_specs=["file_abc:doc.txt", "file_xyz:readme.md"],
+        ),
+    )
+    assert "--file" in command
+    assert command[command.index("--file") + 1] == "file_abc:doc.txt"
+    assert command[command.index("--file", command.index("--file") + 1) + 1] == "file_xyz:readme.md"
+
+
+def test_build_command_claude_worktree(tmp_path) -> None:
+    runner = CodexRunner(codex_bin="claude", backend="claude")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            worktree_name="feature-branch",
+        ),
+    )
+    assert "--worktree" in command
+    assert command[command.index("--worktree") + 1] == "feature-branch"
+
+
+def test_build_command_claude_worktree_default(tmp_path) -> None:
+    runner = CodexRunner(codex_bin="claude", backend="claude")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            worktree_name="default",
+        ),
+    )
+    assert "--worktree" in command
+    assert command[command.index("--worktree") + 1] == "default"
+
+
+def test_build_command_claude_all_new_params_combined(tmp_path) -> None:
+    runner = CodexRunner(codex_bin="claude", backend="claude")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            add_dirs=["/tmp"],
+            plugin_dirs=["/plugins"],
+            file_specs=["file_abc:doc.txt"],
+            worktree_name="test-tree",
+        ),
+    )
+    assert "--add-dir" in command
+    assert "--plugin-dir" in command
+    assert "--file" in command
+    assert "--worktree" in command

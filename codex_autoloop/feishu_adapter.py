@@ -35,9 +35,16 @@ __all__ = [
     'FEISHU_TEXT_MAX_BYTES',
     'FEISHU_ERROR_CODE_MESSAGE_TOO_LONG',
     'FEISHU_ERROR_CODE_CARD_CONTENT_FAILED',
+    'FEISHU_COLOR_GREEN',
+    'FEISHU_COLOR_BLUE',
+    'FEISHU_COLOR_YELLOW',
+    'FEISHU_COLOR_RED',
+    'FEISHU_COLOR_ORANGE',
+    'FEISHU_COLOR_PURPLE',
+    'FEISHU_COLOR_GRAY',
+    'FEISHU_OUTPUT_LENGTH_PROTECTION',
     # Utilities
     'split_feishu_message',
-    'markdown_to_feishu_post',
     'build_interactive_card',
     'format_feishu_event_card',
     'format_feishu_event_message',
@@ -45,6 +52,9 @@ __all__ = [
     'parse_feishu_command_text',
     'is_feishu_self_message',
     'extract_feishu_text',
+    'format_reviewer_json_to_markdown',
+    'format_planner_json_to_markdown',
+    'format_planner_to_elements',
 ]
 
 _FEISHU_MENTION_PREFIX = re.compile(r"^(?:@[_\w-]+\s+)+")
@@ -61,124 +71,477 @@ FEISHU_TEXT_MAX_BYTES = 150 * 1024  # 150 KB
 FEISHU_ERROR_CODE_MESSAGE_TOO_LONG = 230025
 FEISHU_ERROR_CODE_CARD_CONTENT_FAILED = 230099
 
+# 飞书卡片颜色模板 (用于不同事件状态)
+FEISHU_COLOR_GREEN = "green"    # 成功/完成
+FEISHU_COLOR_BLUE = "blue"      # 进行中/信息
+FEISHU_COLOR_YELLOW = "yellow"  # 警告/继续
+FEISHU_COLOR_RED = "red"        # 失败/受阻
+FEISHU_COLOR_ORANGE = "orange"  # 已停止
+FEISHU_COLOR_PURPLE = "purple"  # 规划相关
+FEISHU_COLOR_GRAY = "gray"      # 中性/默认
 
-def markdown_to_feishu_post(text: str, title: str = "ArgusBot Update") -> dict[str, Any]:
-    """Convert Markdown text to Feishu post message format.
+# 输出长度保护开关 - 测试时可设为 False
+# 当设置为 True 时，会对 reviewer/planner 输出进行截断保护
+# 当设置为 False 时，会输出完整内容 (可能导致飞书 API 报错)
+FEISHU_OUTPUT_LENGTH_PROTECTION = True
 
-    Feishu post message format:
-    {
-      "msg_type": "post",
-      "content": {
-        "zh_cn": {
-          "title": "...",
-          "content": [
-            [{"tag": "text", "text": "..."}],
-            ...
-          ]
-        }
-      }
-    }
 
-    Handles:
-    - Bold: **text** → clean text
-    - Lists: - item → • item
-    - Headers: ### title → title with newlines
-    - Code blocks: ```lang ... ``` → preserved content
-    - Regular paragraphs
+def _normalize_internal_markdown_headers(text: str) -> str:
+    """标准化内部 Markdown 的标题层级，避免与外层标题冲突。
+
+    将所有标题降级到最低级别（######），确保字号一致且较小。
+    同时移除与外层重复的标题（如"本轮总结"、"完成证据"等）。
+
+    Args:
+        text: 原始 Markdown 文本
+
+    Returns:
+        标题层级调整后的文本
     """
-    lines = text.split('\n')
-    content_blocks: list[list[dict[str, Any]]] = []
+    if not text:
+        return text
 
-    in_code_block = False
-    code_block_content: list[str] = []
+    result = text
 
-    for line in lines:
-        stripped = line.strip()
+    # 移除可能重复的标题
+    duplicate_headers = [
+        (r'^##\s*本轮总结\s*$', ''),
+        (r'^##\s*完成证据\s*$', ''),
+        (r'^###\s*本轮总结\s*$', ''),
+        (r'^###\s*完成证据\s*$', ''),
+        (r'^####\s*本轮总结\s*$', ''),
+        (r'^####\s*完成证据\s*$', ''),
+    ]
+    for pattern, replacement in duplicate_headers:
+        result = re.sub(pattern, replacement, result, flags=re.MULTILINE)
 
-        # Handle code block start/end
-        if stripped.startswith('```'):
-            if in_code_block:
-                # End of code block - emit as formatted code
-                code_text = '\n'.join(code_block_content)
-                content_blocks.append([{
-                    "tag": "text",
-                    "text": f"\n```\n{code_text}\n```\n"
-                }])
-                code_block_content = []
-                in_code_block = False
-            else:
-                # Start of code block
-                in_code_block = True
-            continue
+    # 将所有标题降级到最低级别（######），确保字号最小
+    result = re.sub(r'^######?\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^#####\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^####\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^###\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^##\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
 
-        if in_code_block:
-            code_block_content.append(line)
-            continue
+    # 移除多余的空行（由于移除标题产生）
+    result = re.sub(r'\n{3,}', '\n\n', result)
 
-        # Skip empty lines
-        if not stripped:
-            continue
+    return result.strip()
 
-        # Handle bold: **text**
-        if re.match(r'^\*\*.*\*\*$', stripped):
-            clean_text = stripped.replace('**', '')
-            content_blocks.append([{
-                "tag": "text",
-                "text": clean_text
-            }])
-            continue
 
-        # Handle list items: - item
-        if re.match(r'^-\s+.*$', stripped):
-            item_text = re.sub(r'^-\s+', '', stripped)
-            content_blocks.append([{
-                "tag": "text",
-                "text": f"• {item_text}"
-            }])
-            continue
+def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection: bool = True) -> str:
+    """将 Reviewer JSON 输出转换为分层 Markdown 格式（飞书卡片专用）。
 
-        # Handle headers: ### title → title with newlines
-        if re.match(r'^###\s+.*$', stripped):
-            title_text = re.sub(r'^###\s+', '', stripped)
-            content_blocks.append([{
-                "tag": "text",
-                "text": f"\n{title_text}\n"
-            }])
-            continue
+    与 output_extractor 中的版本不同，此函数专为飞书卡片优化：
+    - 更紧凑的格式
+    - 适合卡片阅读的层级结构
+    - 可选的长度保护
+    - 自动处理内部 Markdown 的标题层级
 
-        # Handle ## headers (main sections)
-        if re.match(r'^##\s+.*$', stripped):
-            title_text = re.sub(r'^##\s+', '', stripped)
-            content_blocks.append([{
-                "tag": "text",
-                "text": f"\n\n**{title_text}**\n"
-            }])
-            continue
+    Args:
+        raw_json: Reviewer JSON 输出
+        enable_length_protection: 是否启用长度保护
 
-        # Regular paragraphs
-        if stripped:
-            content_blocks.append([{
-                "tag": "text",
-                "text": stripped
-            }])
+    Returns:
+        格式化的 Markdown 文本
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return raw_json
 
-    # Handle unclosed code block
-    if in_code_block and code_block_content:
-        code_text = '\n'.join(code_block_content)
-        content_blocks.append([{
-            "tag": "text",
-            "text": f"\n```\n{code_text}\n```\n"
-        }])
+    if not isinstance(data, dict):
+        return raw_json
 
-    return {
-        "msg_type": "post",
-        "content": {
-            "zh_cn": {
-                "title": title,
-                "content": content_blocks if content_blocks else [[{"tag": "text", "text": text}]]
-            }
-        }
+    lines: list[str] = []
+
+    # 标题：状态（使用 #### 缩小字号）
+    status = data.get("status", "unknown")
+    status_icons = {
+        "done": "✅",
+        "continue": "🔄",
+        "blocked": "🚫",
     }
+    icon = status_icons.get(status, "❓")
+    lines.append(f"#### {icon} Reviewer 评审")
+    lines.append("")
+
+    # 核心状态行
+    confidence = data.get("confidence", 0)
+    lines.append(f"**状态**: `{status}` | **置信度**: {confidence:.0%}")
+    lines.append("")
+
+    # 评审原因 (优先级最高)（使用 ##### 缩小字号）
+    reason = data.get("reason", "")
+    if reason:
+        if enable_length_protection:
+            if len(reason) > 2000:
+                reason = reason[:2000] + "...(truncated)"
+            reason = _remove_code_blocks(reason)
+        lines.append("##### 评审原因")
+        lines.append(reason)
+        lines.append("")
+
+    # 本轮总结
+    round_summary = data.get("round_summary_markdown", "") or data.get("round_summary", "")
+    if round_summary:
+        if enable_length_protection:
+            if len(round_summary) > 3000:
+                round_summary = round_summary[:3000] + "...(truncated)"
+            round_summary = _remove_code_blocks(round_summary)
+        # 标准化内部 Markdown 的标题层级
+        round_summary = _normalize_internal_markdown_headers(round_summary)
+        lines.append("##### 本轮总结")
+        lines.append(round_summary)
+        lines.append("")
+
+    # 完成证据
+    completion = data.get("completion_summary_markdown", "") or data.get("completion_summary", "")
+    if completion:
+        if enable_length_protection:
+            if len(completion) > 2500:
+                completion = completion[:2500] + "...(truncated)"
+            completion = _remove_code_blocks(completion)
+        # 标准化内部 Markdown 的标题层级
+        completion = _normalize_internal_markdown_headers(completion)
+        lines.append("##### 完成证据")
+        lines.append(completion)
+        lines.append("")
+
+    # 下一步行动（使用 ##### 缩小字号）
+    next_action = data.get("next_action", "")
+    if next_action:
+        if enable_length_protection:
+            if len(next_action) > 800:
+                next_action = next_action[:800] + "...(truncated)"
+        lines.append("##### 下一步行动")
+        lines.append(next_action)
+
+    return "\n".join(lines)
+
+
+def format_planner_json_to_markdown(raw_json: str, *, enable_length_protection: bool = True) -> str:
+    """将 Planner JSON 输出转换为分层 Markdown 格式（飞书卡片专用）。
+
+    与 output_extractor 中的版本不同，此函数专为飞书卡片优化：
+    - 表格展示工作流状态
+    - 紧凑的摘要格式
+    - 可选的长度保护
+
+    Args:
+        raw_json: Planner JSON 输出
+        enable_length_protection: 是否启用长度保护
+
+    Returns:
+        格式化的 Markdown 文本
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return raw_json
+
+    if not isinstance(data, dict):
+        return raw_json
+
+    lines: list[str] = []
+
+    # 标题（使用 #### 缩小字号）
+    lines.append("#### 📋 Planner 规划")
+    lines.append("")
+
+    # 经理总结（使用粗体而非标题）
+    summary = data.get("summary", "")
+    if summary:
+        if enable_length_protection:
+            if len(summary) > 1500:
+                summary = summary[:1500] + "...(truncated)"
+            summary = _remove_code_blocks(summary)
+        lines.append("**经理总结**")
+        lines.append(summary)
+        lines.append("")
+
+    # 工作流状态表格
+    workstreams = data.get("workstreams", [])
+    if workstreams:
+        lines.append("**工作流状态**")
+        lines.append("")
+        lines.append("| 工作流 | 状态 |")
+        lines.append("|--------|------|")
+        for ws in workstreams:
+            area = ws.get("area", "未知")
+            status = ws.get("status", "unknown")
+            status_label = {
+                "done": "✅",
+                "in_progress": "🔄",
+                "todo": "⏳",
+                "blocked": "🚫",
+            }.get(status, status)
+            lines.append(f"| {area} | {status_label} |")
+        lines.append("")
+
+        # 工作流详情（仅在有证据或下一步时显示）
+        has_details = any(ws.get("evidence") or ws.get("next_step") for ws in workstreams)
+        if has_details:
+            lines.append("**详情**")
+            for ws in workstreams:
+                area = ws.get("area", "未知")
+                evidence = ws.get("evidence", "")
+                next_step = ws.get("next_step", "")
+                if evidence:
+                    if enable_length_protection:
+                        if len(evidence) > 500:
+                            evidence = evidence[:500] + "...(truncated)"
+                        evidence = _remove_code_blocks(evidence)
+                    lines.append(f"- **{area}**: {evidence}")
+                if next_step:
+                    if enable_length_protection:
+                        if len(next_step) > 300:
+                            next_step = next_step[:300] + "...(truncated)"
+                    lines.append(f"  - ➡️ {next_step}")
+            lines.append("")
+
+    # 完成项和剩余项（合并显示）
+    done_items = data.get("done_items", [])
+    remaining_items = data.get("remaining_items", [])
+    if done_items or remaining_items:
+        if done_items:
+            done_count = len(done_items)
+            show_items = done_items[:5] if enable_length_protection and done_count > 5 else done_items
+            lines.append(f"**✅ 已完成 ({done_count}项)**")
+            for item in show_items:
+                lines.append(f"- {item}")
+            if enable_length_protection and done_count > 5:
+                lines.append(f"- ... 还有{done_count - 5}项")
+            lines.append("")
+
+        if remaining_items:
+            remaining_count = len(remaining_items)
+            show_items = remaining_items[:5] if enable_length_protection and remaining_count > 5 else remaining_items
+            lines.append(f"**⏳ 剩余 ({remaining_count}项)**")
+            for item in show_items:
+                lines.append(f"- {item}")
+            if enable_length_protection and remaining_count > 5:
+                lines.append(f"- ... 还有{remaining_count - 5}项")
+            lines.append("")
+
+    # 风险
+    risks = data.get("risks", [])
+    if risks:
+        lines.append("**⚠️ 风险**")
+        for risk in risks:
+            lines.append(f"- {risk}")
+        lines.append("")
+
+    # 推荐下一步
+    next_steps = data.get("next_steps", [])
+    if next_steps:
+        lines.append("**➡️ 推荐下一步**")
+        for step in next_steps:
+            lines.append(f"- {step}")
+        lines.append("")
+
+    # 建议的下一目标
+    suggested_objective = data.get("suggested_next_objective", "")
+    if suggested_objective:
+        if enable_length_protection:
+            if len(suggested_objective) > 500:
+                suggested_objective = suggested_objective[:500] + "...(truncated)"
+        lines.append("**🎯 建议下一目标**")
+        lines.append(suggested_objective)
+
+    return "\n".join(lines)
+
+
+def format_planner_to_elements(raw_json: str, *, enable_length_protection: bool = True) -> list[dict[str, Any]]:
+    """将 Planner JSON 输出转换为飞书卡片元素列表（使用 div + fields 模拟表格）。
+
+    飞书卡片元素格式:
+    - div + fields: 使用双列布局模拟表格效果
+    - div + lark_md: 文本内容
+
+    Args:
+        raw_json: Planner JSON 输出
+        enable_length_protection: 是否启用长度保护
+
+    Returns:
+        卡片元素列表，可直接用于 build_interactive_card
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return [{"tag": "div", "text": {"tag": "lark_md", "content": raw_json}}]
+
+    if not isinstance(data, dict):
+        return [{"tag": "div", "text": {"tag": "lark_md", "content": raw_json}}]
+
+    elements: list[dict[str, Any]] = []
+
+    # 1. 经理总结 (使用 div + lark_md)
+    summary = data.get("summary", "")
+    if summary:
+        if enable_length_protection:
+            if len(summary) > 1500:
+                summary = summary[:1500] + "...(truncated)"
+            summary = _remove_code_blocks(summary)
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**经理总结**\n{summary}"
+            }
+        })
+
+    # 2. 工作流状态 (使用 div + fields 双列布局模拟表格)
+    workstreams = data.get("workstreams", [])
+    if workstreams:
+        # 表格标题
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "**工作流状态**"
+            }
+        })
+
+        # 使用 fields 双列布局展示每个工作流
+        for ws in workstreams:
+            area = ws.get("area", "未知")
+            status = ws.get("status", "unknown")
+            evidence = ws.get("evidence", "")
+            next_step = ws.get("next_step", "")
+
+            status_icon = {
+                "done": "✅",
+                "in_progress": "🔄",
+                "todo": "⏳",
+                "blocked": "🚫",
+            }.get(status, "❓")
+
+            # 详情：证据和下一步
+            detail_parts = []
+            if evidence:
+                if enable_length_protection and len(evidence) > 100:
+                    evidence = evidence[:100] + "..."
+                detail_parts.append(evidence)
+            if next_step:
+                if enable_length_protection and len(next_step) > 50:
+                    next_step = next_step[:50] + "..."
+                detail_parts.append(f"➡️ {next_step}")
+
+            detail_text = "\\n".join(detail_parts) if detail_parts else "-"
+
+            # 使用 fields 双列布局
+            elements.append({
+                "tag": "div",
+                "fields": [
+                    {
+                        "is_short": True,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": f"**{area}**\n{status_icon}"
+                        }
+                    },
+                    {
+                        "is_short": True,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": detail_text
+                        }
+                    }
+                ]
+            })
+
+    # 3. 完成项和剩余项 (使用 div + lark_md)
+    done_items = data.get("done_items", [])
+    remaining_items = data.get("remaining_items", [])
+
+    if done_items or remaining_items:
+        items_content = []
+
+        if done_items:
+            done_count = len(done_items)
+            show_items = done_items[:5] if enable_length_protection and done_count > 5 else done_items
+            items_content.append(f"**✅ 已完成 ({done_count}项)**")
+            for item in show_items:
+                items_content.append(f"- {item}")
+            if enable_length_protection and done_count > 5:
+                items_content.append(f"- ... 还有{done_count - 5}项")
+
+        if remaining_items:
+            remaining_count = len(remaining_items)
+            show_items = remaining_items[:5] if enable_length_protection and remaining_count > 5 else remaining_items
+            items_content.append(f"**⏳ 剩余 ({remaining_count}项)**")
+            for item in show_items:
+                items_content.append(f"- {item}")
+            if enable_length_protection and remaining_count > 5:
+                items_content.append(f"- ... 还有{remaining_count - 5}项")
+
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "\n".join(items_content)
+            }
+        })
+
+    # 4. 风险
+    risks = data.get("risks", [])
+    if risks:
+        risk_lines = ["**⚠️ 风险**"]
+        for risk in risks:
+            risk_lines.append(f"- {risk}")
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "\n".join(risk_lines)
+            }
+        })
+
+    # 5. 推荐下一步
+    next_steps = data.get("next_steps", [])
+    if next_steps:
+        step_lines = ["**➡️ 推荐下一步**"]
+        for step in next_steps:
+            step_lines.append(f"- {step}")
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "\n".join(step_lines)
+            }
+        })
+
+    # 6. 建议的下一目标
+    suggested_objective = data.get("suggested_next_objective", "")
+    if suggested_objective:
+        if enable_length_protection:
+            if len(suggested_objective) > 500:
+                suggested_objective = suggested_objective[:500] + "...(truncated)"
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**🎯 建议下一目标**\n{suggested_objective}"
+            }
+        })
+
+    return elements
+
+
+def _remove_code_blocks(text: str) -> str:
+    """移除文本中的代码块，替换为简洁描述。
+
+    Args:
+        text: 可能包含代码块的文本
+
+    Returns:
+        移除代码块后的文本
+    """
+    # 移除 ```xxx ... ``` 代码块
+    result = re.sub(r'```\w*\n[\s\S]*?```', '[code block removed]', text)
+    # 移除单行代码引用
+    result = re.sub(r'`[^`]+`', '[code]', result)
+    return result
 
 
 def build_interactive_card(
@@ -195,21 +558,18 @@ def build_interactive_card(
         content: Main content text (supports Markdown-like formatting)
         template: Header color template (blue, green, red, yellow, purple, gray)
         actions: Optional list of action buttons
-        wide_screen_mode: Enable wide screen mode
+        wide_screen_mode: Enable wide screen mode (not used in schema 2.0)
 
     Returns:
         Interactive card message dict ready to be sent
     """
     elements: list[dict] = []
 
-    # Add content as div element
+    # Add content as markdown element
     if content:
         elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": content
-            }
+            "tag": "markdown",
+            "content": content
         })
 
     # Add action buttons if provided
@@ -219,10 +579,9 @@ def build_interactive_card(
             "actions": actions
         })
 
+    # Use Feishu schema 2.0 format
     card_content = {
-        "config": {
-            "wide_screen_mode": wide_screen_mode
-        },
+        "schema": "2.0",
         "header": {
             "title": {
                 "tag": "plain_text",
@@ -230,36 +589,13 @@ def build_interactive_card(
             },
             "template": template
         },
-        "elements": elements
+        "body": {
+            "elements": elements
+        }
     }
 
     return card_content
 
-
-# def _strip_markdown_code_blocks(text: str) -> str:
-#     """Remove markdown code block markers (```lang ... ```) from text.
-
-#     Feishu post messages don't support Markdown rendering, so we strip
-#     the code block markers to display the content as plain text.
-
-#     Example:
-#         Input: "```json\\n{...}\\n```"
-#         Output: "{...}"
-#     """
-#     if not text:
-#         return text
-
-#     result = text
-#     # Pattern: ```(language)?\\n(content)```
-#     # Match code blocks and keep only the content
-#     pattern = r"```(\w*)?\s*(.*?)\s*```"
-
-#     def replace_code_block(match: re.Match) -> str:
-#         content = match.group(2) or ""
-#         return content.strip()
-
-#     result = re.sub(pattern, replace_code_block, result, flags=re.DOTALL)
-#     return result
 
 
 @dataclass
@@ -348,21 +684,34 @@ class FeishuNotifier:
         if event_type not in self.config.events:
             return
 
-        # Try to format as interactive card first
+        # Always use interactive card format for all events
         card_result = format_feishu_event_card(event)
         if card_result:
+            # Use formatted card for known event types
             title, content, template = card_result
             self.send_card_message(title=title, content=content, template=template)
         else:
-            # Fallback to text-based message for events that don't support cards
-            message = format_feishu_event_message(event)
-            if message:
-                self.send_message(message)
+            # For unknown event types, still send as card (not raw text)
+            # Build a generic card from event data
+            title = "ArgusBot 通知"
+            content = f"**事件类型:** `{event_type}`\n\n"
 
-    def send_message(self, message: str) -> bool:
-        """Send a text message using interactive card format with markdown element.
+            # Add event data as key-value pairs
+            for key, value in event.items():
+                if key != "type":
+                    value_str = str(value)[:500]  # Truncate long values
+                    content += f"**{key}:** {value_str}\n"
 
-        Uses interactive card format with markdown element for proper Markdown rendering.
+            self.send_card_message(
+                title=title,
+                content=content.strip(),
+                template="blue"
+            )
+
+    def send_message(self, message: str, title: str = "ArgusBot 通知") -> bool:
+        """Send a text message using Feishu schema 2.0 format.
+
+        Uses schema 2.0 markdown element for proper Markdown rendering.
         This supports:
         - Headers: # H1, ## H2, ### H3
         - Bold: **text**
@@ -376,6 +725,10 @@ class FeishuNotifier:
         - Missing newlines after headers
         - Incorrect list formatting
 
+        Args:
+            message: Message content (supports full Markdown syntax)
+            title: Card header title (default: "ArgusBot 通知")
+
         Note: Message chunks are limited to FEISHU_CARD_MAX_BYTES (30 KB) to avoid
         error 230025 (message too long) and 230099 (card content failed).
         """
@@ -388,24 +741,24 @@ class FeishuNotifier:
 
         ok = True
         for chunk in split_feishu_message(fixed_message, max_chunk_bytes=FEISHU_CARD_MAX_BYTES):
-            # Build card content with markdown element for Markdown support
+            # Build card content using Feishu schema 2.0 format with header
             card_content = {
-                "config": {
-                    "wide_screen_mode": self.config.wide_screen_mode
-                },
+                "schema": "2.0",
                 "header": {
                     "title": {
                         "tag": "plain_text",
-                        "content": "ArgusBot Update"
+                        "content": title
                     },
                     "template": "blue"
                 },
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": chunk
-                    }
-                ]
+                "body": {
+                    "elements": [
+                        {
+                            "tag": "markdown",
+                            "content": chunk
+                        }
+                    ]
+                }
             }
             ok = (
                 self._send_structured_message(
@@ -469,51 +822,6 @@ class FeishuNotifier:
             )
         return ok
 
-    # def _send_post_message(
-    #     self,
-    #     *,
-    #     token: str,
-    #     text_content: str,
-    # ) -> bool:
-    #     """Send a post message with Markdown converted to Feishu format.
-
-    #     Uses markdown_to_feishu_post() to convert Markdown to structured
-    #     Feishu post format with proper handling of:
-    #     - Headers (##, ###)
-    #     - Bold (**text**)
-    #     - List items (- item)
-    #     - Code blocks (```lang ... ```)
-    #     """
-    #     # Convert markdown to feishu post format
-    #     post_data = markdown_to_feishu_post(text_content)
-
-    #     body = json.dumps(
-    #         {
-    #             "receive_id": self.config.chat_id,
-    #             "msg_type": "post",
-    #             "content": json.dumps(post_data["content"], ensure_ascii=False),
-    #         },
-    #         ensure_ascii=False,
-    #     ).encode("utf-8")
-    #     req = urllib.request.Request(
-    #         "https://open.feishu.cn/open-apis/im/v1/messages"
-    #         + f"?{urllib.parse.urlencode({'receive_id_type': self.config.receive_id_type})}",
-    #         data=body,
-    #         method="POST",
-    #         headers={
-    #             "Content-Type": "application/json; charset=utf-8",
-    #             "Authorization": f"Bearer {token}",
-    #         },
-    #     )
-    #     return (
-    #         _perform_json_request(
-    #             req,
-    #             timeout_seconds=self.config.timeout_seconds,
-    #             on_error=self.on_error,
-    #             label="feishu post send",
-    #         )
-    #         is not None
-    #     )
 
     def _send_structured_message(
         self,
@@ -660,11 +968,20 @@ class FeishuNotifier:
         template: str = "blue",
         actions: list[dict] | None = None,
     ) -> bool:
-        """Send an interactive card message.
+        """Send an interactive card message using Feishu schema 2.0 format.
+
+        Uses schema 2.0 markdown element for proper Markdown rendering.
+        This supports:
+        - Headers: # H1, ## H2, ### H3
+        - Bold: **text**
+        - Italic: *text*
+        - Lists: - item
+        - Links: [text](url)
+        - Code blocks: ```lang ... ```
 
         Args:
             title: Card header title
-            content: Main content (supports lark_md Markdown-like syntax)
+            content: Main content (supports full Markdown syntax)
             template: Header color (blue, green, red, yellow, purple, gray)
             actions: Optional list of button actions
 
@@ -675,13 +992,40 @@ class FeishuNotifier:
         if not token:
             return False
 
-        card_content = build_interactive_card(
-            title=title,
-            content=content,
-            template=template,
-            actions=actions,
-            wide_screen_mode=self.config.wide_screen_mode,
-        )
+        # Validate and fix Markdown before sending
+        fixed_content = validate_and_fix_markdown(content)
+
+        # Build elements array
+        elements: list[dict] = []
+
+        # Add content as markdown element (schema 2.0)
+        if fixed_content:
+            elements.append({
+                "tag": "markdown",
+                "content": fixed_content
+            })
+
+        # Add action buttons if provided
+        if actions:
+            elements.append({
+                "tag": "action",
+                "actions": actions
+            })
+
+        # Use Feishu schema 2.0 format with header at top level
+        card_content = {
+            "schema": "2.0",
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": title
+                },
+                "template": template
+            },
+            "body": {
+                "elements": elements
+            }
+        }
 
         return self._send_structured_message(
             token=token,
@@ -865,10 +1209,14 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
 
     Event types handled:
         - loop.started: Blue card with objective
+        - loop.completed: Color based on exit status
+        - round.started: Blue card with round info
+        - round.main.completed: Blue card with round completion
         - round.review.completed: Color based on status (green=done, yellow=continue, red=blocked)
-        - loop.completed: Green summary card
+        - round.checks.completed: Color based on check results
         - reviewer.output: Reviewer 输出，提取 Markdown 字段
         - planner.output: Planner 输出，提取 Markdown 字段
+        - plan.completed: Planner 完成事件
     """
     event_type = str(event.get("type", ""))
 
@@ -877,21 +1225,38 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
         return (
             "任务启动",
             f"**目标:** {objective}\n\nArgusBot 已开始执行任务...",
-            "blue"
+            FEISHU_COLOR_BLUE
+        )
+
+    if event_type == "round.started":
+        round_num = event.get("round_index", 0) + 1
+        return (
+            "新一轮执行",
+            f"**第 {round_num} 轮**\n\n开始执行任务...",
+            FEISHU_COLOR_BLUE
+        )
+
+    if event_type == "round.main.completed":
+        round_num = event.get("round_index", 0) + 1
+        turn_completed = event.get("main_turn_completed", 0)
+        return (
+            "本轮执行完成",
+            f"**第 {round_num} 轮**\n\n完成 {turn_completed} 步操作",
+            FEISHU_COLOR_BLUE
         )
 
     if event_type == "round.review.completed":
         review = event.get("review", {})
         status = str(review.get("status", "unknown"))
         reason = review.get("reason", "")
-        round_num = event.get("round", 1)
+        round_num = event.get("round_index", 0) + 1
 
         status_map = {
-            "done": ("审核通过", "green"),
-            "continue": ("继续执行", "yellow"),
-            "blocked": ("执行受阻", "red"),
+            "done": ("审核通过", FEISHU_COLOR_GREEN),
+            "continue": ("继续执行", FEISHU_COLOR_YELLOW),
+            "blocked": ("执行受阻", FEISHU_COLOR_RED),
         }
-        title, color = status_map.get(status, ("审核状态", "blue"))
+        title, color = status_map.get(status, ("审核状态", FEISHU_COLOR_BLUE))
 
         content = f"**第 {round_num} 轮审核**\n\n"
         content += f"**状态:** {status}\n"
@@ -900,45 +1265,89 @@ def format_feishu_event_card(event: dict[str, Any]) -> tuple[str, str, str] | No
 
         return title, content, color
 
+    if event_type == "round.checks.completed":
+        round_num = event.get("round_index", 0) + 1
+        checks = event.get("checks", [])
+        all_passed = all(c.get("passed", False) for c in checks)
+
+        content = f"**第 {round_num} 轮验收检查**\n\n"
+        for check in checks:
+            cmd = check.get("command", "")[:100]
+            passed = check.get("passed", False)
+            status_icon = "✅" if passed else "❌"
+            content += f"{status_icon} `{cmd}`\n"
+
+        title = "验收检查通过" if all_passed else "验收检查失败"
+        color = FEISHU_COLOR_GREEN if all_passed else FEISHU_COLOR_RED
+        return (title, content, color)
+
     if event_type == "reviewer.output":
         # 处理 Reviewer JSON 输出，提取并格式化为结构化 Markdown
         raw_output = event.get("raw_output", "")
         if raw_output:
-            formatted = extract_and_format_reviewer(raw_output)
-            return ("🔍 Reviewer 评审报告", formatted, "blue")
+            # 使用飞书专用的 JSON 转 Markdown 处理函数
+            formatted = format_reviewer_json_to_markdown(raw_output, enable_length_protection=FEISHU_OUTPUT_LENGTH_PROTECTION)
+            return ("🔍 Reviewer 评审报告", formatted, FEISHU_COLOR_YELLOW)
         return None
 
     if event_type == "planner.output":
         # 处理 Planner JSON 输出，提取并格式化为结构化 Markdown
         raw_output = event.get("raw_output", "")
         if raw_output:
-            formatted = extract_and_format_planner(raw_output)
-            return ("📋 Planner 规划报告", formatted, "purple")
+            # 使用飞书专用的 JSON 转 Markdown 处理函数
+            formatted = format_planner_json_to_markdown(raw_output, enable_length_protection=FEISHU_OUTPUT_LENGTH_PROTECTION)
+            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_YELLOW)
         return None
 
     if event_type == "plan.completed":
         # 处理 Planner 完成事件，包含原始 JSON 输出
         raw_output = event.get("raw_output", "")
         if raw_output:
-            formatted = extract_and_format_planner(raw_output)
-            return ("📋 Planner 规划报告", formatted, "purple")
+            # 使用飞书专用的 JSON 转 Markdown 处理函数
+            formatted = format_planner_json_to_markdown(raw_output, enable_length_protection=FEISHU_OUTPUT_LENGTH_PROTECTION)
+            return ("📋 Planner 规划报告", formatted, FEISHU_COLOR_YELLOW)
         # 如果没有 raw_output，使用传统格式
         summary = str(event.get("main_instruction", ""))[:400]
-        return ("📋 Planner 更新", summary, "purple")
+        return ("📋 Planner 更新", summary, FEISHU_COLOR_YELLOW)
 
     if event_type == "loop.completed":
         rounds = event.get("rounds", [])
         total_rounds = len(rounds)
         exit_code = event.get("exit_code", 0)
         objective = event.get("objective", "任务")
+        stop_reason = event.get("stop_reason", "")
 
-        content = f"**任务完成**\n\n"
+        # 根据结束原因选择不同颜色
+        # - FEISHU_COLOR_GREEN: 成功完成 (exit_code=0 且通过检查)
+        # - FEISHU_COLOR_RED: 失败/受阻
+        # - FEISHU_COLOR_YELLOW: 达到最大轮次
+        # - FEISHU_COLOR_ORANGE: 被用户停止
+        color = FEISHU_COLOR_GREEN
+        status_text = "成功"
+
+        if exit_code != 0:
+            color = FEISHU_COLOR_RED
+            status_text = "失败"
+        elif "blocked" in str(stop_reason).lower():
+            color = FEISHU_COLOR_RED
+            status_text = "受阻"
+        elif "max rounds" in str(stop_reason).lower():
+            color = FEISHU_COLOR_YELLOW
+            status_text = "达到最大轮次"
+        elif "stopped" in str(stop_reason).lower() or "operator" in str(stop_reason).lower():
+            color = FEISHU_COLOR_ORANGE
+            status_text = "已停止"
+
+        content = f"**任务{status_text}**\n\n"
         content += f"**目标:** {objective}\n"
         content += f"**总轮数:** {total_rounds}\n"
-        content += f"**状态:** {'成功' if exit_code == 0 else '失败'}"
+        content += f"**状态码:** {exit_code}\n"
+        if stop_reason:
+            content += f"**原因:** {stop_reason[:200]}"
 
-        return "任务完成", content, "green"
+        return "任务完成", content, color
 
+    # Default fallback - still return a card format for unknown events
     return None
 
 
