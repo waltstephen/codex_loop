@@ -665,6 +665,14 @@ def build_child_command(
         cmd.extend(["--state-file", args.run_state_file])
     if args.run_no_dashboard:
         cmd.append("--no-dashboard")
+    for add_dir in args.run_add_dir:
+        cmd.extend(["--add-dir", add_dir])
+    for plugin_dir in args.run_plugin_dir:
+        cmd.extend(["--plugin-dir", plugin_dir])
+    for file_spec in args.run_file_specs:
+        cmd.extend(["--file", file_spec])
+    if args.run_worktree_name:
+        cmd.extend(["--worktree", args.run_worktree_name])
     cmd.append(objective)
     return cmd
 

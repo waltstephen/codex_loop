@@ -424,6 +424,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print raw Codex JSONL and stderr lines while running.",
     )
+    parser.add_argument(
+        "--add-dir",
+        action="append",
+        help="Additional directory to allow tool access (repeatable).",
+    )
+    parser.add_argument(
+        "--plugin-dir",
+        action="append",
+        help="Load plugins from a directory (repeatable).",
+    )
+    parser.add_argument(
+        "--file",
+        dest="file_specs",
+        action="append",
+        help="File resource to download. Format: file_id:relative_path (repeatable).",
+    )
+    parser.add_argument(
+        "--worktree",
+        dest="worktree_name",
+        nargs="?",
+        const="default",
+        default=None,
+        help="Create a new git worktree for this session (optionally specify a name).",
+    )
     return parser
 
 

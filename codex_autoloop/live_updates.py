@@ -7,6 +7,56 @@ from datetime import datetime, timezone
 from typing import Callable, Protocol
 
 
+def _safe_truncate_markdown(text: str, max_chars: int) -> str:
+    """Safely truncate Markdown text without breaking structure.
+
+    Avoids cutting off:
+    1. Inside code blocks
+    2. In the middle of headers
+    3. In the middle of list items
+
+    Args:
+        text: Markdown text to truncate
+        max_chars: Maximum character count
+
+    Returns:
+        Truncated text with continuation marker
+    """
+    if len(text) <= max_chars:
+        return text
+
+    # Check if we're inside a code block at the truncation point
+    truncated = text[:max_chars]
+    code_block_count = truncated.count('```')
+
+    # If inside a code block (odd number of ```), close it
+    if code_block_count % 2 == 1:
+        # Find the end of the current line and close the code block
+        last_newline = truncated.rfind('\n')
+        if last_newline > 0:
+            truncated = truncated[:last_newline]
+        truncated += '\n```\n\n...（内容被截断）'
+        return truncated
+
+    # Not in a code block, try to truncate at a paragraph boundary
+    last_double_newline = truncated.rfind('\n\n')
+    if last_double_newline > max_chars * 0.7:
+        return truncated[:last_double_newline] + '\n\n...（内容被截断）'
+
+    # Try single newline
+    last_newline = truncated.rfind('\n')
+    if last_newline > max_chars * 0.7:
+        return truncated[:last_newline] + '\n\n...（内容被截断）'
+
+    # Try space
+    last_space = truncated.rfind(' ')
+    if last_space > max_chars * 0.7:
+        return truncated[:last_space] + '\n\n...（内容被截断）'
+
+    # Last resort: hard truncate
+    return truncated + '\n\n...（内容被截断）'
+
+
 def extract_agent_message(stream: str, line: str) -> tuple[str, str] | None:
     if not stream.endswith(".stdout"):
         return None
@@ -120,8 +170,11 @@ class TelegramStreamReporter:
                 return False
             batch = self._pending[: self.config.max_items_per_push]
             self._pending = self._pending[self.config.max_items_per_push :]
-        message = self._format_batch(batch)
-        self.notifier.send_message(message)
+
+        # Send each actor's message separately to avoid truncation
+        for actor, text in batch:
+            message = self._format_single_message(actor, text)
+            self.notifier.send_message(message)
         return True
 
     def _run(self) -> None:
@@ -133,13 +186,17 @@ class TelegramStreamReporter:
                 if self.on_error:
                     self.on_error(f"{self.channel_name} live flush error: {exc}")
 
-    def _format_batch(self, batch: list[tuple[str, str]]) -> str:
+    def _format_single_message(self, actor: str, text: str) -> str:
+        """Format a single actor's message with markdown."""
         now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-        lines = [f"[autoloop] live update {now}"]
-        for actor, text in batch:
-            compact = " ".join(text.split())
-            lines.append(f"- {actor}: {compact[:420]}")
-        rendered = "\n".join(lines)
+        trimmed = text.strip()
+        # Format as Markdown with actor as bold header
+        # Ensure proper newline after bold header for Markdown rendering
+        # Increased limit from 420 to 1200 to accommodate JSON outputs
+        message_text = f"**{actor}:**\n\n{trimmed[:1200]}"
+        rendered = f"[autoloop] live update {now}\n\n{message_text}"
+
+        # Safely truncate if needed, avoiding cutting off Markdown structures
         if len(rendered) <= self.config.max_chars:
             return rendered
-        return rendered[: self.config.max_chars]
+        return _safe_truncate_markdown(rendered, self.config.max_chars)

@@ -37,11 +37,20 @@ def test_reporter_flush_only_when_changed() -> None:
         notifier=notifier, config=TelegramStreamReporterConfig(interval_seconds=30)
     )
     reporter.add_message("main", "first")
-    reporter.add_message("main", "first")
+    reporter.add_message("main", "first")  # Duplicate, should be skipped
     reporter.add_message("reviewer", "ok")
     sent = reporter.flush()
     assert sent is True
-    assert len(notifier.messages) == 1
-    assert "main: first" in notifier.messages[0]
-    assert "reviewer: ok" in notifier.messages[0]
+    # Each actor gets a separate message now
+    assert len(notifier.messages) == 2
+    # Check main message
+    assert "**main:**" in notifier.messages[0]
+    assert "first" in notifier.messages[0]
+    # Check reviewer message
+    assert "**reviewer:**" in notifier.messages[1]
+    assert "ok" in notifier.messages[1]
+    # Verify newlines are preserved for Markdown rendering
+    assert "\n\n" in notifier.messages[0]
+    assert "\n\n" in notifier.messages[1]
+    # Duplicate messages should not be sent again
     assert reporter.flush() is False

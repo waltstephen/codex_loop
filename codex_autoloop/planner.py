@@ -108,6 +108,33 @@ class Planner:
         latest_plan_overview: str,
         config: PlannerConfig,
     ) -> PlanDecision:
+        plan, _ = self.evaluate_with_raw_output(
+            objective=objective,
+            plan_messages=plan_messages,
+            round_index=round_index,
+            session_id=session_id,
+            latest_review_completion_summary=latest_review_completion_summary,
+            latest_plan_overview=latest_plan_overview,
+            config=config,
+        )
+        return plan
+
+    def evaluate_with_raw_output(
+        self,
+        *,
+        objective: str,
+        plan_messages: list[str],
+        round_index: int,
+        session_id: str | None,
+        latest_review_completion_summary: str,
+        latest_plan_overview: str,
+        config: PlannerConfig,
+    ) -> tuple[PlanDecision, str]:
+        """Evaluate and return both PlanDecision and raw JSON output.
+
+        Returns:
+            Tuple of (PlanDecision, raw_json_output)
+        """
         prompt = self._build_evaluate_prompt(
             objective=objective,
             plan_messages=plan_messages,
@@ -131,7 +158,8 @@ class Planner:
             ),
             run_label="planner",
         )
-        parsed = parse_plan_text(result.last_agent_message)
+        raw_output = result.last_agent_message or ""
+        parsed = parse_plan_text(raw_output)
         if parsed is None:
             parsed = self._fallback_snapshot(
                 objective=objective,
@@ -139,7 +167,7 @@ class Planner:
                 latest_checks=[],
                 trigger="loop-engine",
                 terminal=False,
-                error=result.last_agent_message or f"Planner returned empty output. exit={result.exit_code}",
+                error=raw_output or f"Planner returned empty output. exit={result.exit_code}",
             )
         if config.mode == PLANNER_MODE_RECORD:
             parsed.should_propose_follow_up = False
@@ -155,9 +183,12 @@ class Planner:
             checks=[],
             stop_reason=None,
         )
-        return self._snapshot_to_decision(
-            snapshot=parsed,
-            latest_review_completion_summary=latest_review_completion_summary,
+        return (
+            self._snapshot_to_decision(
+                snapshot=parsed,
+                latest_review_completion_summary=latest_review_completion_summary,
+            ),
+            raw_output,
         )
 
     def _build_evaluate_prompt(
@@ -188,6 +219,13 @@ class Planner:
             "You are the planning manager for an autoloop round.\n"
             "Return valid JSON matching the provided schema.\n"
             "Focus on concrete workstreams, next steps, and risks.\n\n"
+            "**Length constraints (strictly enforce):**\n"
+            "- Keep `summary` under 500 characters\n"
+            "- Keep `evidence` (in workstreams) under 300 characters\n"
+            "- Keep `next_step` (in workstreams) under 200 characters\n"
+            "- Keep `suggested_next_objective` under 300 characters\n"
+            "- Use concise phrases, not full sentences\n"
+            "- Avoid code blocks and lengthy explanations\n\n"
             f"{mode_guidance}"
             f"Round index: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n\n"
@@ -292,6 +330,13 @@ class Planner:
             "Your job is to maintain the implementation framework, identify what is complete, "
             "what remains, what should be explored next, and what the next executable objective should be.\n"
             "Use the local $planner-manager-explorer skill if it exists.\n\n"
+            "**Length constraints (strictly enforce):**\n"
+            "- Keep `summary` under 500 characters\n"
+            "- Keep `evidence` (in workstreams) under 300 characters\n"
+            "- Keep `next_step` (in workstreams) under 200 characters\n"
+            "- Keep `suggested_next_objective` under 300 characters\n"
+            "- Use concise phrases, not full sentences\n"
+            "- Avoid code blocks and lengthy explanations\n\n"
             f"{mode_guidance}"
             "Strict rules:\n"
             "1) Work in read-only mode. Inspect the repository if useful, but do not modify files.\n"

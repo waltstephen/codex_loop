@@ -343,6 +343,9 @@ class AutoLoopOrchestrator:
                     "confidence": review.confidence,
                     "reason": review.reason,
                     "next_action": review.next_action,
+                    "round_summary_markdown": review.round_summary_markdown,
+                    "completion_summary_markdown": review.completion_summary_markdown,
+                    "raw_output": main_result.last_agent_message,
                 }
             )
 
