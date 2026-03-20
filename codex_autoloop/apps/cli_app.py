@@ -73,12 +73,16 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         control_file=args.control_file,
         state_file=args.state_file,
     )
-    pptx_report_file = resolve_pptx_report_file(
-        explicit_path=getattr(args, "pptx_report_file", None),
-        operator_messages_file=operator_messages_file,
-        control_file=args.control_file,
-        state_file=args.state_file,
-    )
+    _raw_pptx = getattr(args, "pptx_report_file", None)
+    if _raw_pptx == "__skip__":
+        pptx_report_file: str | None = None
+    else:
+        pptx_report_file = resolve_pptx_report_file(
+            explicit_path=_raw_pptx,
+            operator_messages_file=operator_messages_file,
+            control_file=args.control_file,
+            state_file=args.state_file,
+        )
     btw_messages_file = resolve_btw_messages_file(
         explicit_path=None,
         operator_messages_file=operator_messages_file,

@@ -94,6 +94,7 @@ During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu 
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
 - PPTX auto-generation for run handoff: builds a presentation-ready slide deck summarizing the completed work.
+- Interactive PPTX opt-in: when running `argusbot-run` interactively, the CLI asks whether to generate a PPTX report before starting. Answer `Y` (default) to enable or `n` to skip. Non-interactive runs (daemon-launched) skip the prompt and use the default behavior.
 - Final handoff artifacts generated after reviewer `done`: Markdown via `--final-report-file` and PPTX via `--pptx-report-file`, with notifier delivery when ready.
 - Run archive persisted as JSONL with date/workspace/session metadata for resume continuity.
 - Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
@@ -119,6 +120,16 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+### PPTX Report Dependencies (optional)
+
+The PPTX run report generator uses a Node.js script. To enable it:
+
+```bash
+npm install   # installs pptxgenjs and other JS dependencies
+```
+
+If `node` is not available, PPTX generation is silently skipped and does not block the loop.
 
 ## GitHub Copilot via `copilot-proxy`
 

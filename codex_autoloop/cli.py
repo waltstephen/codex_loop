@@ -59,6 +59,13 @@ def main() -> None:
     if args.main_prompt_file is None:
         args.main_prompt_file = resolve_main_prompt_file(state_file=args.state_file, control_file=args.control_file)
 
+    # Interactive PPTX report prompt (skip when --pptx-report-file is explicitly
+    # provided or when stdin is not a terminal, e.g. daemon-launched runs).
+    if args.pptx_report_file is None and _should_prompt_pptx():
+        result = _ask_pptx_report()
+        if result == "__skip__":
+            args.pptx_report_file = "__skip__"
+
     try:
         payload, exit_code = run_cli(args)
     except ValueError as exc:
@@ -464,6 +471,28 @@ def resolve_main_prompt_file(*, state_file: str | None, control_file: str | None
     if state_file:
         return str(Path(state_file).resolve().parent / "main_prompt.md")
     return None
+
+
+def _should_prompt_pptx() -> bool:
+    """Return True when we should interactively ask about PPTX generation."""
+    import sys
+    return sys.stdin.isatty()
+
+
+def _ask_pptx_report() -> str | None:
+    """Prompt the user to decide whether to generate a PPTX run report.
+
+    Returns ``"__skip__"`` to disable PPTX, or ``None`` to use defaults.
+    """
+    import sys
+    try:
+        answer = input("Generate a PPTX run report at the end? [Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("", file=sys.stderr)
+        return "__skip__"
+    if answer in ("", "y", "yes"):
+        return None  # let resolve_pptx_report_file pick the default path
+    return "__skip__"
 
 
 def _mirror_plan_report_to_todo(*, report_path: object, todo_path: str) -> None:
