@@ -83,7 +83,7 @@ FEISHU_COLOR_GRAY = "gray"      # 中性/默认
 # 输出长度保护开关 - 测试时可设为 False
 # 当设置为 True 时，会对 reviewer/planner 输出进行截断保护
 # 当设置为 False 时，会输出完整内容 (可能导致飞书 API 报错)
-FEISHU_OUTPUT_LENGTH_PROTECTION = False
+FEISHU_OUTPUT_LENGTH_PROTECTION = True
 
 
 def _normalize_internal_markdown_headers(text: str) -> str:
