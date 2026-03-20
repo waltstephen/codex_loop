@@ -70,6 +70,47 @@ def test_build_command_claude_resume_omits_schema() -> None:
     assert command[command.index("--permission-mode") + 1] == "bypassPermissions"
 
 
+def test_build_command_copilot_uses_prompt_flag_and_tool_auto_approval() -> None:
+    runner = CodexRunner(codex_bin="copilot", backend="copilot")
+    command = runner._build_command(
+        prompt="do work",
+        resume_thread_id=None,
+        options=RunnerOptions(
+            reasoning_effort="xhigh",
+            add_dirs=["/tmp/project"],
+            plugin_dirs=["/plugins/main"],
+            extra_args=["--agent", "coding-agent"],
+        ),
+    )
+    assert command[:7] == [
+        "copilot",
+        "--output-format",
+        "json",
+        "--stream",
+        "off",
+        "--no-auto-update",
+        "--no-ask-user",
+    ]
+    assert "--allow-all-tools" in command
+    assert "--model" not in command
+    assert command[command.index("--reasoning-effort") + 1] == "xhigh"
+    assert command[command.index("--add-dir") + 1] == "/tmp/project"
+    assert command[command.index("--plugin-dir") + 1] == "/plugins/main"
+    assert command[-4:] == ["--agent", "coding-agent", "-p", "do work"]
+
+
+def test_build_command_copilot_yolo_uses_highest_permission_mode() -> None:
+    runner = CodexRunner(codex_bin="copilot", backend="copilot")
+    command = runner._build_command(
+        prompt="continue",
+        resume_thread_id="session-123",
+        options=RunnerOptions(dangerous_yolo=True),
+    )
+    assert "--yolo" in command
+    assert "--allow-all-tools" not in command
+    assert command[-4:] == ["--resume", "session-123", "-p", "continue"]
+
+
 def test_resolve_executable_uses_which_for_bare_command(monkeypatch) -> None:
     monkeypatch.setattr("codex_autoloop.codex_runner.shutil.which", lambda name: "C:/Users/test/AppData/Roaming/npm/codex.CMD")
     assert CodexRunner._resolve_executable("codex") == "C:/Users/test/AppData/Roaming/npm/codex.CMD"
@@ -133,6 +174,51 @@ def test_run_exec_writes_prompt_to_stdin(monkeypatch) -> None:
     assert written == ["line1\nline2", "\n", "<closed>"]
 
 
+def test_run_exec_copilot_closes_stdin_without_writing_prompt(monkeypatch) -> None:
+    written: list[str] = []
+
+    class _FakeStdin:
+        def write(self, text: str) -> None:
+            written.append(text)
+
+        def close(self) -> None:
+            written.append("<closed>")
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.stdin = _FakeStdin()
+            self.stdout = iter(())
+            self.stderr = iter(())
+            self.returncode = 0
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+    monkeypatch.setattr(
+        "codex_autoloop.codex_runner.subprocess.Popen",
+        lambda *args, **kwargs: _FakeProcess(),
+    )
+    monkeypatch.setattr(
+        "codex_autoloop.codex_runner.shutil.which",
+        lambda name: "/usr/bin/copilot",
+    )
+
+    runner = CodexRunner(codex_bin="copilot", backend="copilot")
+    result = runner.run_exec(
+        prompt="line1\nline2",
+        resume_thread_id=None,
+        options=RunnerOptions(),
+        run_label="main",
+    )
+
+    assert result.command[-2:] == ["-p", "line1\nline2"]
+    assert written == ["<closed>"]
+
+
 def test_consume_claude_success_event_tracks_session_and_structured_output() -> None:
     agent_messages: list[str] = []
     thread_id, turn_completed, turn_failed, fatal_error = CodexRunner._consume_claude_event(
@@ -175,6 +261,62 @@ def test_consume_claude_error_result_marks_failed() -> None:
     assert turn_completed is False
     assert turn_failed is True
     assert fatal_error == "out of turns"
+
+
+def test_consume_copilot_success_event_tracks_session_and_message() -> None:
+    agent_messages: list[str] = []
+    thread_id, turn_completed, turn_failed, fatal_error = CodexRunner._consume_copilot_event(
+        event={
+            "type": "assistant.message",
+            "data": {"content": "hello from copilot"},
+        },
+        thread_id=None,
+        agent_messages=agent_messages,
+        turn_completed=False,
+        turn_failed=False,
+        fatal_error=None,
+    )
+    assert thread_id is None
+    assert turn_completed is False
+    assert turn_failed is False
+    assert fatal_error is None
+    assert agent_messages == ["hello from copilot"]
+
+    thread_id, turn_completed, turn_failed, fatal_error = CodexRunner._consume_copilot_event(
+        event={
+            "type": "result",
+            "sessionId": "session-789",
+            "exitCode": 0,
+        },
+        thread_id=thread_id,
+        agent_messages=agent_messages,
+        turn_completed=turn_completed,
+        turn_failed=turn_failed,
+        fatal_error=fatal_error,
+    )
+    assert thread_id == "session-789"
+    assert turn_completed is True
+    assert turn_failed is False
+    assert fatal_error is None
+
+
+def test_consume_copilot_error_event_marks_failed() -> None:
+    agent_messages: list[str] = []
+    thread_id, turn_completed, turn_failed, fatal_error = CodexRunner._consume_copilot_event(
+        event={
+            "type": "error",
+            "data": {"message": "permission denied"},
+        },
+        thread_id="existing-session",
+        agent_messages=agent_messages,
+        turn_completed=False,
+        turn_failed=False,
+        fatal_error=None,
+    )
+    assert thread_id == "existing-session"
+    assert turn_completed is False
+    assert turn_failed is True
+    assert fatal_error == "permission denied"
 
 
 def test_extract_claude_message_text_joins_text_parts() -> None:

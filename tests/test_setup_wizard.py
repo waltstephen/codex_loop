@@ -371,6 +371,24 @@ def test_build_parser_accepts_runner_backend_options() -> None:
     assert args.runner_bin == "/opt/homebrew/bin/claude"
 
 
+def test_build_parser_accepts_copilot_runner_backend_options() -> None:
+    args = setup_wizard.build_parser().parse_args(
+        [
+            "--runner-backend",
+            "copilot",
+            "--runner-bin",
+            "/usr/local/bin/copilot",
+        ]
+    )
+    assert args.runner_backend == "copilot"
+    assert args.runner_bin == "/usr/local/bin/copilot"
+
+
+def test_prompt_runner_backend_choice_accepts_copilot(monkeypatch) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "3")
+    assert setup_wizard.prompt_runner_backend_choice() == "copilot"
+
+
 def test_prompt_planner_mode_choice_mentions_plan_confirmation(monkeypatch, capsys) -> None:
     monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
 

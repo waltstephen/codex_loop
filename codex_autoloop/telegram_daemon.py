@@ -2412,14 +2412,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional model preset name for child runs. "
-            f"If unset, child inherits Codex default model settings (available presets: {preset_names})."
+            f"If unset, child inherits backend default model settings (available presets: {preset_names})."
         ),
     )
     parser.add_argument(
         "--run-copilot-proxy",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Route child Codex runs through a local copilot-proxy instance.",
+        help="Route child Codex-backend runs through a local copilot-proxy instance.",
     )
     parser.add_argument(
         "--run-copilot-proxy-dir",
@@ -2492,14 +2492,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-skip-git-repo-check",
         action="store_true",
-        help="Pass --skip-git-repo-check to child run.",
+        help="Pass --skip-git-repo-check to child run when supported by the selected backend.",
     )
-    parser.add_argument("--run-full-auto", action="store_true", help="Pass --full-auto to child run.")
+    parser.add_argument(
+        "--run-full-auto",
+        action="store_true",
+        help="Request automatic tool approval mode for child runs when supported by the selected backend.",
+    )
     parser.add_argument(
         "--run-yolo",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Enable/disable --yolo for child runs (default: enabled).",
+        help="Enable/disable highest-permission autonomous mode for child runs (default: enabled).",
     )
     parser.add_argument(
         "--run-stall-soft-idle-seconds",
