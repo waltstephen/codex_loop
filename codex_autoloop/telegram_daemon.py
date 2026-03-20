@@ -166,6 +166,141 @@ def wait_for_process_exit(process: subprocess.Popen[str], *, timeout_seconds: fl
     return process.poll() is not None
 
 
+def is_pid_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except Exception:
+            return False
+        return completed.returncode == 0 and str(pid) in (completed.stdout or "")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def parse_process_table(text: str) -> list[tuple[int, int, str]]:
+    entries: list[tuple[int, int, str]] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_raw, ppid_raw, cmdline = parts
+        if not pid_raw.isdigit() or not ppid_raw.isdigit():
+            continue
+        entries.append((int(pid_raw), int(ppid_raw), cmdline))
+    return entries
+
+
+def list_process_table() -> list[tuple[int, int, str]]:
+    if os.name == "nt":
+        return []
+    try:
+        completed = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,args="],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return []
+    if completed.returncode != 0:
+        return []
+    return parse_process_table(completed.stdout or "")
+
+
+def find_matching_autoloop_child_pids(
+    *,
+    process_table: list[tuple[int, int, str]],
+    state_file: str | None,
+    current_pid: int,
+) -> list[int]:
+    normalized_state_file = str(Path(state_file).expanduser().resolve()) if state_file else ""
+    matches: list[int] = []
+    for pid, _ppid, cmdline in process_table:
+        if pid <= 0 or pid == current_pid:
+            continue
+        if "codex_autoloop.cli" not in cmdline:
+            continue
+        if normalized_state_file and normalized_state_file not in cmdline:
+            continue
+        matches.append(pid)
+    return sorted(set(matches))
+
+
+def collect_descendant_pids(process_table: list[tuple[int, int, str]], root_pid: int) -> list[int]:
+    children_by_parent: dict[int, list[int]] = {}
+    for pid, ppid, _cmdline in process_table:
+        children_by_parent.setdefault(ppid, []).append(pid)
+    descendants: list[int] = []
+    stack = list(children_by_parent.get(root_pid, []))
+    while stack:
+        current = stack.pop()
+        descendants.append(current)
+        stack.extend(children_by_parent.get(current, []))
+    return descendants
+
+
+def terminate_pid_tree(pid: int, *, wait_timeout_seconds: float = 5.0) -> None:
+    if pid <= 0 or not is_pid_running(pid):
+        return
+    timeout = max(1.0, float(wait_timeout_seconds))
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=max(5.0, timeout + 2.0),
+            )
+        except Exception:
+            return
+        return
+    process_table = list_process_table()
+    descendants = collect_descendant_pids(process_table, pid)
+    targets = list(reversed(descendants)) + [pid]
+    for target in targets:
+        try:
+            os.kill(target, signal.SIGTERM)
+        except OSError:
+            pass
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if all(not is_pid_running(target) for target in [pid, *descendants]):
+            return
+        time.sleep(STOP_POLL_INTERVAL_SECONDS)
+    for target in targets:
+        if not is_pid_running(target):
+            continue
+        try:
+            os.kill(target, signal.SIGKILL)
+        except OSError:
+            pass
+
+
+def reap_orphan_autoloop_children(*, state_file: str | None, current_pid: int) -> list[int]:
+    process_table = list_process_table()
+    orphan_pids = find_matching_autoloop_child_pids(
+        process_table=process_table,
+        state_file=state_file,
+        current_pid=current_pid,
+    )
+    for pid in orphan_pids:
+        terminate_pid_tree(pid)
+    return orphan_pids
+
+
 def terminate_process_tree(process: subprocess.Popen[str], *, wait_timeout_seconds: float = 5.0) -> None:
     if process.poll() is not None:
         return
@@ -321,6 +456,10 @@ def main() -> None:
     child_run_id: str | None = None
     child_control_path: Path | None = None
     child_resume_session_id: str | None = None
+    reaped_orphan_pids = reap_orphan_autoloop_children(
+        state_file=args.run_state_file,
+        current_pid=os.getpid(),
+    )
     plan_mode = normalize_plan_mode(args.run_plan_mode)
     planner_mode = str(args.run_planner_mode)
     plan_request_delay_seconds = max(0, int(args.run_plan_request_delay_seconds))
@@ -1197,6 +1336,13 @@ def main() -> None:
             else ""
         )
     )
+    if reaped_orphan_pids:
+        notify(
+            "[daemon] cleaned up orphan run processes from a previous daemon instance.\n"
+            f"pids={', '.join(str(pid) for pid in reaped_orphan_pids)}\n"
+            "[CN] 已清理上一次 daemon 遗留的孤儿 run 进程，避免旧 session 继续推送消息。\n"
+            "[EN] Cleaned up orphan run processes left by a previous daemon instance so old sessions stop sending updates."
+        )
     log_event(
         "daemon.started",
         run_cwd=str(run_cwd),
@@ -1204,6 +1350,8 @@ def main() -> None:
         bus_dir=str(bus_dir),
         token_hash=(token_lock.token_hash if token_lock else None),
     )
+    if reaped_orphan_pids:
+        log_event("child.orphans.reaped", pids=reaped_orphan_pids)
     update_status()
 
     try:

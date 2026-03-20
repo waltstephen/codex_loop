@@ -43,6 +43,11 @@ Version: vX.Y.Z / none
 - Bug fix with user-visible impact.
 ```
 
+## Maintenance
+
+- Follow the `Pull Request Checklist` and `Recent Updates Entry` sections in [CONTRIBUTING.md](CONTRIBUTING.md) when adding new notes here.
+- Keep the live draft in `Unreleased`, then roll it into a dated entry when shipping a release or update batch.
+
 ## Unreleased
 
 Version: none
@@ -62,6 +67,7 @@ Version: none
 ### Fixed
 
 - Added a local fallback final report writer when the main-agent final-report write step fails or leaves the target file unchanged.
+- Fixed a daemon recovery bug where an orphaned old run could keep rewriting prior log/report files and keep sending stale live updates after the current session was already done.
 
 ## 2026-03-18
 

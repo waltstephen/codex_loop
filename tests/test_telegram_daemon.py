@@ -15,10 +15,12 @@ from codex_autoloop.telegram_daemon import (
     extract_latest_review_status,
     format_external_message,
     format_status,
+    find_matching_autoloop_child_pids,
     is_force_fresh_session_requested,
     looks_like_feishu_chat_id,
     log_contains_invalid_encrypted_content,
     normalize_plan_mode,
+    parse_process_table,
     resolve_last_session_id_from_archive,
     resolve_autoloop_command,
     resolve_resume_session_id,
@@ -177,6 +179,33 @@ def test_build_child_command_keeps_windows_python_path(monkeypatch) -> None:
         "-m",
         "codex_autoloop.cli",
     ]
+
+
+def test_parse_process_table_parses_pid_ppid_and_args() -> None:
+    rows = parse_process_table(
+        "3103351 1 python -m codex_autoloop.cli --state-file /tmp/a.json\n"
+        "3349866 1 argusbot-daemon --run-state-file /tmp/a.json\n"
+    )
+    assert rows == [
+        (3103351, 1, "python -m codex_autoloop.cli --state-file /tmp/a.json"),
+        (3349866, 1, "argusbot-daemon --run-state-file /tmp/a.json"),
+    ]
+
+
+def test_find_matching_autoloop_child_pids_filters_to_same_state_file(tmp_path: Path) -> None:
+    state_file = tmp_path / "last_state.json"
+    other_state_file = tmp_path / "other_state.json"
+    process_table = [
+        (3103351, 1, f"python -m codex_autoloop.cli --state-file {state_file} objective"),
+        (3349866, 1, f"argusbot-daemon --run-state-file {state_file}"),
+        (445566, 1, f"python -m codex_autoloop.cli --state-file {other_state_file} objective"),
+    ]
+    matches = find_matching_autoloop_child_pids(
+        process_table=process_table,
+        state_file=str(state_file),
+        current_pid=3349866,
+    )
+    assert matches == [3103351]
 
 
 def test_build_child_command_includes_feishu_args_when_configured() -> None:
