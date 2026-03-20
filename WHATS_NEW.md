@@ -67,6 +67,7 @@ Version: none
 ### Fixed
 
 - Added a local fallback final report writer when the main-agent final-report write step fails or leaves the target file unchanged.
+- Stopped stale live-update backlog chunks from being delivered after a run has already completed or the final report is ready.
 - Fixed a daemon recovery bug where an orphaned old run could keep rewriting prior log/report files and keep sending stale live updates after the current session was already done.
 
 ## 2026-03-18
