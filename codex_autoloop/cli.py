@@ -59,12 +59,13 @@ def main() -> None:
     if args.main_prompt_file is None:
         args.main_prompt_file = resolve_main_prompt_file(state_file=args.state_file, control_file=args.control_file)
 
-    # Interactive PPTX report prompt (skip when --pptx-report-file is explicitly
-    # provided or when stdin is not a terminal, e.g. daemon-launched runs).
-    if args.pptx_report_file is None and _should_prompt_pptx():
-        result = _ask_pptx_report()
-        if result == "__skip__":
-            args.pptx_report_file = "__skip__"
+    # Interactive PPTX report prompt: when --pptx-report is not explicitly set
+    # and stdin is a terminal, ask the user before starting.
+    if args.pptx_report is None and _should_prompt_pptx():
+        args.pptx_report = _ask_pptx_report()
+    # --no-pptx-report explicitly disables PPTX generation.
+    if args.pptx_report is False:
+        args.pptx_report_file = None
 
     try:
         payload, exit_code = run_cli(args)
@@ -238,6 +239,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-prompt-file",
         default=None,
         help="Markdown file path for the latest main prompt sent to Codex.",
+    )
+    parser.add_argument(
+        "--pptx-report",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable/disable PPTX run report generation. When omitted, interactive runs prompt the user.",
     )
     parser.add_argument(
         "--pptx-report-file",
@@ -479,20 +486,15 @@ def _should_prompt_pptx() -> bool:
     return sys.stdin.isatty()
 
 
-def _ask_pptx_report() -> str | None:
-    """Prompt the user to decide whether to generate a PPTX run report.
-
-    Returns ``"__skip__"`` to disable PPTX, or ``None`` to use defaults.
-    """
+def _ask_pptx_report() -> bool:
+    """Prompt the user to decide whether to generate a PPTX run report."""
     import sys
     try:
         answer = input("Generate a PPTX run report at the end? [Y/n] ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print("", file=sys.stderr)
-        return "__skip__"
-    if answer in ("", "y", "yes"):
-        return None  # let resolve_pptx_report_file pick the default path
-    return "__skip__"
+        return False
+    return answer in ("", "y", "yes")
 
 
 def _mirror_plan_report_to_todo(*, report_path: object, todo_path: str) -> None:

@@ -68,6 +68,8 @@ class TelegramDaemonApp:
         self.child_started_at: dt.datetime | None = None
         self.child_control_bus: JsonlCommandBus | None = None
         self.pending_attachment_batches: dict[str, list[Any]] = {}
+        self.pending_pptx_run_objective: str | None = None
+        self.pending_pptx_run_source: str | None = None
         self.btw_agent = BtwAgent(
             runner=build_codex_runner(
                 backend=getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND),
@@ -191,6 +193,22 @@ class TelegramDaemonApp:
 
     def _on_command(self, command) -> None:
         self._log_event("command.received", source=command.source, kind=command.kind, text=command.text[:700])
+
+        # Handle pending PPTX confirmation reply
+        if self.pending_pptx_run_objective is not None:
+            reply = command.text.strip().lower()
+            if reply in ("y", "yes", "n", "no"):
+                objective = self.pending_pptx_run_objective
+                pptx_enabled = reply in ("y", "yes")
+                self.pending_pptx_run_objective = None
+                self.pending_pptx_run_source = None
+                self._start_child(objective, pptx_report=pptx_enabled)
+                return
+            self._send_reply(command.source, "[daemon] PPTX confirmation cancelled. Send /run again to start.")
+            self.pending_pptx_run_objective = None
+            self.pending_pptx_run_source = None
+            # fall through to handle the command normally
+
         if command.kind == "help":
             self._send_reply(command.source, help_text())
             return
@@ -327,7 +345,10 @@ class TelegramDaemonApp:
                 else:
                     self._send_reply(command.source, "[daemon] active run exists but child control bus unavailable.")
                 return
-            self._start_child(objective)
+            # Ask about PPTX report before launching
+            self.pending_pptx_run_objective = objective
+            self.pending_pptx_run_source = command.source
+            self._send_reply(command.source, "Generate a PPTX run report at the end? Reply Y or N")
             return
         if command.kind in {"plan", "review"}:
             if not self._child_running():
@@ -386,7 +407,7 @@ class TelegramDaemonApp:
             self._send_reply(command.source, "[daemon] stopping daemon.")
             self._stopping = True
 
-    def _start_child(self, objective: str) -> None:
+    def _start_child(self, objective: str, *, pptx_report: bool = True) -> None:
         assert self.notifier is not None
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         log_path = self.logs_dir / f"run-{timestamp}.log"
@@ -413,6 +434,7 @@ class TelegramDaemonApp:
             review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
             force_new_session=force_new_session,
+            pptx_report=pptx_report,
         )
         log_file = log_path.open("w", encoding="utf-8")
         self.child = subprocess.Popen(cmd, stdout=log_file, stderr=log_file, text=True, cwd=self.run_cwd)
@@ -566,6 +588,7 @@ def build_child_command(
     review_summaries_dir: str,
     resume_session_id: str | None,
     force_new_session: bool = False,
+    pptx_report: bool = True,
 ) -> list[str]:
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
     main_model = preset.main_model if preset is not None else args.run_main_model
@@ -665,6 +688,10 @@ def build_child_command(
         cmd.extend(["--state-file", args.run_state_file])
     if args.run_no_dashboard:
         cmd.append("--no-dashboard")
+    if pptx_report:
+        cmd.append("--pptx-report")
+    else:
+        cmd.append("--no-pptx-report")
     cmd.append(objective)
     return cmd
 
