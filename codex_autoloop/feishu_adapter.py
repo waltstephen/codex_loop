@@ -83,13 +83,13 @@ FEISHU_COLOR_GRAY = "gray"      # 中性/默认
 # 输出长度保护开关 - 测试时可设为 False
 # 当设置为 True 时，会对 reviewer/planner 输出进行截断保护
 # 当设置为 False 时，会输出完整内容 (可能导致飞书 API 报错)
-FEISHU_OUTPUT_LENGTH_PROTECTION = True
+FEISHU_OUTPUT_LENGTH_PROTECTION = False
 
 
 def _normalize_internal_markdown_headers(text: str) -> str:
     """标准化内部 Markdown 的标题层级，避免与外层标题冲突。
 
-    将 ## 降级为 ####，### 降级为 #####，以此类推。
+    将所有标题降级到最低级别（######），确保字号一致且较小。
     同时移除与外层重复的标题（如"本轮总结"、"完成证据"等）。
 
     Args:
@@ -109,14 +109,18 @@ def _normalize_internal_markdown_headers(text: str) -> str:
         (r'^##\s*完成证据\s*$', ''),
         (r'^###\s*本轮总结\s*$', ''),
         (r'^###\s*完成证据\s*$', ''),
+        (r'^####\s*本轮总结\s*$', ''),
+        (r'^####\s*完成证据\s*$', ''),
     ]
     for pattern, replacement in duplicate_headers:
         result = re.sub(pattern, replacement, result, flags=re.MULTILINE)
 
-    # 降级标题层级：## -> ####, ### -> #####, #### -> ######
+    # 将所有标题降级到最低级别（######），确保字号最小
+    result = re.sub(r'^######?\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^#####\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
     result = re.sub(r'^####\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
-    result = re.sub(r'^###\s+(.+)$', r'##### \1', result, flags=re.MULTILINE)
-    result = re.sub(r'^##\s+(.+)$', r'#### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^###\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^##\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
 
     # 移除多余的空行（由于移除标题产生）
     result = re.sub(r'\n{3,}', '\n\n', result)
@@ -150,7 +154,7 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
 
     lines: list[str] = []
 
-    # 标题：状态
+    # 标题：状态（使用 #### 缩小字号）
     status = data.get("status", "unknown")
     status_icons = {
         "done": "✅",
@@ -158,7 +162,7 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
         "blocked": "🚫",
     }
     icon = status_icons.get(status, "❓")
-    lines.append(f"## {icon} Reviewer 评审")
+    lines.append(f"#### {icon} Reviewer 评审")
     lines.append("")
 
     # 核心状态行
@@ -166,14 +170,14 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
     lines.append(f"**状态**: `{status}` | **置信度**: {confidence:.0%}")
     lines.append("")
 
-    # 评审原因 (优先级最高)
+    # 评审原因 (优先级最高)（使用 ##### 缩小字号）
     reason = data.get("reason", "")
     if reason:
         if enable_length_protection:
             if len(reason) > 2000:
                 reason = reason[:2000] + "...(truncated)"
             reason = _remove_code_blocks(reason)
-        lines.append("### 评审原因")
+        lines.append("##### 评审原因")
         lines.append(reason)
         lines.append("")
 
@@ -186,7 +190,7 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
             round_summary = _remove_code_blocks(round_summary)
         # 标准化内部 Markdown 的标题层级
         round_summary = _normalize_internal_markdown_headers(round_summary)
-        lines.append("### 本轮总结")
+        lines.append("##### 本轮总结")
         lines.append(round_summary)
         lines.append("")
 
@@ -199,17 +203,17 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
             completion = _remove_code_blocks(completion)
         # 标准化内部 Markdown 的标题层级
         completion = _normalize_internal_markdown_headers(completion)
-        lines.append("### 完成证据")
+        lines.append("##### 完成证据")
         lines.append(completion)
         lines.append("")
 
-    # 下一步行动
+    # 下一步行动（使用 ##### 缩小字号）
     next_action = data.get("next_action", "")
     if next_action:
         if enable_length_protection:
             if len(next_action) > 800:
                 next_action = next_action[:800] + "...(truncated)"
-        lines.append("### 下一步行动")
+        lines.append("##### 下一步行动")
         lines.append(next_action)
 
     return "\n".join(lines)
@@ -240,11 +244,11 @@ def format_planner_json_to_markdown(raw_json: str, *, enable_length_protection: 
 
     lines: list[str] = []
 
-    # 标题
-    lines.append("## 📋 Planner 规划")
+    # 标题（使用 #### 缩小字号）
+    lines.append("#### 📋 Planner 规划")
     lines.append("")
 
-    # 经理总结
+    # 经理总结（使用粗体而非标题）
     summary = data.get("summary", "")
     if summary:
         if enable_length_protection:
