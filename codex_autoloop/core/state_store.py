@@ -28,6 +28,7 @@ class LoopStateStore:
         plan_overview_file: str | None = None,
         review_summaries_dir: str | None = None,
         final_report_file: str | None = None,
+        pptx_report_file: str | None = None,
         main_prompt_file: str | None = None,
         check_commands: list[str] | None = None,
         plan_mode: PlanMode = "off",
@@ -39,6 +40,7 @@ class LoopStateStore:
         self._plan_overview_file = plan_overview_file
         self._review_summaries_dir = review_summaries_dir
         self._final_report_file = final_report_file
+        self._pptx_report_file = pptx_report_file
         self._main_prompt_file = main_prompt_file
         self._check_commands = list(check_commands or [])
         self._plan_mode = plan_mode
@@ -62,6 +64,8 @@ class LoopStateStore:
             "review_summaries_dir": review_summaries_dir,
             "final_report_file": final_report_file,
             "final_report_ready": False,
+            "pptx_report_file": pptx_report_file,
+            "pptx_report_ready": False,
             "main_prompt_file": main_prompt_file,
             "latest_plan_next_explore": None,
         }
@@ -316,6 +320,22 @@ class LoopStateStore:
             self._runtime["final_report_ready"] = True
             self._write_state_locked()
 
+    def pptx_report_path(self) -> str | None:
+        return self._pptx_report_file
+
+    def has_pptx_report(self) -> bool:
+        with self._lock:
+            return bool(self._runtime.get("pptx_report_ready"))
+
+    def record_pptx_report(self, path: str) -> None:
+        if not path:
+            return
+        with self._lock:
+            self._pptx_report_file = path
+            self._runtime["pptx_report_file"] = path
+            self._runtime["pptx_report_ready"] = True
+            self._write_state_locked()
+
     def latest_plan_overview(self) -> str:
         if self._latest_plan is not None and self._latest_plan.overview_markdown.strip():
             return self._latest_plan.overview_markdown
@@ -430,6 +450,8 @@ class LoopStateStore:
             "review_summaries_dir": self._review_summaries_dir,
             "final_report_file": self._final_report_file,
             "final_report_ready": bool(self._runtime.get("final_report_ready")),
+            "pptx_report_file": self._pptx_report_file,
+            "pptx_report_ready": bool(self._runtime.get("pptx_report_ready")),
             "latest_plan": asdict(self._latest_plan) if self._latest_plan else None,
             "rounds": [self._serialize_round(item) for item in self._rounds],
         }

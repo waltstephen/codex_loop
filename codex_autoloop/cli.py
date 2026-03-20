@@ -15,6 +15,7 @@ from .apps.shell_utils import (
     resolve_final_report_file,
     resolve_operator_messages_file,
     resolve_plan_overview_file,
+    resolve_pptx_report_file,
     resolve_review_summaries_dir,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "resolve_operator_messages_file",
     "resolve_plan_report_file",
     "resolve_plan_todo_file",
+    "resolve_pptx_report_file",
     "resolve_review_summaries_dir",
 ]
 
@@ -229,6 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-prompt-file",
         default=None,
         help="Markdown file path for the latest main prompt sent to Codex.",
+    )
+    parser.add_argument(
+        "--pptx-report-file",
+        default=None,
+        help="Output path for the auto-generated PPTX run report.",
     )
     parser.add_argument(
         "--control-file",
