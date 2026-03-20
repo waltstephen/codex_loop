@@ -374,7 +374,7 @@ class CodexRunner:
             "--output-format",
             "json",
             "--stream",
-            "off",
+            "on",
             "--no-auto-update",
             "--no-ask-user",
         ]

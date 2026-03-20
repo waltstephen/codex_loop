@@ -87,7 +87,7 @@ def test_build_command_copilot_uses_prompt_flag_and_tool_auto_approval() -> None
         "--output-format",
         "json",
         "--stream",
-        "off",
+        "on",
         "--no-auto-update",
         "--no-ask-user",
     ]
