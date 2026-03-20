@@ -80,6 +80,7 @@ class TelegramEventSink:
     ) -> None:
         self.notifier = notifier
         self._stream_reporter: TelegramStreamReporter | None = None
+        self._live_updates_closed = False
         if live_updates:
             self._stream_reporter = TelegramStreamReporter(
                 notifier=notifier,
@@ -89,12 +90,16 @@ class TelegramEventSink:
             self._stream_reporter.start()
 
     def handle_event(self, event: dict[str, object]) -> None:
-        if str(event.get("type", "")) == "final.report.ready":
+        event_type = str(event.get("type", ""))
+        if event_type == "final.report.ready":
+            self._stop_stream_reporter(flush=False)
             _send_final_report_via_notifier(self.notifier, event)
+        elif event_type == "loop.completed":
+            self._stop_stream_reporter(flush=False)
         self.notifier.notify_event(event)
 
     def handle_stream_line(self, stream: str, line: str) -> None:
-        if self._stream_reporter is None:
+        if self._stream_reporter is None or self._live_updates_closed:
             return
         extracted = extract_agent_message(stream, line)
         if extracted is None:
@@ -103,9 +108,14 @@ class TelegramEventSink:
         self._stream_reporter.add_message(actor=actor, message=message)
 
     def close(self) -> None:
-        if self._stream_reporter is not None:
-            self._stream_reporter.stop()
+        self._stop_stream_reporter(flush=True)
         self.notifier.close()
+
+    def _stop_stream_reporter(self, *, flush: bool) -> None:
+        if self._stream_reporter is not None:
+            self._stream_reporter.stop(flush=flush)
+            self._stream_reporter = None
+        self._live_updates_closed = True
 
 
 class FeishuEventSink:
@@ -119,6 +129,7 @@ class FeishuEventSink:
     ) -> None:
         self.notifier = notifier
         self._stream_reporter: TelegramStreamReporter | None = None
+        self._live_updates_closed = False
         if live_updates:
             self._stream_reporter = TelegramStreamReporter(
                 notifier=notifier,
@@ -129,12 +140,16 @@ class FeishuEventSink:
             self._stream_reporter.start()
 
     def handle_event(self, event: dict[str, object]) -> None:
-        if str(event.get("type", "")) == "final.report.ready":
+        event_type = str(event.get("type", ""))
+        if event_type == "final.report.ready":
+            self._stop_stream_reporter(flush=False)
             _send_final_report_via_notifier(self.notifier, event)
+        elif event_type == "loop.completed":
+            self._stop_stream_reporter(flush=False)
         self.notifier.notify_event(event)
 
     def handle_stream_line(self, stream: str, line: str) -> None:
-        if self._stream_reporter is None:
+        if self._stream_reporter is None or self._live_updates_closed:
             return
         extracted = extract_agent_message(stream, line)
         if extracted is None:
@@ -143,9 +158,14 @@ class FeishuEventSink:
         self._stream_reporter.add_message(actor=actor, message=message)
 
     def close(self) -> None:
-        if self._stream_reporter is not None:
-            self._stream_reporter.stop()
+        self._stop_stream_reporter(flush=True)
         self.notifier.close()
+
+    def _stop_stream_reporter(self, *, flush: bool) -> None:
+        if self._stream_reporter is not None:
+            self._stream_reporter.stop(flush=flush)
+            self._stream_reporter = None
+        self._live_updates_closed = True
 
 
 def _send_final_report_via_notifier(notifier, event: dict[str, object]) -> None:

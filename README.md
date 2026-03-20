@@ -87,8 +87,8 @@ During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu 
 - Telegram inbound control during active run: `/inject`, `/status`, `/stop`, voice/audio transcription.
 - Feishu inbound control during active run: text polling for `/run`, `/inject`, `/status`, `/stop`, `/plan`, `/review`, and plain-text routing.
 - Always-on daemon mode for idle startup: `/run` can launch new runs when no loop is active.
-- Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation.
-- Planner modes: `off`, `auto`, `record`; setup defaults to `auto`.
+- Daemon follow-up prompt: after a run ends, Telegram can offer the planner's next suggested objective as a one-click continuation, but auto follow-up stays locked until `/plan <session-goal>` confirms the current session goal.
+- Planner modes: `off`, `auto`, `record`; setup defaults to `auto`, while daemon follow-up stays `execute-only` until `/plan` confirms the session goal.
 - Dual control channels for daemon: Telegram and terminal (`argusbot-daemon-ctl`).
 - Single-word operator entrypoint: `argusbot` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
@@ -181,7 +181,7 @@ Behavior:
   - `/confirm-send` (when BTW attachments > 5, confirm and continue upload)
   - `/cancel-send` (when BTW attachments > 5, skip upload)
   - BTW attachment return supports Telegram/Feishu media upload: images/photos, videos, and generic files/documents.
-  - `/plan <direction>`
+  - `/plan <session-goal-or-direction>` (confirm the current session-level goal for planning; required before auto follow-up)
   - `/review <criteria>`
   - `/show-main-prompt`
   - `/show-plan`
@@ -194,7 +194,7 @@ Behavior:
 Planner mode semantics:
 
 - `off`: disable plan agent behavior for daemon-launched runs.
-- `auto` (default): planner stays enabled and daemon may propose/auto-run the next request.
+- `auto` (default): planner stays enabled and may propose the next request, but daemon does not auto-run follow-up until `/plan <session-goal>` confirms the current session goal.
 - `record`: planner records markdown only; no automatic follow-up execution.
 
 YOLO policy:
@@ -468,7 +468,7 @@ Daemon commands from Telegram:
 - After `/stop`, use `/run <objective>` to continue. By default daemon resumes the last `session_id` when available.
 - `/help`
 - After a child run finishes, the daemon can offer a Telegram button to execute the planner's next suggested objective.
-- If the user does nothing, daemon auto-executes the planned next session after the follow-up countdown (default: 10 minutes).
+- If the current session goal was confirmed with `/plan`, daemon may auto-execute the planned next session after the follow-up countdown (default: 10 minutes); otherwise auto follow-up is skipped and the user is reminded to confirm the session goal first.
 - Before executing that follow-up, daemon creates a git checkpoint commit when the workspace is dirty.
 - Telegram follow-up options are: direct execute, reject plan, or modify then execute while inheriting the planner objective. That follow-up starts as a fresh session.
 

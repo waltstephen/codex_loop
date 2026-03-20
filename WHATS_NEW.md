@@ -56,6 +56,8 @@ Version: none
 ### Changed
 
 - Standardized the final handoff flow so the main agent is asked to write only the final report file during the final-report phase.
+- Changed session planning semantics so auto planning/follow-up stays locked until `/plan <session goal>` confirms the overall goal for the current session.
+- Changed the default daemon planner behavior to `execute-only`: planner updates and next-session suggestions still work, but follow-up does not auto-run until the session goal is explicitly confirmed.
 
 ### Fixed
 

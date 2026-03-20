@@ -51,6 +51,23 @@ def test_feishu_event_sink_live_updates_flush_on_close() -> None:
     assert "main: hello from main" in notifier.messages[0]
 
 
+def test_feishu_event_sink_discards_live_update_backlog_after_completion() -> None:
+    notifier = _FakeFeishuNotifier()
+    sink = FeishuEventSink(notifier=notifier, live_updates=True, live_interval_seconds=30)
+    line = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "late main output"},
+        }
+    )
+
+    sink.handle_stream_line("main.stdout", line)
+    sink.handle_event({"type": "loop.completed", "success": True, "stop_reason": "done"})
+    sink.close()
+
+    assert not any("late main output" in message for message in notifier.messages)
+
+
 def test_feishu_event_sink_sends_final_report_immediately(tmp_path: Path) -> None:
     notifier = _FakeFeishuNotifier()
     report = tmp_path / "final-task-report.md"
@@ -75,6 +92,26 @@ def test_telegram_event_sink_sends_final_report_immediately(tmp_path: Path) -> N
     assert notifier.messages and "final task report ready" in notifier.messages[0]
     assert "# report" in notifier.messages[0]
     assert notifier.files == [(str(report), "ArgusBot final task report")]
+
+
+def test_telegram_event_sink_discards_live_update_backlog_after_final_report(tmp_path: Path) -> None:
+    notifier = _FakeFeishuNotifier()
+    report = tmp_path / "final-task-report.md"
+    report.write_text("# report\n\nbody\n", encoding="utf-8")
+    sink = TelegramEventSink(notifier=notifier, live_updates=True, live_interval_seconds=30)
+    line = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": "late planner output"},
+        }
+    )
+
+    sink.handle_stream_line("planner.stdout", line)
+    sink.handle_event({"type": "final.report.ready", "path": str(report)})
+    sink.close()
+
+    assert not any("late planner output" in message for message in notifier.messages)
+    assert any("final task report ready" in message for message in notifier.messages)
 
 
 def test_terminal_event_sink_prints_final_report_markdown(tmp_path: Path, capsys) -> None:

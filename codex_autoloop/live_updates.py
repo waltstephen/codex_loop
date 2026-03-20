@@ -92,13 +92,17 @@ class TelegramStreamReporter:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, *, flush: bool = True) -> None:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             self._thread = None
-        while self.flush():
-            pass
+        if flush:
+            while self.flush():
+                pass
+        else:
+            with self._lock:
+                self._pending.clear()
 
     def add_message(self, actor: str, message: str) -> None:
         normalized = message.strip()
