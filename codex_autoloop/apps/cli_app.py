@@ -34,6 +34,7 @@ from .shell_utils import (
     looks_like_bot_token,
     parse_telegram_events,
     resolve_btw_messages_file,
+    resolve_final_report_file,
     resolve_plan_overview_file,
     resolve_review_summaries_dir,
     resolve_operator_messages_file,
@@ -64,6 +65,13 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         control_file=args.control_file,
         state_file=args.state_file,
     )
+    final_report_file = resolve_final_report_file(
+        explicit_path=args.final_report_file,
+        review_summaries_dir=review_summaries_dir,
+        operator_messages_file=operator_messages_file,
+        control_file=args.control_file,
+        state_file=args.state_file,
+    )
     btw_messages_file = resolve_btw_messages_file(
         explicit_path=None,
         operator_messages_file=operator_messages_file,
@@ -76,6 +84,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         operator_messages_file=operator_messages_file,
         plan_overview_file=plan_overview_file,
         review_summaries_dir=review_summaries_dir,
+        final_report_file=final_report_file,
         main_prompt_file=args.main_prompt_file,
         check_commands=args.check or [],
         plan_mode=args.plan_mode,
@@ -471,6 +480,8 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             "main_prompt_file": state_store.main_prompt_path(),
             "plan_overview_file": state_store.plan_overview_path(),
             "review_summaries_dir": state_store.review_summaries_dir(),
+            "final_report_file": state_store.final_report_path(),
+            "final_report_ready": state_store.has_final_report(),
             "rounds": [
                 {
                     "round": item.round_index,

@@ -6,6 +6,7 @@ from pathlib import Path
 from codex_autoloop.telegram_daemon import (
     append_plan_record_row,
     build_plan_skip_message,
+    build_session_plan_confirmation_required_message,
     build_parser,
     build_child_command,
     build_plan_request,
@@ -23,7 +24,9 @@ from codex_autoloop.telegram_daemon import (
     resolve_resume_session_id,
     resolve_saved_session_id,
     sanitize_follow_up_objective,
+    session_plan_goal_is_confirmed,
     should_emit_feishu_heartbeat,
+    should_block_for_unconfirmed_session_plan,
     set_force_fresh_session_marker,
     should_schedule_plan_follow_up,
     terminate_process_tree,
@@ -342,9 +345,70 @@ def test_log_contains_invalid_encrypted_content(tmp_path: Path) -> None:
 
 
 def test_normalize_plan_mode_defaults_to_fully_plan() -> None:
-    assert normalize_plan_mode(None) == "fully-plan"
-    assert normalize_plan_mode("unknown") == "fully-plan"
+    assert normalize_plan_mode(None) == "execute-only"
+    assert normalize_plan_mode("unknown") == "execute-only"
     assert normalize_plan_mode("execute-only") == "execute-only"
+
+
+def test_session_plan_goal_is_confirmed_accepts_pending_or_active_goal() -> None:
+    assert (
+        session_plan_goal_is_confirmed(
+            pending_session_plan_goal=None,
+            active_session_plan_goal=None,
+        )
+        is False
+    )
+    assert (
+        session_plan_goal_is_confirmed(
+            pending_session_plan_goal="ship the full session objective",
+            active_session_plan_goal=None,
+        )
+        is True
+    )
+    assert (
+        session_plan_goal_is_confirmed(
+            pending_session_plan_goal=None,
+            active_session_plan_goal="continue the same session objective",
+        )
+        is True
+    )
+
+
+def test_should_block_for_unconfirmed_session_plan_blocks_task_commands_only() -> None:
+    assert (
+        should_block_for_unconfirmed_session_plan(
+            planner_mode="auto",
+            command_kind="run",
+            pending_session_plan_goal=None,
+            active_session_plan_goal=None,
+        )
+        is True
+    )
+    assert (
+        should_block_for_unconfirmed_session_plan(
+            planner_mode="auto",
+            command_kind="plan",
+            pending_session_plan_goal=None,
+            active_session_plan_goal=None,
+        )
+        is False
+    )
+    assert (
+        should_block_for_unconfirmed_session_plan(
+            planner_mode="record",
+            command_kind="run",
+            pending_session_plan_goal=None,
+            active_session_plan_goal=None,
+        )
+        is False
+    )
+
+
+def test_build_session_plan_confirmation_required_message_mentions_plan_and_session_goal() -> None:
+    message = build_session_plan_confirmation_required_message()
+    assert "/plan" in message
+    assert "session goal" in message.lower()
+    assert "本 session 总目标" in message
 
 
 def test_build_plan_request_uses_review_guidance() -> None:
@@ -418,16 +482,35 @@ def test_extract_latest_review_status_prefers_top_level_field() -> None:
 
 
 def test_should_schedule_plan_follow_up_skips_on_failed_exit() -> None:
-    should_schedule, reason = should_schedule_plan_follow_up(exit_code=2, state_payload=None)
+    should_schedule, reason = should_schedule_plan_follow_up(
+        exit_code=2,
+        state_payload=None,
+        session_goal_confirmed=True,
+    )
     assert should_schedule is False
     assert reason == "last_run_failed"
 
 
 def test_should_schedule_plan_follow_up_skips_on_blocked_review() -> None:
     state_payload = {"latest_review_status": "blocked"}
-    should_schedule, reason = should_schedule_plan_follow_up(exit_code=0, state_payload=state_payload)
+    should_schedule, reason = should_schedule_plan_follow_up(
+        exit_code=0,
+        state_payload=state_payload,
+        session_goal_confirmed=True,
+    )
     assert should_schedule is False
     assert reason == "review_blocked"
+
+
+def test_should_schedule_plan_follow_up_skips_when_session_goal_unconfirmed() -> None:
+    state_payload = {"latest_review_status": "done"}
+    should_schedule, reason = should_schedule_plan_follow_up(
+        exit_code=0,
+        state_payload=state_payload,
+        session_goal_confirmed=False,
+    )
+    assert should_schedule is False
+    assert reason == "session_goal_unconfirmed"
 
 
 def test_should_schedule_plan_follow_up_skips_when_latest_plan_has_no_follow_up() -> None:
@@ -438,9 +521,19 @@ def test_should_schedule_plan_follow_up_skips_when_latest_plan_has_no_follow_up(
             "main_instruction": "do not run",
         },
     }
-    should_schedule, reason = should_schedule_plan_follow_up(exit_code=0, state_payload=state_payload)
+    should_schedule, reason = should_schedule_plan_follow_up(
+        exit_code=0,
+        state_payload=state_payload,
+        session_goal_confirmed=True,
+    )
     assert should_schedule is False
     assert reason == "planner_no_follow_up"
+
+
+def test_build_plan_skip_message_explains_unconfirmed_session_goal() -> None:
+    message = build_plan_skip_message(skip_reason="session_goal_unconfirmed", state_payload=None)
+    assert "/plan" in message
+    assert "session-level goal" in message
 
 
 def test_build_plan_skip_message_explains_planner_no_follow_up() -> None:

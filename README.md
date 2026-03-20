@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Contributing](https://img.shields.io/badge/Contributing-Guide-blue.svg)](CONTRIBUTING.md)
 
+Docs: [Quick Start](QUICKSTART.md) | [Recent Updates](WHATS_NEW.md) | [Contributing](CONTRIBUTING.md)
 
 `ArgusBot` is a Python supervisor plugin for Codex CLI and Claude Code CLI:
 
@@ -92,6 +93,7 @@ During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu 
 - Single-word operator entrypoint: `argusbot` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
+- Final task report generated after reviewer `done`, with optional `--final-report-file` output path and notifier delivery when ready.
 - Run archive persisted as JSONL with date/workspace/session metadata for resume continuity.
 - Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
 
@@ -233,6 +235,7 @@ Common options:
 - `--yolo`: pass dangerous no-sandbox mode to Codex
 - `--full-auto`: pass full-auto mode to Codex
 - `--state-file <file>`: write round-by-round state JSON
+- `--final-report-file <file>`: write the final handoff Markdown report after reviewer `done`
 - `--plan-report-file <file>`: write the latest planner markdown snapshot
 - `--plan-todo-file <file>`: write the latest planner TODO board markdown
 - `--plan-update-interval-seconds 1800`: run background planning sweeps every 30 minutes

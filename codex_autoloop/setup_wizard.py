@@ -45,6 +45,7 @@ from .token_lock import acquire_token_lock, default_token_lock_dir
 
 
 DEFAULT_CODEX_AUTOLOOP_CMD = f"{sys.executable} -m codex_autoloop.cli"
+DEFAULT_DAEMON_RUN_PLAN_MODE = "execute-only"
 CHANNEL_TELEGRAM = "telegram"
 CHANNEL_FEISHU = "feishu"
 CHANNEL_BOTH = "both"
@@ -216,6 +217,7 @@ def main() -> None:
         "run_copilot_proxy_dir": copilot_proxy.proxy_dir,
         "run_copilot_proxy_port": copilot_proxy.port,
         "run_planner_mode": planner_mode,
+        "run_plan_mode": DEFAULT_DAEMON_RUN_PLAN_MODE,
         "follow_up_auto_execute_seconds": args.follow_up_auto_execute_seconds,
         "codex_autoloop_bin": DEFAULT_CODEX_AUTOLOOP_CMD,
         "bus_dir": str(bus_dir),
@@ -245,6 +247,8 @@ def main() -> None:
         args.token_lock_dir,
         "--run-planner-mode",
         planner_mode,
+        "--run-plan-mode",
+        DEFAULT_DAEMON_RUN_PLAN_MODE,
         "--follow-up-auto-execute-seconds",
         str(args.follow_up_auto_execute_seconds),
     ]
@@ -332,6 +336,11 @@ def main() -> None:
     print(f"Planner mode: {planner_mode} ({planner_mode_label(planner_mode)})")
     if planner_mode == PLANNER_MODE_AUTO:
         print(f"Follow-up auto execute: {args.follow_up_auto_execute_seconds}s")
+        print("[CN] 默认不会自动续跑；只有先用 /plan 确认本 session 总目标后，auto follow-up 才会生效。")
+        print("[EN] Auto follow-up is off by default; it is only unlocked after /plan confirms the session-level goal.")
+    else:
+        print("[CN] 当前不会启用自动续跑。")
+        print("[EN] Auto follow-up is not enabled in the current mode.")
     if resolved_preset is not None:
         print(
             "Model preset: "
@@ -930,10 +939,13 @@ def looks_like_feishu_chat_id(value: str, *, receive_id_type: str = "chat_id") -
 
 
 def prompt_planner_mode_choice() -> str:
-    print("Choose a planner mode:")
+    print("Choose a planner mode / 选择规划模式:")
     for idx, mode in enumerate(PLANNER_MODE_CHOICES, start=1):
-        print(f"  {idx}. {planner_mode_label(mode)} - {planner_mode_description(mode)}")
-    raw = prompt_input("Planner mode number [2]: ", default="2").strip()
+        description = planner_mode_description(mode)
+        if mode == PLANNER_MODE_AUTO:
+            description += " / 默认不自动续跑，需先用 /plan 确认 session 总目标"
+        print(f"  {idx}. {planner_mode_label(mode)} - {description}")
+    raw = prompt_input("Planner mode number [2] / 输入模式编号 [2]: ", default="2").strip()
     try:
         index = int(raw)
     except ValueError:

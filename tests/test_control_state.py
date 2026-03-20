@@ -79,10 +79,12 @@ def test_plan_mode_can_be_hot_switched() -> None:
 def test_state_store_writes_plan_and_review_docs(tmp_path) -> None:
     plan_path = tmp_path / "plan_overview.md"
     review_dir = tmp_path / "reviews"
+    final_report = tmp_path / "final-task-report.md"
     state = LoopStateStore(
         objective="ship feature",
         plan_overview_file=str(plan_path),
         review_summaries_dir=str(review_dir),
+        final_report_file=str(final_report),
         plan_mode="auto",
     )
     state.record_plan(
@@ -130,6 +132,9 @@ def test_state_store_writes_plan_and_review_docs(tmp_path) -> None:
     assert (review_dir / "round-001.md").exists()
     assert (review_dir / "completion.md").exists()
     assert "Round 1" in (review_dir / "index.md").read_text(encoding="utf-8")
+    state.record_final_report(str(final_report))
+    assert state.has_final_report() is True
+    assert state.final_report_path() == str(final_report)
 
 
 def test_state_store_renders_plan_and_review_context(tmp_path) -> None:

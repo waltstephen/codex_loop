@@ -24,7 +24,10 @@ def planner_mode_description(mode: str) -> str:
         return "Disable the planner agent entirely."
     if mode == PLANNER_MODE_RECORD:
         return "Planner records architecture and TODO only. No autonomous follow-up execution."
-    return "Planner explores, maintains architecture, proposes next sessions, and can auto-execute follow-up."
+    return (
+        "Planner explores, maintains architecture, and proposes next sessions. "
+        "Daemon auto follow-up still requires explicit /plan confirmation of the session goal."
+    )
 
 
 def resolve_planner_mode(*, planner_enabled_flag: bool, planner_mode: str) -> str:

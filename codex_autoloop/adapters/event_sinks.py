@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 from typing import Iterable
 
@@ -33,6 +34,10 @@ class TerminalEventSink:
         self.verbose_events = verbose_events
 
     def handle_event(self, event: dict[str, object]) -> None:
+        if str(event.get("type", "")) == "final.report.ready":
+            rendered = _render_final_report_message(event)
+            if rendered:
+                print(f"\n{rendered}\n", file=sys.stdout)
         return
 
     def handle_stream_line(self, stream: str, line: str) -> None:
@@ -84,6 +89,8 @@ class TelegramEventSink:
             self._stream_reporter.start()
 
     def handle_event(self, event: dict[str, object]) -> None:
+        if str(event.get("type", "")) == "final.report.ready":
+            _send_final_report_via_notifier(self.notifier, event)
         self.notifier.notify_event(event)
 
     def handle_stream_line(self, stream: str, line: str) -> None:
@@ -122,6 +129,8 @@ class FeishuEventSink:
             self._stream_reporter.start()
 
     def handle_event(self, event: dict[str, object]) -> None:
+        if str(event.get("type", "")) == "final.report.ready":
+            _send_final_report_via_notifier(self.notifier, event)
         self.notifier.notify_event(event)
 
     def handle_stream_line(self, stream: str, line: str) -> None:
@@ -137,3 +146,33 @@ class FeishuEventSink:
         if self._stream_reporter is not None:
             self._stream_reporter.stop()
         self.notifier.close()
+
+
+def _send_final_report_via_notifier(notifier, event: dict[str, object]) -> None:
+    raw_path = str(event.get("path") or "").strip()
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    if not path.exists():
+        return
+    rendered = _render_final_report_message(event)
+    if rendered:
+        notifier.send_message(rendered)
+    notifier.send_local_file(path, caption="ArgusBot final task report")
+
+
+def _render_final_report_message(event: dict[str, object]) -> str:
+    raw_path = str(event.get("path") or "").strip()
+    if not raw_path:
+        return ""
+    path = Path(raw_path)
+    if not path.exists():
+        return "[autoloop] final task report ready, but the file is missing."
+    try:
+        report_text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        report_text = ""
+    header = "[autoloop] final task report ready\n" f"path={path}"
+    if not report_text:
+        return header
+    return f"{header}\n\n{report_text}"

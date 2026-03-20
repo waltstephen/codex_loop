@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from ..checks import all_checks_passed, run_checks
 from ..codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
 from ..failure_modes import build_progress_signature, build_quota_exhaustion_stop_reason, looks_like_quota_exhaustion
+from ..final_report import FinalReportRequest, build_final_report_prompt, write_fallback_final_report
 from ..models import PlanDecision, PlanMode, ReviewDecision, RoundSummary
 from ..planner import Planner, PlannerConfig
 from ..reviewer import Reviewer, ReviewerConfig
@@ -325,8 +327,22 @@ class LoopEngine:
                 }
             )
             checks_ok = all_checks_passed(checks)
-            planned_follow_up: PlanDecision | None = None
             current_plan_mode = self._current_plan_mode()
+            round_for_report = RoundSummary(
+                round_index=round_index,
+                thread_id=session_id,
+                main_exit_code=main_result.exit_code,
+                main_turn_completed=main_result.turn_completed,
+                main_turn_failed=main_result.turn_failed,
+                checks=checks,
+                review=review,
+                main_last_message=main_result.last_agent_message,
+                plan=current_plan,
+            )
+            if review.status == "done" and checks_ok:
+                self._finalize_success_report(session_id=session_id, rounds=rounds + [round_for_report])
+
+            planned_follow_up: PlanDecision | None = None
             if review.status == "done" and checks_ok and current_plan_mode != "off":
                 planned_follow_up = self._maybe_run_planner(
                     round_index=round_index,
@@ -438,6 +454,8 @@ class LoopEngine:
         rounds: list[RoundSummary],
         stop_reason: str,
     ) -> LoopResult:
+        if success and not self.state_store.has_final_report():
+            self._finalize_success_report(session_id=session_id, rounds=rounds)
         self.state_store.record_completion(success=success, stop_reason=stop_reason, session_id=session_id)
         self._emit(
             {
@@ -452,6 +470,81 @@ class LoopEngine:
             rounds=rounds,
             stop_reason=stop_reason,
         )
+
+    def _finalize_success_report(self, *, session_id: str | None, rounds: list[RoundSummary]) -> None:
+        if not rounds:
+            return
+        latest_round = rounds[-1]
+        if latest_round.review.status != "done":
+            return
+        report_path = self.state_store.final_report_path()
+        if not report_path:
+            return
+        request = FinalReportRequest(
+            objective=self.config.objective,
+            report_path=report_path,
+            session_id=session_id,
+            operator_messages=self.state_store.list_messages_for_role("all"),
+            round_summary=latest_round,
+        )
+        failure_reason = self._try_generate_final_report_with_main_agent(request=request, session_id=session_id)
+        path = Path(report_path)
+        if failure_reason is not None or not path.exists():
+            write_fallback_final_report(request=request, failure_reason=failure_reason)
+        self.state_store.record_final_report(str(path))
+        self._emit(
+            {
+                "type": "final.report.ready",
+                "path": str(path),
+                "generated_by": "main-agent" if path.exists() and failure_reason is None else "fallback",
+            }
+        )
+
+    def _try_generate_final_report_with_main_agent(
+        self,
+        *,
+        request: FinalReportRequest,
+        session_id: str | None,
+    ) -> str | None:
+        prompt = build_final_report_prompt(request)
+        report_path = Path(request.report_path)
+        before_bytes: bytes | None = None
+        if report_path.exists():
+            try:
+                before_bytes = report_path.read_bytes()
+            except OSError:
+                before_bytes = b""
+        self.state_store.record_main_prompt(
+            round_index=request.round_summary.round_index,
+            phase="final-report",
+            prompt=prompt,
+        )
+        result = self.runner.run_exec(
+            prompt=prompt,
+            resume_thread_id=session_id,
+            options=RunnerOptions(
+                model=self.config.main_model,
+                reasoning_effort=self.config.main_reasoning_effort,
+                dangerous_yolo=self.config.dangerous_yolo,
+                full_auto=self.config.full_auto,
+                skip_git_repo_check=self.config.skip_git_repo_check,
+                extra_args=self.config.main_extra_args,
+            ),
+            run_label="main-final-report",
+        )
+        if report_path.exists():
+            try:
+                after_bytes = report_path.read_bytes()
+            except OSError:
+                after_bytes = None
+            if before_bytes is None or after_bytes != before_bytes:
+                return None
+        if result.fatal_error:
+            return result.fatal_error
+        last_message = result.last_agent_message.strip()
+        if last_message:
+            return last_message
+        return "main agent did not update the final report file"
 
     def _emit(self, event: dict[str, Any]) -> None:
         payload = dict(event)

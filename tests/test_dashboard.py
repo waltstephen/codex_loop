@@ -1,6 +1,7 @@
 from codex_autoloop.dashboard import DashboardStore
 from codex_autoloop.cli import (
     parse_telegram_events,
+    resolve_final_report_file,
     resolve_operator_messages_file,
     resolve_plan_report_file,
     resolve_plan_todo_file,
@@ -63,3 +64,14 @@ def test_resolve_plan_todo_file_prefers_explicit() -> None:
         state_file="/tmp/state.json",
     )
     assert out == "/tmp/todo.md"
+
+
+def test_resolve_final_report_file_uses_review_dir() -> None:
+    out = resolve_final_report_file(
+        explicit_path=None,
+        review_summaries_dir="/tmp/reviews",
+        operator_messages_file="/tmp/operator_messages.md",
+        control_file=None,
+        state_file=None,
+    )
+    assert out == "/tmp/reviews/final-task-report.md"

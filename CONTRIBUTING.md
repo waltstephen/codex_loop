@@ -13,9 +13,36 @@ Thanks for your interest in improving `ArgusBot`.
 ## Pull Request Checklist
 
 1. Code and docs are updated together when behavior changes.
-2. New behavior is covered by tests, or rationale is explained.
-3. Existing tests pass locally.
-4. No secrets or private tokens are included.
+2. Update [Recent Updates](WHATS_NEW.md) in the same PR for every user-visible change; skip it for internal-only refactors, test-only changes, or no-behavior cleanup.
+3. Keep new `Recent Updates` notes in `Unreleased`, then roll them into a dated entry when shipping a release or update batch.
+4. Reuse the entry shape documented in the `Template` section of [WHATS_NEW.md](WHATS_NEW.md) so updates stay consistent.
+5. New behavior is covered by tests, or rationale is explained.
+6. Existing tests pass locally.
+7. No secrets or private tokens are included.
+
+## Recent Updates Entry
+
+- Scope: add every user-visible change to `Unreleased`, but group related small items into concise user-facing notes.
+- Primary grouping: use dated sections when shipping a release or update batch; keep `Version: none` unless a meaningful shipped version exists.
+
+Sample entry:
+
+```md
+## YYYY-MM-DD
+Version: vX.Y.Z / none
+
+### Added
+
+- New user-visible capability.
+
+### Changed
+
+- Existing behavior, workflow, or docs changed in a meaningful way.
+
+### Fixed
+
+- Bug fix with user-visible impact.
+```
 
 ## Project Contributors
 

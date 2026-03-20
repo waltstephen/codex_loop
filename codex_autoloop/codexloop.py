@@ -57,8 +57,8 @@ PLAY_MODES: list[PlayMode] = [
     PlayMode(
         name="auto",
         planner_mode="auto",
-        run_plan_mode="fully-plan",
-        note="Enable planner updates and daemon follow-up automation.",
+        run_plan_mode="execute-only",
+        note="Enable planner updates, but do not auto-run follow-up unless user explicitly enables auto planning and confirms the session goal with /plan.",
     ),
     PlayMode(
         name="record",
@@ -275,7 +275,7 @@ def supported_features_text() -> str:
             "  argusbot btw <question>",
             "      Ask the read-only BTW side-agent a project question.",
             "  argusbot plan <direction>",
-            "      Send direction to the plan agent only.",
+            "      Confirm the session-level goal for planning, or send direction to the plan agent. Required before auto follow-up.",
             "  argusbot review <criteria>",
             "      Send audit criteria to the reviewer only.",
             "  argusbot show-main-prompt",
@@ -297,8 +297,11 @@ def supported_features_text() -> str:
             "  /run /inject /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review [round] /show-review-context /status /stop /daemon-stop /help /new /exit",
             "  Plain text routes to /inject when running, else to /run.",
             "",
-            "Planner Mode:",
-            "  1) off  2) auto (default)  3) record",
+            "Planner Mode / 规划模式:",
+            "  1) off",
+            "  2) auto (default, planner on but no auto follow-up by default / 默认开启 planner 但不自动续跑)",
+            "  3) record",
+            "  Auto follow-up requires explicit /plan confirmation of the current session goal.",
             "",
             "Run working directory:",
             "  By default, uses the shell current working directory when config is created.",
@@ -757,7 +760,7 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         "--run-planner-mode",
         str(config.get("run_planner_mode") or "auto"),
         "--run-plan-mode",
-        str(config.get("run_plan_mode") or "fully-plan"),
+        str(config.get("run_plan_mode") or "execute-only"),
         "--run-plan-request-delay-seconds",
         str(int(config.get("run_plan_request_delay_seconds", 600))),
         "--run-plan-auto-execute-delay-seconds",
@@ -852,6 +855,24 @@ def publish_command(*, bus_dir: Path, kind: str, text: str, source: str) -> None
     bus.publish(BusCommand(kind=kind, text=text, source=source, ts=time.time()))
 
 
+def build_monitor_session_plan_hint(status_payload: dict[str, Any] | None) -> str | None:
+    if not isinstance(status_payload, dict):
+        return None
+    planner_mode = str(status_payload.get("default_plan_mode") or status_payload.get("plan_mode") or "").strip().lower()
+    if planner_mode != "auto":
+        return None
+    confirmed = bool(status_payload.get("session_plan_goal_confirmed"))
+    pending_goal = str(status_payload.get("pending_session_plan_goal") or "").strip()
+    active_goal = str(status_payload.get("active_session_plan_goal") or "").strip()
+    if confirmed or pending_goal or active_goal:
+        return None
+    return (
+        "[monitor] auto mode is waiting for /plan\n"
+        "[CN] 请先发送 `/plan <本 session 总目标>`，确认这整个 session 要完成什么；确认前，其他任务消息会先提醒你补这一步。\n"
+        "[EN] Send `/plan <session goal>` first to confirm the overall goal for this whole session; until then, task messages will be intercepted by that reminder."
+    )
+
+
 def run_monitor_console(
     *,
     config: dict[str, Any],
@@ -870,6 +891,10 @@ def run_monitor_console(
         "Commands: /run /inject /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review [round] /show-review-context /status /stop /daemon-stop /help /new /exit"
     )
     print("Plain text: running -> inject, idle -> run")
+    initial_status = read_status(status_path) or {}
+    hint = build_monitor_session_plan_hint(initial_status)
+    if hint:
+        print(hint)
     print("")
 
     tracked_offsets: dict[Path, int] = {}
@@ -925,6 +950,9 @@ def run_monitor_console(
                 "Commands: /run /inject /mode /btw /plan /review /show-main-prompt /show-plan /show-plan-context /show-review [round] /show-review-context /status /stop /daemon-stop /help /new /exit\n"
                 "Plain text routes to inject when running, else run."
             )
+            hint = build_monitor_session_plan_hint(read_status(status_path) or {})
+            if hint:
+                print(hint)
             continue
         if parsed.kind == "status":
             payload = read_status(status_path)

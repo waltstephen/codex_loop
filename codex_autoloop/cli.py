@@ -12,6 +12,7 @@ from .apps.shell_utils import (
     format_control_status,
     looks_like_bot_token,
     parse_telegram_events,
+    resolve_final_report_file,
     resolve_operator_messages_file,
     resolve_plan_overview_file,
     resolve_review_summaries_dir,
@@ -23,6 +24,7 @@ __all__ = [
     "format_control_status",
     "looks_like_bot_token",
     "parse_telegram_events",
+    "resolve_final_report_file",
     "resolve_operator_messages_file",
     "resolve_plan_report_file",
     "resolve_plan_todo_file",
@@ -217,6 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--review-summaries-dir",
         default=None,
         help="Directory for per-round reviewer summary markdown files.",
+    )
+    parser.add_argument(
+        "--final-report-file",
+        default=None,
+        help="Markdown file path for the final task report generated after reviewer DONE.",
     )
     parser.add_argument(
         "--main-prompt-file",

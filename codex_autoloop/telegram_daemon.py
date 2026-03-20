@@ -42,6 +42,20 @@ PLAN_MODE_EXECUTE_ONLY = "execute-only"
 PLAN_MODE_FULLY_PLAN = "fully-plan"
 PLAN_MODE_RECORD_ONLY = "record-only"
 PLAN_MODES = {PLAN_MODE_EXECUTE_ONLY, PLAN_MODE_FULLY_PLAN, PLAN_MODE_RECORD_ONLY}
+SESSION_PLAN_CONFIRMATION_EXEMPT_COMMANDS = {
+    "help",
+    "status",
+    "mode",
+    "mode-menu",
+    "mode-invalid",
+    "plan",
+    "new",
+    "fresh-session",
+    "stop",
+    "daemon-stop",
+    "attachments-confirm",
+    "attachments-cancel",
+}
 FORCE_FRESH_SESSION_KEY = "force_fresh_session"
 FORCE_FRESH_REASON_KEY = "force_fresh_reason"
 INVALID_ENCRYPTED_CONTENT_MARKER = "invalid encrypted content"
@@ -314,6 +328,8 @@ def main() -> None:
     pending_plan_request: str | None = None
     pending_plan_auto_execute_at: dt.datetime | None = None
     pending_plan_generated_at: dt.datetime | None = None
+    pending_session_plan_goal: str | None = None
+    active_session_plan_goal: str | None = None
     scheduled_plan_context: dict[str, Any] | None = None
     scheduled_plan_request_at: dt.datetime | None = None
     pending_follow_up: PlanFollowUp | None = None
@@ -440,6 +456,12 @@ def main() -> None:
                 "pending_plan_generated_at": (
                     pending_plan_generated_at.isoformat() + "Z" if pending_plan_generated_at else None
                 ),
+                "pending_session_plan_goal": pending_session_plan_goal,
+                "active_session_plan_goal": active_session_plan_goal,
+                "session_plan_goal_confirmed": session_plan_goal_is_confirmed(
+                    pending_session_plan_goal=pending_session_plan_goal,
+                    active_session_plan_goal=active_session_plan_goal,
+                ),
                 "pending_plan_auto_execute_at": (
                     pending_plan_auto_execute_at.isoformat() + "Z" if pending_plan_auto_execute_at else None
                 ),
@@ -454,8 +476,11 @@ def main() -> None:
         nonlocal child_run_id, child_control_path, child_resume_session_id
         nonlocal child_main_prompt_path, child_plan_report_path, child_plan_todo_path
         nonlocal child_review_summaries_dir, pending_follow_up
+        nonlocal pending_session_plan_goal, active_session_plan_goal
         nonlocal last_feishu_heartbeat_monotonic
         clear_planner_state(reason="child_started")
+        active_session_plan_goal = (pending_session_plan_goal or active_session_plan_goal or "").strip() or None
+        pending_session_plan_goal = None
         last_feishu_heartbeat_monotonic = time.monotonic()
         timestamp = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
         log_path = logs_dir / f"run-{timestamp}.log"
@@ -538,6 +563,13 @@ def main() -> None:
             plan_mode=plan_mode,
             started_at=child_started_at.isoformat() + "Z",
         )
+        if active_session_plan_goal:
+            log_event(
+                "session.plan.confirmed",
+                source="pre_run",
+                goal=active_session_plan_goal[:700],
+                run_id=timestamp,
+            )
         if force_fresh:
             log_event("session.fresh.applied", run_id=timestamp)
         update_status()
@@ -648,6 +680,8 @@ def main() -> None:
 
     def handle_command(command: TelegramCommand, source: str) -> None:
         nonlocal child, child_control_bus, pending_follow_up
+        nonlocal plan_mode, planner_mode
+        nonlocal pending_session_plan_goal, active_session_plan_goal
         log_event("command.received", source=source, kind=command.kind, text=command.text[:700])
         if command.kind == "help":
             send_reply(source, help_text())
@@ -727,22 +761,47 @@ def main() -> None:
         if command.kind == "mode":
             updated_mode = normalize_child_plan_mode(command.text)
             if updated_mode is None:
-                send_reply(source, "[daemon] invalid mode. Use: off, auto, or record.")
+                send_reply(
+                    source,
+                    "[daemon] invalid mode. Use: off, auto, or record.\n"
+                    "[CN] 模式无效，请使用 off / auto / record。\n"
+                    "[EN] Invalid mode. Use off / auto / record.",
+                )
                 return
             args.run_planner_mode = updated_mode
+            planner_mode = updated_mode
+            if updated_mode == "off":
+                plan_mode = PLAN_MODE_EXECUTE_ONLY
+            elif updated_mode == "record":
+                plan_mode = PLAN_MODE_RECORD_ONLY
+            else:
+                plan_mode = PLAN_MODE_FULLY_PLAN
             if child is not None and child.poll() is None:
                 if forward_to_child("mode", updated_mode, source):
-                    send_reply(
-                        source,
-                        f"[daemon] plan mode updated to {updated_mode} for future runs and forwarded to active run.",
+                    message = (
+                        f"[daemon] planner mode updated to {updated_mode} for future runs and forwarded to active run.\n"
+                        f"[CN] 已切换规划模式为 {updated_mode}，并转发给当前 run。\n"
+                        f"[EN] Planner mode switched to {updated_mode} and forwarded to the active run."
                     )
                 else:
-                    send_reply(
-                        source,
-                        f"[daemon] plan mode updated to {updated_mode} for future runs, but active child bus is unavailable.",
+                    message = (
+                        f"[daemon] planner mode updated to {updated_mode} for future runs, but active child bus is unavailable.\n"
+                        f"[CN] 未来 run 的规划模式已改为 {updated_mode}，但当前子进程控制通道不可用。\n"
+                        f"[EN] The planner mode for future runs was changed to {updated_mode}, but the active child bus is unavailable."
                     )
             else:
-                send_reply(source, f"[daemon] default plan mode updated to {updated_mode}.")
+                message = (
+                    f"[daemon] default planner mode updated to {updated_mode}.\n"
+                    f"[CN] 默认规划模式已切换为 {updated_mode}。\n"
+                    f"[EN] The default planner mode has been switched to {updated_mode}."
+                )
+            if updated_mode == "auto" and not ((active_session_plan_goal or "").strip() or (pending_session_plan_goal or "").strip()):
+                message += (
+                    "\n"
+                    "[CN] 注意：auto 只会在你先用 /plan 确认本 session 总目标后才允许自动规划/自动续跑。\n"
+                    "[EN] Note: auto planning/follow-up stays locked until you confirm the session-level goal with /plan first."
+                )
+            send_reply(source, message)
             update_status()
             return
         if command.kind == "show-main-prompt":
@@ -816,12 +875,63 @@ def main() -> None:
                 send_reply(source, "[btw] side-agent started. It will reply when ready.")
                 update_status()
             return
-        if command.kind in {"plan", "review"}:
+        if command.kind == "plan":
+            plan_text = command.text.strip()
+            if not plan_text:
+                send_reply(
+                    source,
+                    "[daemon] missing /plan text.\n"
+                    "[CN] 请使用 /plan <本 session 总目标> 来确认本轮任务总目标。\n"
+                    "[EN] Use /plan <session objective> to confirm the current session-level goal.",
+                )
+                return
             if child is None or child.poll() is not None:
-                send_reply(source, f"[daemon] no active run for targeted {command.kind} command.")
+                pending_session_plan_goal = plan_text
+                send_reply(
+                    source,
+                    "[daemon] next-session plan goal saved.\n"
+                    "[CN] 已保存下一次 session 的总目标；启动 /run 后会把它作为 auto planning 的确认目标。\n"
+                    "[EN] The next session goal has been saved; the next /run will treat it as the confirmed goal for auto planning.",
+                )
+                update_status()
+                return
+            active_session_plan_goal = plan_text
+            log_event(
+                "session.plan.confirmed",
+                source=source,
+                goal=plan_text[:700],
+                run_id=child_run_id,
+            )
+            if forward_to_child("plan", plan_text, source):
+                send_reply(
+                    source,
+                    "[daemon] session plan goal confirmed for auto planning.\n"
+                    "[CN] 已确认本 session 总目标；如当前模式为 auto，后续才允许自动规划/续跑。\n"
+                    "[EN] Session-level goal confirmed; auto planning/follow-up is now allowed because this goal was confirmed.",
+                )
+            else:
+                send_reply(
+                    source,
+                    "[daemon] session plan goal saved, but child control bus is unavailable.\n"
+                    "[CN] 本 session 总目标已保存，但未成功转发给子进程。\n"
+                    "[EN] The session goal was saved, but could not be forwarded to the active child.",
+                )
+            update_status()
+            return
+        if should_block_for_unconfirmed_session_plan(
+            planner_mode=planner_mode,
+            command_kind=command.kind,
+            pending_session_plan_goal=pending_session_plan_goal,
+            active_session_plan_goal=active_session_plan_goal,
+        ):
+            send_reply(source, build_session_plan_confirmation_required_message())
+            return
+        if command.kind == "review":
+            if child is None or child.poll() is not None:
+                send_reply(source, "[daemon] no active run for targeted review command.")
                 return
             if forward_to_child(command.kind, command.text.strip(), source):
-                send_reply(source, f"[daemon] {command.kind} forwarded to active run.")
+                send_reply(source, "[daemon] review forwarded to active run.")
             else:
                 send_reply(source, "[daemon] active run exists but child control bus unavailable.")
             return
@@ -942,6 +1052,7 @@ def main() -> None:
         should_schedule, skip_reason = should_schedule_plan_follow_up(
             exit_code=exit_code,
             state_payload=state_payload,
+            session_goal_confirmed=bool((active_session_plan_goal or "").strip()),
         )
         if not should_schedule:
             clear_planner_state(reason=skip_reason or "skip")
@@ -1075,6 +1186,16 @@ def main() -> None:
         "[daemon] online\n"
         "Send /run <objective> to start a new run.\n"
         "Commands: /status /new /mode /btw /confirm-send /cancel-send /plan /review /show-main-prompt /show-plan /show-plan-context /show-review /show-review-context /stop /daemon-stop /help"
+        + (
+            "\n\n" + build_session_plan_confirmation_required_message()
+            if should_block_for_unconfirmed_session_plan(
+                planner_mode=planner_mode,
+                command_kind="run",
+                pending_session_plan_goal=pending_session_plan_goal,
+                active_session_plan_goal=active_session_plan_goal,
+            )
+            else ""
+        )
     )
     log_event(
         "daemon.started",
@@ -1209,6 +1330,8 @@ def main() -> None:
                     objective=pending_follow_up.objective[:700],
                 )
                 send_follow_up_prompt()
+            if pending_follow_up is None and pending_plan_request is None and scheduled_plan_request_at is None:
+                active_session_plan_goal = None
             child = None
             child_control_bus = None
             child_run_id = None
@@ -1611,8 +1734,8 @@ def build_modified_follow_up_objective(*, base_objective: str, user_text: str) -
 
 
 def normalize_plan_mode(raw: str | None) -> str:
-    value = (raw or PLAN_MODE_FULLY_PLAN).strip().lower()
-    return value if value in PLAN_MODES else PLAN_MODE_FULLY_PLAN
+    value = (raw or PLAN_MODE_EXECUTE_ONLY).strip().lower()
+    return value if value in PLAN_MODES else PLAN_MODE_EXECUTE_ONLY
 
 
 def normalize_child_plan_mode(raw: str | None) -> str | None:
@@ -1620,6 +1743,41 @@ def normalize_child_plan_mode(raw: str | None) -> str | None:
     if value in PLANNER_MODE_CHOICES:
         return value
     return None
+
+
+def session_plan_goal_is_confirmed(
+    *,
+    pending_session_plan_goal: str | None,
+    active_session_plan_goal: str | None,
+) -> bool:
+    return bool((active_session_plan_goal or "").strip() or (pending_session_plan_goal or "").strip())
+
+
+def should_block_for_unconfirmed_session_plan(
+    *,
+    planner_mode: str,
+    command_kind: str,
+    pending_session_plan_goal: str | None,
+    active_session_plan_goal: str | None,
+) -> bool:
+    if planner_mode != PLANNER_MODE_AUTO:
+        return False
+    if command_kind in SESSION_PLAN_CONFIRMATION_EXEMPT_COMMANDS:
+        return False
+    return not session_plan_goal_is_confirmed(
+        pending_session_plan_goal=pending_session_plan_goal,
+        active_session_plan_goal=active_session_plan_goal,
+    )
+
+
+def build_session_plan_confirmation_required_message() -> str:
+    return (
+        "[daemon] auto mode is waiting for /plan.\n"
+        "[CN] 当前是 auto 模式。请先发送 `/plan <本 session 总目标>`，用一句话说明这整个 session 要完成什么；"
+        "确认前，其他任务消息都会先提醒你补这一步。\n"
+        "[EN] Auto mode is locked. Send `/plan <session goal>` first with the overall goal for this whole session; "
+        "until then, other task messages will only receive this reminder."
+    )
 
 
 def _read_text_file(path: str | Path | None) -> str | None:
@@ -1634,12 +1792,19 @@ def _read_text_file(path: str | Path | None) -> str | None:
         return None
 
 
-def should_schedule_plan_follow_up(*, exit_code: int, state_payload: dict[str, Any] | None) -> tuple[bool, str | None]:
+def should_schedule_plan_follow_up(
+    *,
+    exit_code: int,
+    state_payload: dict[str, Any] | None,
+    session_goal_confirmed: bool,
+) -> tuple[bool, str | None]:
     if exit_code != 0:
         return False, "last_run_failed"
     review_status = extract_latest_review_status(state_payload)
     if review_status == "blocked":
         return False, "review_blocked"
+    if not session_goal_confirmed:
+        return False, "session_goal_unconfirmed"
     latest_plan = extract_latest_plan(state_payload)
     if latest_plan is not None and latest_plan.follow_up_required is False:
         return False, "planner_no_follow_up"
@@ -1648,6 +1813,12 @@ def should_schedule_plan_follow_up(*, exit_code: int, state_payload: dict[str, A
 
 def build_plan_skip_message(*, skip_reason: str | None, state_payload: dict[str, Any] | None) -> str:
     header = "[daemon] planner mode=auto\n"
+    if skip_reason == "session_goal_unconfirmed":
+        return (
+            f"{header}"
+            "[CN] 已跳过自动规划/自动续跑，因为你还没有用 /plan 确认本 session 总目标。\n"
+            "[EN] Auto planning/follow-up was skipped because the current session-level goal has not been confirmed with /plan."
+        )
     if skip_reason == "planner_no_follow_up":
         latest_plan = extract_latest_plan(state_payload)
         instruction = sanitize_follow_up_objective(latest_plan.main_instruction) if latest_plan is not None else ""
@@ -1925,7 +2096,7 @@ def help_text() -> str:
         "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
         "/confirm-send - confirm and continue sending a pending large attachment batch\n"
         "/cancel-send - cancel a pending large attachment batch\n"
-        "/plan <direction> - send direction to the active plan agent only\n"
+        "/plan <session-goal> - confirm the current session-level goal for planning; required before auto follow-up\n"
         "/review <criteria> - send audit criteria to the active reviewer only\n"
         "/show-main-prompt - print the latest main prompt markdown\n"
         "/show-plan - print the latest plan markdown\n"
@@ -1936,10 +2107,14 @@ def help_text() -> str:
         "/stop - stop active run\n"
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
+        "[CN] 默认不会自动续跑。若要启用 auto planning / auto follow-up，请先使用 /plan 确认本 session 总目标。\n"
+        "[EN] Auto follow-up is disabled by default. To enable auto planning/follow-up, confirm the session-level goal first with /plan.\n"
+        "[CN] 当 auto 模式还没收到 /plan 确认时，其他任务消息会先被拦截并提醒你补这一步。\n"
+        "[EN] When auto mode has not been confirmed with /plan yet, other task messages are intercepted and replaced by that reminder.\n"
         "When planner proposes a next session, use the Telegram buttons to execute, reject, or modify it.\n"
         "Plain text message is treated as /run when idle.\n"
         "Voice/audio message will be transcribed by Whisper when enabled.\n"
-        "In auto mode, daemon may auto-propose and auto-run the next request unless overridden."
+        "In auto mode, daemon may auto-propose and auto-run the next request only after /plan confirmed the session goal."
     )
 
 
@@ -2140,7 +2315,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-plan-mode",
-        default=PLAN_MODE_FULLY_PLAN,
+        default=PLAN_MODE_EXECUTE_ONLY,
         choices=sorted(PLAN_MODES),
         help=argparse.SUPPRESS,
     )

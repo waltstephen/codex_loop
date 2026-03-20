@@ -746,7 +746,7 @@ def help_text() -> str:
         "/btw <question> - ask the side-agent a read-only question without disturbing the main run\n"
         "/confirm-send - confirm and continue sending a pending large attachment batch\n"
         "/cancel-send - cancel a pending large attachment batch\n"
-        "/plan <direction> - send direction to the active plan agent only\n"
+        "/plan <session-goal> - confirm the current session-level goal for planning and forward it to the active plan agent\n"
         "/review <criteria> - send audit criteria to the active reviewer only\n"
         "/show-main-prompt - print the latest main prompt markdown\n"
         "/show-plan - print the latest plan overview markdown\n"
@@ -757,6 +757,8 @@ def help_text() -> str:
         "/stop - stop active run\n"
         "/daemon-stop - stop daemon process\n"
         "/help - show this help\n"
+        "[CN] 默认不会自动续跑；如要使用 auto planning / auto follow-up，请先用 /plan 确认当前 session 总目标。\n"
+        "[EN] Auto follow-up is disabled by default. Use /plan first to confirm the current session-level goal before auto planning/follow-up.\n"
         "Plain text message is treated as /run when idle.\n"
         "Voice/audio message will be transcribed by Whisper when enabled."
     )

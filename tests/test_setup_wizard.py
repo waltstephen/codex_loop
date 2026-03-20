@@ -366,6 +366,87 @@ def test_build_parser_accepts_runner_backend_options() -> None:
     assert args.runner_bin == "/opt/homebrew/bin/claude"
 
 
+def test_prompt_planner_mode_choice_mentions_plan_confirmation(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
+
+    choice = setup_wizard.prompt_planner_mode_choice()
+
+    captured = capsys.readouterr()
+    assert choice == setup_wizard.PLANNER_MODE_AUTO
+    assert "/plan" in captured.out
+    assert "选择规划模式" in captured.out
+
+
+def test_main_writes_execute_only_run_plan_mode(monkeypatch, tmp_path: Path) -> None:
+    home_dir = tmp_path / "custom-home"
+    run_cd = tmp_path / "repo"
+    run_cd.mkdir()
+    args = SimpleNamespace(
+        channel="feishu",
+        telegram_bot_token=None,
+        telegram_chat_id=None,
+        feishu_app_id="cli_xxx",
+        feishu_app_secret="secret",
+        feishu_chat_id="oc_123",
+        feishu_receive_id_type="chat_id",
+        run_cd=str(run_cd),
+        home_dir=str(home_dir),
+        run_max_rounds=50,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_resume_last_session=True,
+        run_planner_mode="auto",
+        run_model_preset="cheap",
+        run_main_model=None,
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort=None,
+        token_lock_dir=str(tmp_path / "locks"),
+        restart_existing=False,
+        follow_up_auto_execute_seconds=600,
+        runner_backend=None,
+        runner_bin=None,
+        run_copilot_proxy=None,
+        run_copilot_proxy_dir=None,
+        run_copilot_proxy_port=18080,
+    )
+
+    class _FakeParser:
+        def parse_args(self):
+            return args
+
+    class _FakeProcess:
+        pid = 4321
+
+        def poll(self):
+            return None
+
+    launched: list[list[str]] = []
+
+    monkeypatch.setattr(setup_wizard, "build_parser", lambda: _FakeParser())
+    monkeypatch.setattr(setup_wizard, "prompt_runner_backend_choice", lambda: "codex")
+    monkeypatch.setattr(setup_wizard.shutil, "which", lambda name: "codex" if name == "codex" else None)
+    monkeypatch.setattr(setup_wizard, "check_codex_binary", lambda codex_bin: True)
+    monkeypatch.setattr(setup_wizard, "check_codex_auth", lambda **kwargs: True)
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: default)
+    monkeypatch.setattr(setup_wizard, "resolve_daemon_launch_prefix", lambda: ["argusbot-daemon"])
+    monkeypatch.setattr(
+        setup_wizard.subprocess,
+        "Popen",
+        lambda cmd, **kwargs: launched.append(cmd) or _FakeProcess(),
+    )
+
+    setup_wizard.main()
+
+    payload = json.loads((home_dir / "daemon_config.json").read_text(encoding="utf-8"))
+    assert payload["run_plan_mode"] == setup_wizard.DEFAULT_DAEMON_RUN_PLAN_MODE
+    assert launched
+    daemon_cmd = launched[0]
+    mode_index = daemon_cmd.index("--run-plan-mode")
+    assert daemon_cmd[mode_index + 1] == setup_wizard.DEFAULT_DAEMON_RUN_PLAN_MODE
+
+
 def test_resolve_copilot_proxy_settings_bootstraps_when_explicitly_enabled(monkeypatch, tmp_path: Path) -> None:
     managed_dir = tmp_path / ".argusbot" / "tools" / "copilot-proxy"
     monkeypatch.setattr(setup_wizard, "resolve_proxy_dir", lambda raw=None: None)

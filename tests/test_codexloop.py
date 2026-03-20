@@ -70,6 +70,35 @@ def test_supported_features_text_contains_core_commands() -> None:
     assert "argusbot init" in text
     assert "/daemon-stop" in text
     assert "/new" in text
+    assert "Auto follow-up requires explicit /plan confirmation" in text
+
+
+def test_build_monitor_session_plan_hint_requires_plan_confirmation_in_auto_mode() -> None:
+    hint = codexloop.build_monitor_session_plan_hint(
+        {
+            "default_plan_mode": "auto",
+            "session_plan_goal_confirmed": False,
+            "pending_session_plan_goal": None,
+            "active_session_plan_goal": None,
+        }
+    )
+    assert hint is not None
+    assert "/plan" in hint
+    assert "本 session 总目标" in hint
+
+
+def test_build_monitor_session_plan_hint_is_silent_after_confirmation() -> None:
+    assert (
+        codexloop.build_monitor_session_plan_hint(
+            {
+                "default_plan_mode": "auto",
+                "session_plan_goal_confirmed": True,
+                "pending_session_plan_goal": None,
+                "active_session_plan_goal": "finish the same session",
+            }
+        )
+        is None
+    )
 
 
 def test_main_help_does_not_require_codex_binary(monkeypatch, capsys) -> None:
@@ -114,7 +143,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["feishu_chat_id"] is None
     assert config["run_model_preset"] is None
     assert config["run_planner_mode"] == "auto"
-    assert config["run_plan_mode"] == "fully-plan"
+    assert config["run_plan_mode"] == "execute-only"
     assert config["run_plan_request_delay_seconds"] == 600
     assert config["run_plan_auto_execute_delay_seconds"] == 600
     assert config["run_yolo"] is True
