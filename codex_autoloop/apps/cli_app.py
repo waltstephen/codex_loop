@@ -471,6 +471,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             main_plugin_dirs=args.plugin_dir,
             main_file_specs=args.file_specs,
             main_worktree_name=args.worktree_name,
+            allow_follow_up_phase=args.follow_up_phase,
         ),
     )
 

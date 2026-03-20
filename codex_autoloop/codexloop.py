@@ -358,6 +358,7 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
     else:
         use_copilot_proxy, copilot_proxy_dir, copilot_proxy_port = (False, None, 18080)
     play_mode = prompt_play_mode()
+    objective_rewrite_enabled = prompt_objective_rewrite_choice()
     print(f"Run working directory: {run_cd}")
     return {
         "telegram_bot_token": token,
@@ -378,6 +379,7 @@ def run_interactive_config(*, home_dir: Path, run_cd: Path) -> dict[str, Any]:
         "run_plan_auto_execute_delay_seconds": 600,
         "run_plan_record_file": None,
         "run_resume_last_session": True,
+        "run_objective_rewrite": objective_rewrite_enabled,
         "run_runner_backend": runner_backend,
         "run_runner_bin": runner_bin,
         "run_main_reasoning_effort": None,
@@ -548,6 +550,26 @@ def prompt_play_mode() -> PlayMode:
         if 1 <= index <= len(PLAY_MODES):
             return PLAY_MODES[index - 1]
         print("Selection out of range. Please choose one of the listed numbers.", file=sys.stderr)
+
+
+def prompt_objective_rewrite_choice() -> bool:
+    print("Choose Objective Rewrite / 选择目标改写:")
+    print("  1. off (Recommended): Keep /run text as-is. 默认关闭，不改写用户输入。")
+    print(
+        "  2. on: Rewrite a new idle /run request into an ArgusBot-style objective before sending it to the main agent. "
+        "开启后会先整理成更适合 ArgusBot 的目标格式。"
+    )
+    print(
+        "     Warning / 提示: this can help vague requests, but it may be a poor fit for specialized projects. "
+        "对于特化项目效果不一定好，请按项目情况自行判断是否启用。"
+    )
+    while True:
+        raw = prompt_input("Objective Rewrite number [1] / 输入改写模式编号 [1]: ", default="1").strip()
+        if raw in {"", "1"}:
+            return False
+        if raw == "2":
+            return True
+        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
 
 
 def looks_like_token(token: str) -> bool:
@@ -834,6 +856,10 @@ def build_daemon_command(*, config: dict[str, Any], home_dir: Path, token_lock_d
         cmd.append("--run-resume-last-session")
     else:
         cmd.append("--no-run-resume-last-session")
+    if bool(config.get("run_objective_rewrite", False)):
+        cmd.append("--run-objective-rewrite")
+    else:
+        cmd.append("--no-run-objective-rewrite")
     return cmd
 
 

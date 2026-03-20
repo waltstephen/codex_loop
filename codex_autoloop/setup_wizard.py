@@ -160,6 +160,9 @@ def main() -> None:
     planner_mode = args.run_planner_mode
     if planner_mode is None:
         planner_mode = prompt_planner_mode_choice()
+    objective_rewrite_enabled = getattr(args, "run_objective_rewrite", None)
+    if objective_rewrite_enabled is None:
+        objective_rewrite_enabled = prompt_objective_rewrite_choice()
 
     chat_id: str | None = None
     if telegram_enabled:
@@ -206,6 +209,7 @@ def main() -> None:
         "run_full_auto": args.run_full_auto,
         "run_yolo": args.run_yolo,
         "run_resume_last_session": args.run_resume_last_session,
+        "run_objective_rewrite": bool(objective_rewrite_enabled),
         "run_runner_backend": runner_backend,
         "run_runner_bin": runner_bin,
         "run_main_reasoning_effort": main_reasoning_effort,
@@ -252,6 +256,10 @@ def main() -> None:
         "--follow-up-auto-execute-seconds",
         str(args.follow_up_auto_execute_seconds),
     ]
+    if objective_rewrite_enabled:
+        daemon_cmd.append("--run-objective-rewrite")
+    else:
+        daemon_cmd.append("--no-run-objective-rewrite")
     if runner_bin:
         daemon_cmd.extend(["--run-runner-bin", runner_bin])
     if token and chat_id:
@@ -955,6 +963,26 @@ def prompt_planner_mode_choice() -> str:
     return PLANNER_MODE_AUTO
 
 
+def prompt_objective_rewrite_choice() -> bool:
+    print("Choose objective rewrite / 选择目标改写:")
+    print("  1. off (recommended) - keep /run text as-is. 默认关闭，不改写用户输入。")
+    print(
+        "  2. on - rewrite a new idle /run request into an ArgusBot-style objective before sending it to the main agent. "
+        "开启后会先整理成更适合 ArgusBot 的目标格式。"
+    )
+    print(
+        "     Warning / 提示: this is optional and may be a poor fit for specialized projects. "
+        "这是可选功能；对于特化项目效果不一定好，请按需要判断是否适合开启。"
+    )
+    while True:
+        raw = prompt_input("Objective rewrite number [1] / 输入改写模式编号 [1]: ", default="1").strip()
+        if raw in {"", "1"}:
+            return False
+        if raw == "2":
+            return True
+        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
+
+
 def resolve_setup_channel(args: argparse.Namespace) -> str:
     raw = str(getattr(args, "channel", None) or "").strip().lower()
     if raw in CHANNEL_CHOICES:
@@ -1065,6 +1093,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Resume from the last saved session_id when daemon receives a new run while idle.",
+    )
+    parser.add_argument(
+        "--run-objective-rewrite",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Rewrite a new idle /run request into an ArgusBot-style objective before launching the main agent.",
     )
     parser.add_argument(
         "--run-model-preset",

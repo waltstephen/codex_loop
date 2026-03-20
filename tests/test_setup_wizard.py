@@ -338,6 +338,11 @@ def test_build_parser_accepts_feishu_options() -> None:
     assert args.feishu_chat_id == "oc_123"
 
 
+def test_build_parser_accepts_run_objective_rewrite_flag() -> None:
+    args = setup_wizard.build_parser().parse_args(["--run-objective-rewrite"])
+    assert args.run_objective_rewrite is True
+
+
 def test_build_parser_accepts_copilot_proxy_options() -> None:
     args = setup_wizard.build_parser().parse_args(
         [
@@ -377,6 +382,14 @@ def test_prompt_planner_mode_choice_mentions_plan_confirmation(monkeypatch, caps
     assert "选择规划模式" in captured.out
 
 
+def test_prompt_objective_rewrite_choice_shows_bilingual_warning(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(setup_wizard, "prompt_input", lambda prompt, default: "2")
+    assert setup_wizard.prompt_objective_rewrite_choice() is True
+    captured = capsys.readouterr()
+    assert "目标改写" in captured.out
+    assert "specialized projects" in captured.out
+
+
 def test_main_writes_execute_only_run_plan_mode(monkeypatch, tmp_path: Path) -> None:
     home_dir = tmp_path / "custom-home"
     run_cd = tmp_path / "repo"
@@ -396,6 +409,7 @@ def test_main_writes_execute_only_run_plan_mode(monkeypatch, tmp_path: Path) -> 
         run_full_auto=False,
         run_yolo=True,
         run_resume_last_session=True,
+        run_objective_rewrite=None,
         run_planner_mode="auto",
         run_model_preset="cheap",
         run_main_model=None,
@@ -441,10 +455,12 @@ def test_main_writes_execute_only_run_plan_mode(monkeypatch, tmp_path: Path) -> 
 
     payload = json.loads((home_dir / "daemon_config.json").read_text(encoding="utf-8"))
     assert payload["run_plan_mode"] == setup_wizard.DEFAULT_DAEMON_RUN_PLAN_MODE
+    assert payload["run_objective_rewrite"] is False
     assert launched
     daemon_cmd = launched[0]
     mode_index = daemon_cmd.index("--run-plan-mode")
     assert daemon_cmd[mode_index + 1] == setup_wizard.DEFAULT_DAEMON_RUN_PLAN_MODE
+    assert "--no-run-objective-rewrite" in daemon_cmd
 
 
 def test_resolve_copilot_proxy_settings_bootstraps_when_explicitly_enabled(monkeypatch, tmp_path: Path) -> None:

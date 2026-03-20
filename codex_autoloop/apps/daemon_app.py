@@ -17,6 +17,7 @@ from ..btw_agent import BtwAgent, BtwConfig
 from ..copilot_proxy import build_codex_runner, config_from_args, format_proxy_summary
 from ..daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from ..model_catalog import get_preset
+from ..objective_rewrite import format_objective_rewrite_failure_message, format_objective_rewrite_message, rewrite_run_objective
 from ..runner_backend import DEFAULT_RUNNER_BACKEND, backend_supports_copilot_proxy
 from ..telegram_notifier import TelegramConfig, TelegramNotifier, resolve_chat_id
 from ..token_lock import TokenLock, acquire_token_lock
@@ -54,6 +55,11 @@ class TelegramDaemonApp:
         run_copilot_proxy = config_from_args(args, prefix="run_")
         if run_copilot_proxy.enabled and backend_supports_copilot_proxy(getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND)):
             print(f"[daemon] Copilot proxy mode: {format_proxy_summary(run_copilot_proxy)}", file=sys.stderr)
+        self.daemon_runner = build_codex_runner(
+            backend=getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND),
+            runner_bin=getattr(args, "run_runner_bin", None),
+            config=run_copilot_proxy,
+        )
 
         self.token_lock: TokenLock | None = None
         self.notifier: TelegramNotifier | None = None
@@ -69,11 +75,7 @@ class TelegramDaemonApp:
         self.child_control_bus: JsonlCommandBus | None = None
         self.pending_attachment_batches: dict[str, list[Any]] = {}
         self.btw_agent = BtwAgent(
-            runner=build_codex_runner(
-                backend=getattr(args, "run_runner_backend", DEFAULT_RUNNER_BACKEND),
-                runner_bin=getattr(args, "run_runner_bin", None),
-                config=run_copilot_proxy,
-            ),
+            runner=self.daemon_runner,
             config=BtwConfig(
                 working_dir=str(self.run_cwd),
                 model=(
@@ -327,7 +329,7 @@ class TelegramDaemonApp:
                 else:
                     self._send_reply(command.source, "[daemon] active run exists but child control bus unavailable.")
                 return
-            self._start_child(objective)
+            self._start_child(self._maybe_rewrite_run_objective(objective, source=command.source))
             return
         if command.kind in {"plan", "review"}:
             if not self._child_running():
@@ -443,6 +445,38 @@ class TelegramDaemonApp:
             force_new_session=force_new_session,
         )
         self._write_status()
+
+    def _maybe_rewrite_run_objective(self, objective: str, *, source: str) -> str:
+        if not getattr(self.args, "run_objective_rewrite", False):
+            return objective
+        preset = get_preset(self.args.run_model_preset) if getattr(self.args, "run_model_preset", None) else None
+        result = rewrite_run_objective(
+            runner=self.daemon_runner,
+            objective=objective,
+            working_dir=str(self.run_cwd),
+            project_name=self.run_cwd.name,
+            model=(preset.main_model if preset is not None else getattr(self.args, "run_main_model", None)),
+            reasoning_effort=(
+                preset.main_reasoning_effort if preset is not None else getattr(self.args, "run_main_reasoning_effort", None)
+            ),
+        )
+        if result.failure_reason:
+            self._send_reply(source, format_objective_rewrite_failure_message(result))
+            self._log_event(
+                "run.objective_rewrite.failed",
+                source=source,
+                objective=objective[:700],
+                reason=result.failure_reason[:700],
+            )
+            return objective
+        self._send_reply(source, format_objective_rewrite_message(result))
+        self._log_event(
+            "run.objective_rewrite.applied" if result.applied else "run.objective_rewrite.kept",
+            source=source,
+            original_objective=result.original_objective[:700],
+            rewritten_objective=result.rewritten_objective[:700],
+        )
+        return result.rewritten_objective
 
     def _send_reply(self, source: str, message: str) -> None:
         if source == "telegram":
@@ -673,6 +707,10 @@ def build_child_command(
         cmd.extend(["--file", file_spec])
     if args.run_worktree_name:
         cmd.extend(["--worktree", args.run_worktree_name])
+    if getattr(args, "run_plan_mode", "fully-plan") == "fully-plan":
+        cmd.append("--follow-up-phase")
+    else:
+        cmd.append("--no-follow-up-phase")
     cmd.append(objective)
     return cmd
 

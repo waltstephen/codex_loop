@@ -26,6 +26,11 @@ from .copilot_proxy import AUTO_DETECTED_PROXY_DIR_HELP, build_codex_runner, con
 from .daemon_bus import BusCommand, JsonlCommandBus, read_status, write_status
 from .feishu_adapter import FeishuCommand, FeishuCommandPoller, FeishuConfig, FeishuNotifier
 from .model_catalog import MODEL_PRESETS, get_preset
+from .objective_rewrite import (
+    format_objective_rewrite_failure_message,
+    format_objective_rewrite_message,
+    rewrite_run_objective,
+)
 from .planner_modes import (
     PLANNER_MODE_AUTO,
     PLANNER_MODE_CHOICES,
@@ -478,25 +483,27 @@ def main() -> None:
     run_copilot_proxy = config_from_args(args, prefix="run_")
     if run_copilot_proxy.enabled and backend_supports_copilot_proxy(args.run_runner_backend):
         print(f"[daemon] Copilot proxy mode: {format_proxy_summary(run_copilot_proxy)}", file=sys.stderr)
+    preset = get_preset(args.run_model_preset) if args.run_model_preset else None
+    daemon_runner = build_codex_runner(
+        backend=args.run_runner_backend,
+        runner_bin=args.run_runner_bin,
+        config=run_copilot_proxy,
+    )
     btw_agent = BtwAgent(
-        runner=build_codex_runner(
-            backend=args.run_runner_backend,
-            runner_bin=args.run_runner_bin,
-            config=run_copilot_proxy,
-        ),
+        runner=daemon_runner,
         config=BtwConfig(
             working_dir=str(run_cwd),
             model=(
                 args.run_planner_model
                 or args.run_reviewer_model
                 or args.run_main_model
-                or (get_preset(args.run_model_preset).reviewer_model if args.run_model_preset and get_preset(args.run_model_preset) else None)
+                or (preset.reviewer_model if preset is not None else None)
             ),
             reasoning_effort=(
                 args.run_planner_reasoning_effort
                 or args.run_reviewer_reasoning_effort
                 or args.run_main_reasoning_effort
-                or (get_preset(args.run_model_preset).reviewer_reasoning_effort if args.run_model_preset and get_preset(args.run_model_preset) else None)
+                or (preset.reviewer_reasoning_effort if preset is not None else None)
             ),
             messages_file=str(logs_dir / "btw_messages.md"),
         ),
@@ -1107,7 +1114,18 @@ def main() -> None:
             if pending_plan_request or scheduled_plan_request_at is not None:
                 clear_planner_state(reason="manual_override")
                 send_reply(source, "[daemon] pending plan request cleared by manual command.")
-            start_child(objective)
+            rewritten_objective = maybe_rewrite_run_objective(
+                enabled=bool(getattr(args, "run_objective_rewrite", False)),
+                objective=objective,
+                source=source,
+                run_cwd=run_cwd,
+                runner=daemon_runner,
+                model=(preset.main_model if preset is not None else args.run_main_model),
+                reasoning_effort=(preset.main_reasoning_effort if preset is not None else args.run_main_reasoning_effort),
+                send_reply=send_reply,
+                log_event=log_event,
+            )
+            start_child(rewritten_objective)
             return
         if command.kind == "stop":
             running = child is not None and child.poll() is None
@@ -1154,10 +1172,6 @@ def main() -> None:
     ) -> None:
         nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
         nonlocal scheduled_plan_context, scheduled_plan_request_at
-        if plan_mode == PLAN_MODE_EXECUTE_ONLY:
-            clear_planner_state(reason="execute_only")
-            return
-
         state_payload = read_status(args.run_state_file) if args.run_state_file else None
         finished_at = dt.datetime.utcnow()
         if plan_mode == PLAN_MODE_RECORD_ONLY:
@@ -1231,7 +1245,7 @@ def main() -> None:
     def process_planner_timers() -> None:
         nonlocal pending_plan_request, pending_plan_auto_execute_at, pending_plan_generated_at
         nonlocal scheduled_plan_context, scheduled_plan_request_at
-        if plan_mode != PLAN_MODE_FULLY_PLAN:
+        if not plan_mode_allows_post_run_planning(plan_mode):
             return
         if child is not None and child.poll() is None:
             return
@@ -1646,6 +1660,10 @@ def build_child_command(
         cmd.extend(["--state-file", args.run_state_file])
     if args.run_no_dashboard:
         cmd.append("--no-dashboard")
+    if getattr(args, "run_plan_mode", PLAN_MODE_FULLY_PLAN) == PLAN_MODE_FULLY_PLAN:
+        cmd.append("--follow-up-phase")
+    else:
+        cmd.append("--no-follow-up-phase")
     cmd.append(objective)
     return cmd
 
@@ -1893,6 +1911,10 @@ def normalize_child_plan_mode(raw: str | None) -> str | None:
     return None
 
 
+def plan_mode_allows_post_run_planning(mode: str) -> bool:
+    return mode in {PLAN_MODE_EXECUTE_ONLY, PLAN_MODE_FULLY_PLAN}
+
+
 def session_plan_goal_is_confirmed(
     *,
     pending_session_plan_goal: str | None,
@@ -2110,6 +2132,47 @@ def looks_like_terminal_handoff_instruction(text: str) -> bool:
         "停止 autoloop",
     )
     return any(pattern in normalized for pattern in patterns)
+
+
+def maybe_rewrite_run_objective(
+    *,
+    enabled: bool,
+    objective: str,
+    source: str,
+    run_cwd: Path,
+    runner,
+    model: str | None,
+    reasoning_effort: str | None,
+    send_reply,
+    log_event,
+) -> str:
+    if not enabled:
+        return objective
+    result = rewrite_run_objective(
+        runner=runner,
+        objective=objective,
+        working_dir=str(run_cwd),
+        project_name=run_cwd.name,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+    if result.failure_reason:
+        send_reply(source, format_objective_rewrite_failure_message(result))
+        log_event(
+            "run.objective_rewrite.failed",
+            source=source,
+            objective=objective[:700],
+            reason=result.failure_reason[:700],
+        )
+        return objective
+    send_reply(source, format_objective_rewrite_message(result))
+    log_event(
+        "run.objective_rewrite.applied" if result.applied else "run.objective_rewrite.kept",
+        source=source,
+        original_objective=result.original_objective[:700],
+        rewritten_objective=result.rewritten_objective[:700],
+    )
+    return result.rewritten_objective
 
 
 @dataclass
@@ -2487,6 +2550,12 @@ def build_parser() -> argparse.ArgumentParser:
         const="default",
         default=None,
         help="Create a new git worktree for child runs (optionally specify a name).",
+    )
+    parser.add_argument(
+        "--run-objective-rewrite",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Rewrite a new idle /run objective into an ArgusBot-style structured objective before launching the main agent.",
     )
     parser.add_argument(
         "--run-plan-mode",

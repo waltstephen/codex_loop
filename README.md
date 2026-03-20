@@ -7,6 +7,8 @@
 
 Docs: [Quick Start](QUICKSTART.md) | [Recent Updates](WHATS_NEW.md) | [Contributing](CONTRIBUTING.md)
 
+> What's New: See [Recent Updates](WHATS_NEW.md) for the latest user-visible changes.
+
 `ArgusBot` is a Python supervisor plugin for Codex CLI and Claude Code CLI:
 
 - Main agent executes the task through the selected runner backend
@@ -332,7 +334,9 @@ Practical guidance:
 - Put `Final Goal` first, even if the immediate task is small.
 - Say what “done” means in concrete terms.
 - If you want planner behavior, say whether it should explore, only record, or stay off.
-- If your wording is messy, you can ask any AI tool to rewrite your request into the template above before sending it here. This repo does not need to provide that rewrite step itself.
+- If your wording is messy, you can ask any AI tool to rewrite your request into the template above before sending it here.
+- Optional: ArgusBot setup now includes an `Objective Rewrite` switch for `/run`. It is off by default, and it can rewrite a new idle `/run` request into this structure before handing it to the main agent.
+- Warning: keep that rewrite switch off for specialized projects unless it is clearly helping. 对于特化项目，建议按需开启，不要默认依赖它。
 
 ### Example 1: Reproduce a Paper
 

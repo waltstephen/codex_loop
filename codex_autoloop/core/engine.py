@@ -44,6 +44,7 @@ class LoopConfig:
     main_plugin_dirs: list[str] | None = None
     main_file_specs: list[str] | None = None
     main_worktree_name: str | None = None
+    allow_follow_up_phase: bool = True
 
 
 @dataclass
@@ -347,9 +348,6 @@ class LoopEngine:
                 main_last_message=main_result.last_agent_message,
                 plan=current_plan,
             )
-            if review.status == "done" and checks_ok:
-                self._finalize_success_report(session_id=session_id, rounds=rounds + [round_for_report])
-
             planned_follow_up: PlanDecision | None = None
             if review.status == "done" and checks_ok and current_plan_mode != "off":
                 planned_follow_up = self._maybe_run_planner(
@@ -392,6 +390,22 @@ class LoopEngine:
                         session_id=session_id,
                         rounds=rounds,
                         stop_reason="Reviewer marked done, checks passed, and planner recorded the final summary.",
+                    )
+                if not self.config.allow_follow_up_phase:
+                    if planned_follow_up is not None and planned_follow_up.follow_up_required:
+                        return self._complete(
+                            success=True,
+                            session_id=session_id,
+                            rounds=rounds,
+                            stop_reason=(
+                                "Reviewer marked done, checks passed, and planner proposed a future-session follow-up."
+                            ),
+                        )
+                    return self._complete(
+                        success=True,
+                        session_id=session_id,
+                        rounds=rounds,
+                        stop_reason="Reviewer marked done, checks passed, and planner did not require a follow-up phase.",
                     )
                 if planned_follow_up is None or not planned_follow_up.follow_up_required:
                     return self._complete(

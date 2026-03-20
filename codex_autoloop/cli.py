@@ -190,6 +190,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=1800,
         help="Reserved compatibility flag for daemon-launched runs.",
     )
+    parser.add_argument(
+        "--follow-up-phase",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--skip-git-repo-check", action="store_true", help="Pass through to Codex CLI.")
     parser.add_argument("--full-auto", action="store_true", help="Pass `--full-auto` to Codex CLI.")
     parser.add_argument(
