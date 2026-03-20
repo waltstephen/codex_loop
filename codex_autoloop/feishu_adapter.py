@@ -86,6 +86,44 @@ FEISHU_COLOR_GRAY = "gray"      # 中性/默认
 FEISHU_OUTPUT_LENGTH_PROTECTION = True
 
 
+def _normalize_internal_markdown_headers(text: str) -> str:
+    """标准化内部 Markdown 的标题层级，避免与外层标题冲突。
+
+    将 ## 降级为 ####，### 降级为 #####，以此类推。
+    同时移除与外层重复的标题（如"本轮总结"、"完成证据"等）。
+
+    Args:
+        text: 原始 Markdown 文本
+
+    Returns:
+        标题层级调整后的文本
+    """
+    if not text:
+        return text
+
+    result = text
+
+    # 移除可能重复的标题
+    duplicate_headers = [
+        (r'^##\s*本轮总结\s*$', ''),
+        (r'^##\s*完成证据\s*$', ''),
+        (r'^###\s*本轮总结\s*$', ''),
+        (r'^###\s*完成证据\s*$', ''),
+    ]
+    for pattern, replacement in duplicate_headers:
+        result = re.sub(pattern, replacement, result, flags=re.MULTILINE)
+
+    # 降级标题层级：## -> ####, ### -> #####, #### -> ######
+    result = re.sub(r'^####\s+(.+)$', r'###### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^###\s+(.+)$', r'##### \1', result, flags=re.MULTILINE)
+    result = re.sub(r'^##\s+(.+)$', r'#### \1', result, flags=re.MULTILINE)
+
+    # 移除多余的空行（由于移除标题产生）
+    result = re.sub(r'\n{3,}', '\n\n', result)
+
+    return result.strip()
+
+
 def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection: bool = True) -> str:
     """将 Reviewer JSON 输出转换为分层 Markdown 格式（飞书卡片专用）。
 
@@ -93,6 +131,7 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
     - 更紧凑的格式
     - 适合卡片阅读的层级结构
     - 可选的长度保护
+    - 自动处理内部 Markdown 的标题层级
 
     Args:
         raw_json: Reviewer JSON 输出
@@ -145,6 +184,8 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
             if len(round_summary) > 3000:
                 round_summary = round_summary[:3000] + "...(truncated)"
             round_summary = _remove_code_blocks(round_summary)
+        # 标准化内部 Markdown 的标题层级
+        round_summary = _normalize_internal_markdown_headers(round_summary)
         lines.append("### 本轮总结")
         lines.append(round_summary)
         lines.append("")
@@ -156,6 +197,8 @@ def format_reviewer_json_to_markdown(raw_json: str, *, enable_length_protection:
             if len(completion) > 2500:
                 completion = completion[:2500] + "...(truncated)"
             completion = _remove_code_blocks(completion)
+        # 标准化内部 Markdown 的标题层级
+        completion = _normalize_internal_markdown_headers(completion)
         lines.append("### 完成证据")
         lines.append(completion)
         lines.append("")
@@ -661,7 +704,7 @@ class FeishuNotifier:
                 template="blue"
             )
 
-    def send_message(self, message: str) -> bool:
+    def send_message(self, message: str, title: str = "ArgusBot 通知") -> bool:
         """Send a text message using Feishu schema 2.0 format.
 
         Uses schema 2.0 markdown element for proper Markdown rendering.
@@ -678,6 +721,10 @@ class FeishuNotifier:
         - Missing newlines after headers
         - Incorrect list formatting
 
+        Args:
+            message: Message content (supports full Markdown syntax)
+            title: Card header title (default: "ArgusBot 通知")
+
         Note: Message chunks are limited to FEISHU_CARD_MAX_BYTES (30 KB) to avoid
         error 230025 (message too long) and 230099 (card content failed).
         """
@@ -690,9 +737,16 @@ class FeishuNotifier:
 
         ok = True
         for chunk in split_feishu_message(fixed_message, max_chunk_bytes=FEISHU_CARD_MAX_BYTES):
-            # Build card content using Feishu schema 2.0 format
+            # Build card content using Feishu schema 2.0 format with header
             card_content = {
                 "schema": "2.0",
+                "header": {
+                    "title": {
+                        "tag": "plain_text",
+                        "content": title
+                    },
+                    "template": "blue"
+                },
                 "body": {
                     "elements": [
                         {
