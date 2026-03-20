@@ -45,7 +45,6 @@ __all__ = [
     'FEISHU_OUTPUT_LENGTH_PROTECTION',
     # Utilities
     'split_feishu_message',
-    'markdown_to_feishu_post',
     'build_interactive_card',
     'format_feishu_event_card',
     'format_feishu_event_message',
@@ -55,6 +54,7 @@ __all__ = [
     'extract_feishu_text',
     'format_reviewer_json_to_markdown',
     'format_planner_json_to_markdown',
+    'format_planner_to_elements',
 ]
 
 _FEISHU_MENTION_PREFIX = re.compile(r"^(?:@[_\w-]+\s+)+")
@@ -304,6 +304,183 @@ def format_planner_json_to_markdown(raw_json: str, *, enable_length_protection: 
     return "\n".join(lines)
 
 
+def format_planner_to_elements(raw_json: str, *, enable_length_protection: bool = True) -> list[dict[str, Any]]:
+    """将 Planner JSON 输出转换为飞书卡片元素列表（使用 div + fields 模拟表格）。
+
+    飞书卡片元素格式:
+    - div + fields: 使用双列布局模拟表格效果
+    - div + lark_md: 文本内容
+
+    Args:
+        raw_json: Planner JSON 输出
+        enable_length_protection: 是否启用长度保护
+
+    Returns:
+        卡片元素列表，可直接用于 build_interactive_card
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return [{"tag": "div", "text": {"tag": "lark_md", "content": raw_json}}]
+
+    if not isinstance(data, dict):
+        return [{"tag": "div", "text": {"tag": "lark_md", "content": raw_json}}]
+
+    elements: list[dict[str, Any]] = []
+
+    # 1. 经理总结 (使用 div + lark_md)
+    summary = data.get("summary", "")
+    if summary:
+        if enable_length_protection:
+            if len(summary) > 1500:
+                summary = summary[:1500] + "...(truncated)"
+            summary = _remove_code_blocks(summary)
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**经理总结**\n{summary}"
+            }
+        })
+
+    # 2. 工作流状态 (使用 div + fields 双列布局模拟表格)
+    workstreams = data.get("workstreams", [])
+    if workstreams:
+        # 表格标题
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "**工作流状态**"
+            }
+        })
+
+        # 使用 fields 双列布局展示每个工作流
+        for ws in workstreams:
+            area = ws.get("area", "未知")
+            status = ws.get("status", "unknown")
+            evidence = ws.get("evidence", "")
+            next_step = ws.get("next_step", "")
+
+            status_icon = {
+                "done": "✅",
+                "in_progress": "🔄",
+                "todo": "⏳",
+                "blocked": "🚫",
+            }.get(status, "❓")
+
+            # 详情：证据和下一步
+            detail_parts = []
+            if evidence:
+                if enable_length_protection and len(evidence) > 100:
+                    evidence = evidence[:100] + "..."
+                detail_parts.append(evidence)
+            if next_step:
+                if enable_length_protection and len(next_step) > 50:
+                    next_step = next_step[:50] + "..."
+                detail_parts.append(f"➡️ {next_step}")
+
+            detail_text = "\\n".join(detail_parts) if detail_parts else "-"
+
+            # 使用 fields 双列布局
+            elements.append({
+                "tag": "div",
+                "fields": [
+                    {
+                        "is_short": True,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": f"**{area}**\n{status_icon}"
+                        }
+                    },
+                    {
+                        "is_short": True,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": detail_text
+                        }
+                    }
+                ]
+            })
+
+    # 3. 完成项和剩余项 (使用 div + lark_md)
+    done_items = data.get("done_items", [])
+    remaining_items = data.get("remaining_items", [])
+
+    if done_items or remaining_items:
+        items_content = []
+
+        if done_items:
+            done_count = len(done_items)
+            show_items = done_items[:5] if enable_length_protection and done_count > 5 else done_items
+            items_content.append(f"**✅ 已完成 ({done_count}项)**")
+            for item in show_items:
+                items_content.append(f"- {item}")
+            if enable_length_protection and done_count > 5:
+                items_content.append(f"- ... 还有{done_count - 5}项")
+
+        if remaining_items:
+            remaining_count = len(remaining_items)
+            show_items = remaining_items[:5] if enable_length_protection and remaining_count > 5 else remaining_items
+            items_content.append(f"**⏳ 剩余 ({remaining_count}项)**")
+            for item in show_items:
+                items_content.append(f"- {item}")
+            if enable_length_protection and remaining_count > 5:
+                items_content.append(f"- ... 还有{remaining_count - 5}项")
+
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "\n".join(items_content)
+            }
+        })
+
+    # 4. 风险
+    risks = data.get("risks", [])
+    if risks:
+        risk_lines = ["**⚠️ 风险**"]
+        for risk in risks:
+            risk_lines.append(f"- {risk}")
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "\n".join(risk_lines)
+            }
+        })
+
+    # 5. 推荐下一步
+    next_steps = data.get("next_steps", [])
+    if next_steps:
+        step_lines = ["**➡️ 推荐下一步**"]
+        for step in next_steps:
+            step_lines.append(f"- {step}")
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "\n".join(step_lines)
+            }
+        })
+
+    # 6. 建议的下一目标
+    suggested_objective = data.get("suggested_next_objective", "")
+    if suggested_objective:
+        if enable_length_protection:
+            if len(suggested_objective) > 500:
+                suggested_objective = suggested_objective[:500] + "...(truncated)"
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**🎯 建议下一目标**\n{suggested_objective}"
+            }
+        })
+
+    return elements
+
+
 def _remove_code_blocks(text: str) -> str:
     """移除文本中的代码块，替换为简洁描述。
 
@@ -320,125 +497,6 @@ def _remove_code_blocks(text: str) -> str:
     return result
 
 
-def markdown_to_feishu_post(text: str, title: str = "ArgusBot Update") -> dict[str, Any]:
-    """Convert Markdown text to Feishu post message format.
-
-    Feishu post message format:
-    {
-      "msg_type": "post",
-      "content": {
-        "zh_cn": {
-          "title": "...",
-          "content": [
-            [{"tag": "text", "text": "..."}],
-            ...
-          ]
-        }
-      }
-    }
-
-    Handles:
-    - Bold: **text** → clean text
-    - Lists: - item → • item
-    - Headers: ### title → title with newlines
-    - Code blocks: ```lang ... ``` → preserved content
-    - Regular paragraphs
-    """
-    lines = text.split('\n')
-    content_blocks: list[list[dict[str, Any]]] = []
-
-    in_code_block = False
-    code_block_content: list[str] = []
-
-    for line in lines:
-        stripped = line.strip()
-
-        # Handle code block start/end
-        if stripped.startswith('```'):
-            if in_code_block:
-                # End of code block - emit as formatted code
-                code_text = '\n'.join(code_block_content)
-                content_blocks.append([{
-                    "tag": "text",
-                    "text": f"\n```\n{code_text}\n```\n"
-                }])
-                code_block_content = []
-                in_code_block = False
-            else:
-                # Start of code block
-                in_code_block = True
-            continue
-
-        if in_code_block:
-            code_block_content.append(line)
-            continue
-
-        # Skip empty lines
-        if not stripped:
-            continue
-
-        # Handle bold: **text**
-        if re.match(r'^\*\*.*\*\*$', stripped):
-            clean_text = stripped.replace('**', '')
-            content_blocks.append([{
-                "tag": "text",
-                "text": clean_text
-            }])
-            continue
-
-        # Handle list items: - item
-        if re.match(r'^-\s+.*$', stripped):
-            item_text = re.sub(r'^-\s+', '', stripped)
-            content_blocks.append([{
-                "tag": "text",
-                "text": f"• {item_text}"
-            }])
-            continue
-
-        # Handle headers: ### title → title with newlines
-        if re.match(r'^###\s+.*$', stripped):
-            title_text = re.sub(r'^###\s+', '', stripped)
-            content_blocks.append([{
-                "tag": "text",
-                "text": f"\n{title_text}\n"
-            }])
-            continue
-
-        # Handle ## headers (main sections)
-        if re.match(r'^##\s+.*$', stripped):
-            title_text = re.sub(r'^##\s+', '', stripped)
-            content_blocks.append([{
-                "tag": "text",
-                "text": f"\n\n**{title_text}**\n"
-            }])
-            continue
-
-        # Regular paragraphs
-        if stripped:
-            content_blocks.append([{
-                "tag": "text",
-                "text": stripped
-            }])
-
-    # Handle unclosed code block
-    if in_code_block and code_block_content:
-        code_text = '\n'.join(code_block_content)
-        content_blocks.append([{
-            "tag": "text",
-            "text": f"\n```\n{code_text}\n```\n"
-        }])
-
-    return {
-        "msg_type": "post",
-        "content": {
-            "zh_cn": {
-                "title": title,
-                "content": content_blocks if content_blocks else [[{"tag": "text", "text": text}]]
-            }
-        }
-    }
-
-
 def build_interactive_card(
     title: str,
     content: str,
@@ -453,21 +511,18 @@ def build_interactive_card(
         content: Main content text (supports Markdown-like formatting)
         template: Header color template (blue, green, red, yellow, purple, gray)
         actions: Optional list of action buttons
-        wide_screen_mode: Enable wide screen mode
+        wide_screen_mode: Enable wide screen mode (not used in schema 2.0)
 
     Returns:
         Interactive card message dict ready to be sent
     """
     elements: list[dict] = []
 
-    # Add content as div element
+    # Add content as markdown element
     if content:
         elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": content
-            }
+            "tag": "markdown",
+            "content": content
         })
 
     # Add action buttons if provided
@@ -477,10 +532,9 @@ def build_interactive_card(
             "actions": actions
         })
 
+    # Use Feishu schema 2.0 format
     card_content = {
-        "config": {
-            "wide_screen_mode": wide_screen_mode
-        },
+        "schema": "2.0",
         "header": {
             "title": {
                 "tag": "plain_text",
@@ -488,36 +542,13 @@ def build_interactive_card(
             },
             "template": template
         },
-        "elements": elements
+        "body": {
+            "elements": elements
+        }
     }
 
     return card_content
 
-
-# def _strip_markdown_code_blocks(text: str) -> str:
-#     """Remove markdown code block markers (```lang ... ```) from text.
-
-#     Feishu post messages don't support Markdown rendering, so we strip
-#     the code block markers to display the content as plain text.
-
-#     Example:
-#         Input: "```json\\n{...}\\n```"
-#         Output: "{...}"
-#     """
-#     if not text:
-#         return text
-
-#     result = text
-#     # Pattern: ```(language)?\\n(content)```
-#     # Match code blocks and keep only the content
-#     pattern = r"```(\w*)?\s*(.*?)\s*```"
-
-#     def replace_code_block(match: re.Match) -> str:
-#         content = match.group(2) or ""
-#         return content.strip()
-
-#     result = re.sub(pattern, replace_code_block, result, flags=re.DOTALL)
-#     return result
 
 
 @dataclass
@@ -631,9 +662,9 @@ class FeishuNotifier:
             )
 
     def send_message(self, message: str) -> bool:
-        """Send a text message using interactive card format with markdown element.
+        """Send a text message using Feishu schema 2.0 format.
 
-        Uses interactive card format with markdown element for proper Markdown rendering.
+        Uses schema 2.0 markdown element for proper Markdown rendering.
         This supports:
         - Headers: # H1, ## H2, ### H3
         - Bold: **text**
@@ -659,24 +690,17 @@ class FeishuNotifier:
 
         ok = True
         for chunk in split_feishu_message(fixed_message, max_chunk_bytes=FEISHU_CARD_MAX_BYTES):
-            # Build card content with markdown element for Markdown support
+            # Build card content using Feishu schema 2.0 format
             card_content = {
-                "config": {
-                    "wide_screen_mode": self.config.wide_screen_mode
-                },
-                "header": {
-                    "title": {
-                        "tag": "plain_text",
-                        "content": "ArgusBot Update"
-                    },
-                    "template": "blue"
-                },
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": chunk
-                    }
-                ]
+                "schema": "2.0",
+                "body": {
+                    "elements": [
+                        {
+                            "tag": "markdown",
+                            "content": chunk
+                        }
+                    ]
+                }
             }
             ok = (
                 self._send_structured_message(
@@ -740,51 +764,6 @@ class FeishuNotifier:
             )
         return ok
 
-    # def _send_post_message(
-    #     self,
-    #     *,
-    #     token: str,
-    #     text_content: str,
-    # ) -> bool:
-    #     """Send a post message with Markdown converted to Feishu format.
-
-    #     Uses markdown_to_feishu_post() to convert Markdown to structured
-    #     Feishu post format with proper handling of:
-    #     - Headers (##, ###)
-    #     - Bold (**text**)
-    #     - List items (- item)
-    #     - Code blocks (```lang ... ```)
-    #     """
-    #     # Convert markdown to feishu post format
-    #     post_data = markdown_to_feishu_post(text_content)
-
-    #     body = json.dumps(
-    #         {
-    #             "receive_id": self.config.chat_id,
-    #             "msg_type": "post",
-    #             "content": json.dumps(post_data["content"], ensure_ascii=False),
-    #         },
-    #         ensure_ascii=False,
-    #     ).encode("utf-8")
-    #     req = urllib.request.Request(
-    #         "https://open.feishu.cn/open-apis/im/v1/messages"
-    #         + f"?{urllib.parse.urlencode({'receive_id_type': self.config.receive_id_type})}",
-    #         data=body,
-    #         method="POST",
-    #         headers={
-    #             "Content-Type": "application/json; charset=utf-8",
-    #             "Authorization": f"Bearer {token}",
-    #         },
-    #     )
-    #     return (
-    #         _perform_json_request(
-    #             req,
-    #             timeout_seconds=self.config.timeout_seconds,
-    #             on_error=self.on_error,
-    #             label="feishu post send",
-    #         )
-    #         is not None
-    #     )
 
     def _send_structured_message(
         self,
@@ -931,9 +910,9 @@ class FeishuNotifier:
         template: str = "blue",
         actions: list[dict] | None = None,
     ) -> bool:
-        """Send an interactive card message with markdown element.
+        """Send an interactive card message using Feishu schema 2.0 format.
 
-        Uses markdown element for proper Markdown rendering instead of lark_md.
+        Uses schema 2.0 markdown element for proper Markdown rendering.
         This supports:
         - Headers: # H1, ## H2, ### H3
         - Bold: **text**
@@ -961,7 +940,7 @@ class FeishuNotifier:
         # Build elements array
         elements: list[dict] = []
 
-        # Add content as markdown element
+        # Add content as markdown element (schema 2.0)
         if fixed_content:
             elements.append({
                 "tag": "markdown",
@@ -975,10 +954,9 @@ class FeishuNotifier:
                 "actions": actions
             })
 
+        # Use Feishu schema 2.0 format with header at top level
         card_content = {
-            "config": {
-                "wide_screen_mode": self.config.wide_screen_mode
-            },
+            "schema": "2.0",
             "header": {
                 "title": {
                     "tag": "plain_text",
@@ -986,7 +964,9 @@ class FeishuNotifier:
                 },
                 "template": template
             },
-            "elements": elements
+            "body": {
+                "elements": elements
+            }
         }
 
         return self._send_structured_message(
