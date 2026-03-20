@@ -146,6 +146,10 @@ class _SequencePlanner:
             raise AssertionError("planner called more times than expected")
         return self.decisions.pop(0)
 
+    def evaluate_with_raw_output(self, **kwargs):  # type: ignore[no-untyped-def]
+        plan = self.evaluate(**kwargs)
+        return plan, "{}"
+
 
 class _CollectingEventSink:
     def __init__(self) -> None:
