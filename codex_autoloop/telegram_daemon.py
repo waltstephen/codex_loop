@@ -1103,11 +1103,14 @@ def main() -> None:
             running = child is not None and child.poll() is None
             if running:
                 if forward_to_child("inject", objective, source):
-                    send_reply(
-                        source,
-                        "[daemon] inject forwarded to active run. "
-                        "Child loop will interrupt and apply your new instruction.",
-                    )
+                    if command.kind == "run":
+                        send_reply(source, build_active_run_run_conflict_message())
+                    else:
+                        send_reply(
+                            source,
+                            "[daemon] inject forwarded to active run. "
+                            "Child loop will interrupt and apply your new instruction.",
+                        )
                 else:
                     send_reply(source, "[daemon] active run exists but child control bus unavailable.")
                 return
@@ -1947,6 +1950,16 @@ def build_session_plan_confirmation_required_message() -> str:
         "确认前，其他任务消息都会先提醒你补这一步。\n"
         "[EN] Auto mode is locked. Send `/plan <session goal>` first with the overall goal for this whole session; "
         "until then, other task messages will only receive this reminder."
+    )
+
+
+def build_active_run_run_conflict_message() -> str:
+    return (
+        "[daemon] an active run already exists, so this /run was handled as /inject and forwarded to the current task.\n"
+        "[CN] 当前已有 run 在执行，所以这条 `/run` 已按 `/inject` 转发给当前任务。"
+        "如果你想开启新的 run，请先发送 `/stop`，等收到已结束/已停止的确认后，再重新发送 `/run`。\n"
+        "[EN] An active run already exists, so this /run was handled as /inject and forwarded to the current task. "
+        "If you want a brand-new run, send `/stop` first, wait until you receive confirmation that the current run finished/stopped, and then send `/run` again."
     )
 
 

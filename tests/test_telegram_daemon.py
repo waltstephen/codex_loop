@@ -7,6 +7,7 @@ import codex_autoloop.telegram_daemon as telegram_daemon
 from codex_autoloop.objective_rewrite import ObjectiveRewriteResult
 from codex_autoloop.telegram_daemon import (
     append_plan_record_row,
+    build_active_run_run_conflict_message,
     build_plan_skip_message,
     build_session_plan_confirmation_required_message,
     build_parser,
@@ -500,6 +501,14 @@ def test_build_session_plan_confirmation_required_message_mentions_plan_and_sess
     assert "/plan" in message
     assert "session goal" in message.lower()
     assert "本 session 总目标" in message
+
+
+def test_build_active_run_run_conflict_message_mentions_stop_and_retry_run() -> None:
+    message = build_active_run_run_conflict_message()
+    assert "/run was handled as /inject" in message
+    assert "/stop" in message
+    assert "当前已有 run 在执行" in message
+    assert "then send `/run` again" in message
 
 
 def test_build_plan_request_uses_review_guidance() -> None:
