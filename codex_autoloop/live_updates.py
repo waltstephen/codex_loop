@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 from typing import Callable, Protocol
 
 
+_COPILOT_DELTA_BUFFERS: dict[tuple[str, str], str] = {}
+
+
 def _safe_truncate_markdown(text: str, max_chars: int) -> str:
     """Safely truncate Markdown text without breaking structure.
 
@@ -104,6 +107,74 @@ def extract_agent_message(stream: str, line: str) -> tuple[str, str] | None:
     return None
 
 
+@dataclass(frozen=True)
+class LiveUpdateMessage:
+    actor: str
+    message: str
+    replace_pending: bool = False
+
+
+def extract_stream_report_message(stream: str, line: str) -> LiveUpdateMessage | None:
+    extracted = extract_agent_message(stream, line)
+    if extracted is not None:
+        actor, message = extracted
+        return LiveUpdateMessage(actor=actor, message=message, replace_pending=False)
+
+    if not stream.endswith(".stdout"):
+        return None
+    actor = stream.split(".", 1)[0]
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    payload_type = payload.get("type")
+    if payload_type == "assistant.message_delta":
+        data = payload.get("data", {})
+        if not isinstance(data, dict):
+            return None
+        message_id = data.get("messageId")
+        delta = data.get("deltaContent")
+        if not isinstance(message_id, str) or not message_id.strip():
+            return None
+        if not isinstance(delta, str) or not delta:
+            return None
+        key = (actor, message_id.strip())
+        current = _COPILOT_DELTA_BUFFERS.get(key, "")
+        current += delta
+        _COPILOT_DELTA_BUFFERS[key] = current
+        if not current.strip():
+            return None
+        return LiveUpdateMessage(actor=actor, message=current.strip(), replace_pending=True)
+
+    if payload_type == "assistant.message":
+        data = payload.get("data", {})
+        if not isinstance(data, dict):
+            return None
+        content = data.get("content")
+        message_id = data.get("messageId")
+        if isinstance(message_id, str) and message_id.strip():
+            _COPILOT_DELTA_BUFFERS.pop((actor, message_id.strip()), None)
+        if not isinstance(content, str):
+            return None
+        normalized = content.strip()
+        if not normalized:
+            return None
+        return LiveUpdateMessage(actor=actor, message=normalized, replace_pending=True)
+
+    if payload_type == "result":
+        _clear_copilot_actor_buffers(actor)
+    return None
+
+
+def _clear_copilot_actor_buffers(actor: str) -> None:
+    stale_keys = [key for key in _COPILOT_DELTA_BUFFERS if key[0] == actor]
+    for key in stale_keys:
+        _COPILOT_DELTA_BUFFERS.pop(key, None)
+
+
 @dataclass
 class TelegramStreamReporterConfig:
     interval_seconds: int = 30
@@ -162,6 +233,17 @@ class TelegramStreamReporter:
             if self._last_seen_by_actor.get(actor) == normalized:
                 return
             self._last_seen_by_actor[actor] = normalized
+            self._pending.append((actor, normalized))
+
+    def replace_message(self, actor: str, message: str) -> None:
+        normalized = message.strip()
+        if not normalized:
+            return
+        with self._lock:
+            if self._last_seen_by_actor.get(actor) == normalized:
+                return
+            self._last_seen_by_actor[actor] = normalized
+            self._pending = [item for item in self._pending if item[0] != actor]
             self._pending.append((actor, normalized))
 
     def flush(self) -> bool:

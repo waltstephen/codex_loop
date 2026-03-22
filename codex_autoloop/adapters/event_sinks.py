@@ -7,7 +7,12 @@ from typing import Iterable
 from ..core.ports import EventSink
 from ..dashboard import DashboardStore
 from ..feishu_adapter import FeishuNotifier
-from ..live_updates import TelegramStreamReporter, TelegramStreamReporterConfig, extract_agent_message
+from ..live_updates import (
+    TelegramStreamReporter,
+    TelegramStreamReporterConfig,
+    extract_agent_message,
+    extract_stream_report_message,
+)
 from ..telegram_notifier import TelegramNotifier
 
 
@@ -101,11 +106,13 @@ class TelegramEventSink:
     def handle_stream_line(self, stream: str, line: str) -> None:
         if self._stream_reporter is None or self._live_updates_closed:
             return
-        extracted = extract_agent_message(stream, line)
+        extracted = extract_stream_report_message(stream, line)
         if extracted is None:
             return
-        actor, message = extracted
-        self._stream_reporter.add_message(actor=actor, message=message)
+        if extracted.replace_pending:
+            self._stream_reporter.replace_message(actor=extracted.actor, message=extracted.message)
+        else:
+            self._stream_reporter.add_message(actor=extracted.actor, message=extracted.message)
 
     def close(self) -> None:
         self._stop_stream_reporter(flush=True)
@@ -151,11 +158,13 @@ class FeishuEventSink:
     def handle_stream_line(self, stream: str, line: str) -> None:
         if self._stream_reporter is None or self._live_updates_closed:
             return
-        extracted = extract_agent_message(stream, line)
+        extracted = extract_stream_report_message(stream, line)
         if extracted is None:
             return
-        actor, message = extracted
-        self._stream_reporter.add_message(actor=actor, message=message)
+        if extracted.replace_pending:
+            self._stream_reporter.replace_message(actor=extracted.actor, message=extracted.message)
+        else:
+            self._stream_reporter.add_message(actor=extracted.actor, message=extracted.message)
 
     def close(self) -> None:
         self._stop_stream_reporter(flush=True)

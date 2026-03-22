@@ -32,6 +32,7 @@ from .planner_modes import (
     planner_mode_label,
 )
 from .runner_backend import (
+    BACKEND_COPILOT,
     BACKEND_CODEX,
     DEFAULT_RUNNER_BACKEND,
     RUNNER_BACKEND_CHOICES,
@@ -432,6 +433,26 @@ def check_runner_auth(
                 text=True,
                 timeout=timeout_seconds,
             )
+        elif runner_backend == BACKEND_COPILOT:
+            completed = subprocess.run(
+                [
+                    runner_bin,
+                    "--output-format",
+                    "json",
+                    "--stream",
+                    "off",
+                    "--allow-all-tools",
+                    "--no-auto-update",
+                    "--no-ask-user",
+                    *(extra_args or []),
+                    "-p",
+                    "Reply exactly: ok",
+                ],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
         else:
             completed = subprocess.run(
                 [
@@ -455,7 +476,14 @@ def check_runner_auth(
     lowered = text.lower()
     if "unauthorized" in lowered or "missing bearer" in lowered:
         return False
-    return '"text":"ok"' in text or '"text": "ok"' in text or '"result":"ok"' in text or '"result": "ok"' in text
+    return (
+        '"text":"ok"' in text
+        or '"text": "ok"' in text
+        or '"result":"ok"' in text
+        or '"result": "ok"' in text
+        or '"content":"ok"' in lowered
+        or '"content": "ok"' in lowered
+    )
 
 
 def check_codex_auth(
@@ -895,6 +923,7 @@ def prompt_runner_backend_choice(default: str = DEFAULT_RUNNER_BACKEND) -> str:
     options = [
         ("1", "codex", "Codex CLI"),
         ("2", "claude", "Claude Code CLI"),
+        ("3", "copilot", "GitHub Copilot CLI"),
     ]
     default_backend = normalize_runner_backend(default)
     default_index = next(index for index, backend, _ in options if backend == default_backend)
@@ -908,7 +937,7 @@ def prompt_runner_backend_choice(default: str = DEFAULT_RUNNER_BACKEND) -> str:
         for index, backend, _ in options:
             if raw == index:
                 return backend
-        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
+        print("Invalid selection. Enter 1, 2, or 3.", file=sys.stderr)
 
 
 def prompt_reasoning_effort(prompt: str) -> str | None:
@@ -1079,14 +1108,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-skip-git-repo-check",
         action="store_true",
-        help="Pass --skip-git-repo-check for daemon-launched runs.",
+        help="Pass --skip-git-repo-check when supported by daemon-launched runs.",
     )
-    parser.add_argument("--run-full-auto", action="store_true", help="Pass --full-auto for daemon-launched runs.")
+    parser.add_argument(
+        "--run-full-auto",
+        action="store_true",
+        help="Request automatic tool approval mode for daemon-launched runs when supported.",
+    )
     parser.add_argument(
         "--run-yolo",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Enable/disable --yolo for daemon-launched runs (default: enabled).",
+        help="Enable/disable highest-permission autonomous mode for daemon-launched runs (default: enabled).",
     )
     parser.add_argument(
         "--run-resume-last-session",
@@ -1109,7 +1142,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--run-copilot-proxy",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Use a local copilot-proxy for daemon-launched Codex runs.",
+        help="Use a local copilot-proxy for daemon-launched Codex-backend runs.",
     )
     parser.add_argument(
         "--run-copilot-proxy-dir",

@@ -198,6 +198,34 @@ def test_run_interactive_config_marks_copilot_preset_as_preferred(monkeypatch, t
     assert observed == {"preferred": True}
 
 
+def test_prompt_runner_backend_choice_accepts_copilot(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "3")
+    assert codexloop.prompt_runner_backend_choice() == "copilot"
+
+
+def test_run_interactive_config_skips_copilot_proxy_for_native_copilot_backend(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "telegram")
+    monkeypatch.setattr(codexloop, "prompt_runner_backend_choice", lambda default="codex": "copilot")
+    monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
+    monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
+    monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop, "prompt_objective_rewrite_choice", lambda: False)
+    monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
+
+    def fail_prompt_copilot_proxy_choice(preferred=False):
+        raise AssertionError("native copilot backend should not prompt for copilot-proxy")
+
+    monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", fail_prompt_copilot_proxy_choice)
+
+    config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
+
+    assert config["run_runner_backend"] == "copilot"
+    assert config["run_runner_bin"] == "/usr/bin/copilot"
+    assert config["run_copilot_proxy"] is False
+
+
 def test_prompt_control_channel_default_is_telegram(monkeypatch) -> None:
     monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: default)
     assert codexloop.prompt_control_channel() == "telegram"

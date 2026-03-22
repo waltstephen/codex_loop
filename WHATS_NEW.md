@@ -63,9 +63,13 @@ Version: none
 - Standardized the final handoff flow so the main agent is asked to write only the final report file during the final-report phase.
 - Changed session planning semantics so auto planning/follow-up stays locked until `/plan <session goal>` confirms the overall goal for the current session.
 - Changed the default daemon planner behavior to `execute-only`: planner updates and next-session suggestions still work, but follow-up does not auto-run until the session goal is explicitly confirmed.
+- Improved `/run` conflict message: when `/run` is sent while another run is already active, the daemon now explains the command was treated as `/inject` and gives clear instructions for starting a fresh run (`/stop` → wait for confirmation → `/run` again).
 
 ### Fixed
 
+- Fixed planner silently falling back to a generic snapshot when the model outputs common status aliases (`completed`, `in-progress`). Planner now normalizes these to the canonical values (`done`, `in_progress`) before validation.
+- Fixed planner accepting `name` as a fallback key for `area` in workstreams, preventing valid model output from being rejected.
+- Fixed planner context gap: planner now receives the main agent's actual last message so it can make informed follow-up decisions instead of relying solely on the reviewer's high-level summary.
 - Added a local fallback final report writer when the main-agent final-report write step fails or leaves the target file unchanged.
 - Stopped stale live-update backlog chunks from being delivered after a run has already completed or the final report is ready.
 - Prevented `/btw` from misclassifying normal questions as file requests and returning unrelated README/files instead of the intended answer.

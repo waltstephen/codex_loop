@@ -24,6 +24,16 @@ from ..token_lock import TokenLock, acquire_token_lock
 from .shell_utils import format_mode_menu
 
 
+def build_active_run_run_conflict_message() -> str:
+    return (
+        "[daemon] an active run already exists, so this /run was handled as /inject and forwarded to the current task.\n"
+        "[CN] 当前已有 run 在执行，所以这条 `/run` 已按 `/inject` 转发给当前任务。"
+        "如果你想开启新的 run，请先发送 `/stop`，等收到已结束/已停止的确认后，再重新发送 `/run`。\n"
+        "[EN] An active run already exists, so this /run was handled as /inject and forwarded to the current task. "
+        "If you want a brand-new run, send `/stop` first, wait until you receive confirmation that the current run finished/stopped, and then send `/run` again."
+    )
+
+
 def _split_autoloop_command(command: str) -> list[str]:
     if not command:
         raise ValueError("ArgusBot command cannot be empty")
@@ -321,11 +331,14 @@ class TelegramDaemonApp:
                 return
             if self._child_running():
                 if self._forward_to_child("inject", objective, command.source):
-                    self._send_reply(
-                        command.source,
-                        "[daemon] inject forwarded to active run. "
-                        "Child loop will interrupt and apply your new instruction.",
-                    )
+                    if command.kind == "run":
+                        self._send_reply(command.source, build_active_run_run_conflict_message())
+                    else:
+                        self._send_reply(
+                            command.source,
+                            "[daemon] inject forwarded to active run. "
+                            "Child loop will interrupt and apply your new instruction.",
+                        )
                 else:
                     self._send_reply(command.source, "[daemon] active run exists but child control bus unavailable.")
                 return

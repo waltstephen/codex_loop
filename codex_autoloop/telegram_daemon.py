@@ -1103,11 +1103,14 @@ def main() -> None:
             running = child is not None and child.poll() is None
             if running:
                 if forward_to_child("inject", objective, source):
-                    send_reply(
-                        source,
-                        "[daemon] inject forwarded to active run. "
-                        "Child loop will interrupt and apply your new instruction.",
-                    )
+                    if command.kind == "run":
+                        send_reply(source, build_active_run_run_conflict_message())
+                    else:
+                        send_reply(
+                            source,
+                            "[daemon] inject forwarded to active run. "
+                            "Child loop will interrupt and apply your new instruction.",
+                        )
                 else:
                     send_reply(source, "[daemon] active run exists but child control bus unavailable.")
                 return
@@ -1950,6 +1953,16 @@ def build_session_plan_confirmation_required_message() -> str:
     )
 
 
+def build_active_run_run_conflict_message() -> str:
+    return (
+        "[daemon] an active run already exists, so this /run was handled as /inject and forwarded to the current task.\n"
+        "[CN] 当前已有 run 在执行，所以这条 `/run` 已按 `/inject` 转发给当前任务。"
+        "如果你想开启新的 run，请先发送 `/stop`，等收到已结束/已停止的确认后，再重新发送 `/run`。\n"
+        "[EN] An active run already exists, so this /run was handled as /inject and forwarded to the current task. "
+        "If you want a brand-new run, send `/stop` first, wait until you receive confirmation that the current run finished/stopped, and then send `/run` again."
+    )
+
+
 def _read_text_file(path: str | Path | None) -> str | None:
     if not path:
         return None
@@ -2412,14 +2425,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional model preset name for child runs. "
-            f"If unset, child inherits Codex default model settings (available presets: {preset_names})."
+            f"If unset, child inherits backend default model settings (available presets: {preset_names})."
         ),
     )
     parser.add_argument(
         "--run-copilot-proxy",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Route child Codex runs through a local copilot-proxy instance.",
+        help="Route child Codex-backend runs through a local copilot-proxy instance.",
     )
     parser.add_argument(
         "--run-copilot-proxy-dir",
@@ -2492,14 +2505,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--run-skip-git-repo-check",
         action="store_true",
-        help="Pass --skip-git-repo-check to child run.",
+        help="Pass --skip-git-repo-check to child run when supported by the selected backend.",
     )
-    parser.add_argument("--run-full-auto", action="store_true", help="Pass --full-auto to child run.")
+    parser.add_argument(
+        "--run-full-auto",
+        action="store_true",
+        help="Request automatic tool approval mode for child runs when supported by the selected backend.",
+    )
     parser.add_argument(
         "--run-yolo",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Enable/disable --yolo for child runs (default: enabled).",
+        help="Enable/disable highest-permission autonomous mode for child runs (default: enabled).",
     )
     parser.add_argument(
         "--run-stall-soft-idle-seconds",

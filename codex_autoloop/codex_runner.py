@@ -14,6 +14,7 @@ from typing import Callable, Literal
 from .models import CodexRunResult
 from .runner_backend import (
     BACKEND_CLAUDE,
+    BACKEND_COPILOT,
     BACKEND_CODEX,
     DEFAULT_RUNNER_BACKEND,
     RunnerBackend,
@@ -97,7 +98,10 @@ class CodexRunner:
             bufsize=1,
             cwd=options.working_dir or None,
         )
-        self._write_prompt(process=process, prompt=prompt)
+        if self._prompt_via_stdin():
+            self._write_prompt(process=process, prompt=prompt)
+        else:
+            self._close_stdin(process)
 
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
@@ -277,6 +281,8 @@ class CodexRunner:
     def _build_command(self, *, prompt: str, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
         if self.backend == BACKEND_CLAUDE:
             return self._build_claude_command(resume_thread_id=resume_thread_id, options=options)
+        if self.backend == BACKEND_COPILOT:
+            return self._build_copilot_command(prompt=prompt, resume_thread_id=resume_thread_id, options=options)
         return self._build_codex_command(resume_thread_id=resume_thread_id, options=options)
 
     def _build_codex_command(self, *, resume_thread_id: str | None, options: RunnerOptions) -> list[str]:
@@ -356,6 +362,47 @@ class CodexRunner:
             command.extend(["--resume", resume_thread_id])
         return command
 
+    def _build_copilot_command(
+        self,
+        *,
+        prompt: str,
+        resume_thread_id: str | None,
+        options: RunnerOptions,
+    ) -> list[str]:
+        command = [
+            self.codex_bin,
+            "--output-format",
+            "json",
+            "--stream",
+            "on",
+            "--no-auto-update",
+            "--no-ask-user",
+        ]
+        if options.model:
+            command.extend(["--model", options.model])
+        if options.reasoning_effort:
+            command.extend(["--reasoning-effort", options.reasoning_effort])
+        if options.dangerous_yolo:
+            command.append("--yolo")
+        else:
+            # Copilot prompt mode requires automatic tool approval in non-interactive runs.
+            command.append("--allow-all-tools")
+        if options.add_dirs:
+            for dir_path in options.add_dirs:
+                command.extend(["--add-dir", dir_path])
+        if options.plugin_dirs:
+            for dir_path in options.plugin_dirs:
+                command.extend(["--plugin-dir", dir_path])
+        merged_extra_args = [*self.default_extra_args]
+        if options.extra_args:
+            merged_extra_args.extend(options.extra_args)
+        if merged_extra_args:
+            command.extend(merged_extra_args)
+        if resume_thread_id:
+            command.extend(["--resume", resume_thread_id])
+        command.extend(["-p", prompt])
+        return command
+
     @staticmethod
     def _write_prompt(*, process: subprocess.Popen[str], prompt: str) -> None:
         if process.stdin is None:
@@ -371,6 +418,18 @@ class CodexRunner:
                 process.stdin.close()
             except OSError:
                 return
+
+    @staticmethod
+    def _close_stdin(process: subprocess.Popen[str]) -> None:
+        if process.stdin is None:
+            return
+        try:
+            process.stdin.close()
+        except OSError:
+            return
+
+    def _prompt_via_stdin(self) -> bool:
+        return self.backend != BACKEND_COPILOT
 
     @staticmethod
     def _resolve_executable(executable: str) -> str:
@@ -417,6 +476,15 @@ class CodexRunner:
     ) -> tuple[str | None, bool, bool, str | None]:
         if self.backend == BACKEND_CLAUDE:
             return self._consume_claude_event(
+                event=event,
+                thread_id=thread_id,
+                agent_messages=agent_messages,
+                turn_completed=turn_completed,
+                turn_failed=turn_failed,
+                fatal_error=fatal_error,
+            )
+        if self.backend == BACKEND_COPILOT:
+            return self._consume_copilot_event(
                 event=event,
                 thread_id=thread_id,
                 agent_messages=agent_messages,
@@ -517,6 +585,54 @@ class CodexRunner:
                 fatal_error = result_text.strip()
             else:
                 fatal_error = f"Claude runner reported {subtype or 'error'}."
+        return thread_id, turn_completed, turn_failed, fatal_error
+
+    @staticmethod
+    def _consume_copilot_event(
+        *,
+        event: dict,
+        thread_id: str | None,
+        agent_messages: list[str],
+        turn_completed: bool,
+        turn_failed: bool,
+        fatal_error: str | None,
+    ) -> tuple[str | None, bool, bool, str | None]:
+        event_type = str(event.get("type") or "").strip()
+        data = event.get("data")
+        if event_type == "assistant.message" and isinstance(data, dict):
+            content = data.get("content")
+            if isinstance(content, str) and content.strip():
+                agent_messages.append(content.strip())
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type == "error":
+            turn_failed = True
+            if fatal_error is None:
+                if isinstance(data, dict):
+                    maybe_msg = data.get("message")
+                    if isinstance(maybe_msg, str) and maybe_msg.strip():
+                        fatal_error = maybe_msg.strip()
+                if fatal_error is None:
+                    maybe_msg = event.get("message")
+                    if isinstance(maybe_msg, str) and maybe_msg.strip():
+                        fatal_error = maybe_msg.strip()
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        if event_type != "result":
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        session_id = event.get("sessionId")
+        if isinstance(session_id, str) and session_id.strip():
+            thread_id = session_id
+
+        exit_code = event.get("exitCode")
+        if exit_code == 0:
+            turn_completed = True
+            return thread_id, turn_completed, turn_failed, fatal_error
+
+        turn_failed = True
+        if fatal_error is None:
+            fatal_error = f"Copilot CLI exited with code {exit_code}."
         return thread_id, turn_completed, turn_failed, fatal_error
 
     @staticmethod

@@ -154,6 +154,31 @@ Notes:
 - Claude backend ignores Copilot proxy settings by design.
 - Prefer Copilot-supported models such as `gpt-5.4`, `gpt-5.2`, `gpt-5.1`, `gpt-4o`, `claude-sonnet-4.6`, `claude-opus-4.6`, or `gemini-3-pro-preview`.
 
+## Native GitHub Copilot CLI backend
+
+ArgusBot also supports GitHub Copilot CLI as a native execution backend, separate from the `copilot-proxy` flow above.
+
+Use it from setup:
+
+- `argusbot init`
+- choose backend `3. GitHub Copilot CLI`
+
+Or directly from CLI:
+
+```bash
+argusbot-run \
+  --runner-backend copilot \
+  "实现功能并完成验证"
+```
+
+Notes:
+
+- If you leave model settings empty, ArgusBot does not pass `--model`, so Copilot CLI keeps its own official default model.
+- `--main-model`, `--reviewer-model`, and `--plan-model` are forwarded to Copilot CLI `--model` when you explicitly set them.
+- `--main-reasoning-effort`, `--reviewer-reasoning-effort`, and `--plan-reasoning-effort` map to Copilot CLI `--reasoning-effort`.
+- `--yolo` maps to Copilot CLI `--yolo` / `--allow-all` for highest-permission runs.
+- In non-interactive prompt mode, ArgusBot grants Copilot CLI tool auto-approval so the run can proceed autonomously; native Copilot backend does not use `copilot-proxy`.
+
 ## One-word operator workflow (`argusbot`)
 
 Run:
@@ -170,7 +195,7 @@ argusbot help
 
 Behavior:
 
-- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then choose runner backend (`1. Codex CLI`, `2. Claude Code CLI`), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
+- First run: asks you to choose control channel (`1. Telegram`, `2. Feishu (适合CN网络环境)`, default Telegram), then choose runner backend (`1. Codex CLI`, `2. Claude Code CLI`, `3. GitHub Copilot CLI`), then collects selected channel credentials, writes `.argusbot/daemon_config.json`, and starts daemon in the current shell directory.
 - Later runs: reuses config, ensures daemon is running, then directly attaches to live output.
 - `argusbot init`: stops all current ArgusBot daemons, prompts control channel + backend + credentials/model/play mode, starts daemon in background, then exits.
 - After `init`, run `argusbot` to attach monitor to that background daemon.
@@ -227,15 +252,15 @@ argusbot-run \
 
 Common options:
 
-- `--runner-backend {codex,claude}`: select the execution backend
+- `--runner-backend {codex,claude,copilot}`: select the execution backend
 - `--runner-bin <path>`: select the backend executable path
 - `--session-id <id>`: continue an existing runner session
 - `--main-model` / `--reviewer-model`: set model(s)
 - `--planner-model`: override the manager/planner model (defaults to reviewer settings when omitted)
 - `--copilot-proxy [--copilot-proxy-port 18080] [--copilot-proxy-dir /custom/path]`: route Codex backend through local `copilot-proxy`
 - `python -m codex_autoloop.model_catalog`: list common models and presets
-- `--yolo`: pass dangerous no-sandbox mode to Codex
-- `--full-auto`: pass full-auto mode to Codex
+- `--yolo`: request the selected backend's highest-permission autonomous mode
+- `--full-auto`: request automatic tool approval mode when supported by the selected backend
 - `--state-file <file>`: write round-by-round state JSON
 - `--final-report-file <file>`: write the final handoff Markdown report after reviewer `done`
 - `--plan-report-file <file>`: write the latest planner markdown snapshot

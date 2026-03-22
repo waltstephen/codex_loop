@@ -489,6 +489,7 @@ def prompt_runner_backend_choice(default: str = DEFAULT_RUNNER_BACKEND) -> str:
     options = [
         ("1", "codex", "Codex CLI"),
         ("2", "claude", "Claude Code CLI"),
+        ("3", "copilot", "GitHub Copilot CLI"),
     ]
     default_backend = normalize_runner_backend(default)
     default_index = next(index for index, backend, _ in options if backend == default_backend)
@@ -502,7 +503,7 @@ def prompt_runner_backend_choice(default: str = DEFAULT_RUNNER_BACKEND) -> str:
         for index, backend, _ in options:
             if raw == index:
                 return backend
-        print("Invalid selection. Enter 1 or 2.", file=sys.stderr)
+        print("Invalid selection. Enter 1, 2, or 3.", file=sys.stderr)
 
 
 def prompt_copilot_proxy_choice(*, preferred: bool = False) -> tuple[bool, str | None, int]:

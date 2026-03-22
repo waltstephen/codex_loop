@@ -106,6 +106,7 @@ class Planner:
         session_id: str | None,
         latest_review_completion_summary: str,
         latest_plan_overview: str,
+        main_summary: str = "",
         config: PlannerConfig,
     ) -> PlanDecision:
         plan, _ = self.evaluate_with_raw_output(
@@ -115,6 +116,7 @@ class Planner:
             session_id=session_id,
             latest_review_completion_summary=latest_review_completion_summary,
             latest_plan_overview=latest_plan_overview,
+            main_summary=main_summary,
             config=config,
         )
         return plan
@@ -128,6 +130,7 @@ class Planner:
         session_id: str | None,
         latest_review_completion_summary: str,
         latest_plan_overview: str,
+        main_summary: str = "",
         config: PlannerConfig,
     ) -> tuple[PlanDecision, str]:
         """Evaluate and return both PlanDecision and raw JSON output.
@@ -142,6 +145,7 @@ class Planner:
             session_id=session_id,
             latest_review_completion_summary=latest_review_completion_summary,
             latest_plan_overview=latest_plan_overview,
+            main_summary=main_summary,
             mode=config.mode,
         )
         result = self.runner.run_exec(
@@ -200,11 +204,13 @@ class Planner:
         session_id: str | None,
         latest_review_completion_summary: str,
         latest_plan_overview: str,
+        main_summary: str = "",
         mode: str,
     ) -> str:
         plan_messages_text = "\n".join(f"- {line}" for line in plan_messages) if plan_messages else "- none"
         overview_text = latest_plan_overview.strip() if latest_plan_overview.strip() else "none"
         review_summary = latest_review_completion_summary.strip() if latest_review_completion_summary.strip() else "none"
+        main_summary_text = main_summary.strip()[:1500] if main_summary.strip() else "none"
         if mode == PLANNER_MODE_RECORD:
             mode_guidance = (
                 "Planner mode: record-only.\n"
@@ -233,6 +239,8 @@ class Planner:
             f"{objective}\n\n"
             "Plan-channel operator messages:\n"
             f"{plan_messages_text}\n\n"
+            "Main agent last message (what was actually done this round):\n"
+            f"{main_summary_text}\n\n"
             "Latest reviewer completion summary:\n"
             f"{review_summary}\n\n"
             "Latest plan overview markdown:\n"
@@ -586,10 +594,11 @@ def _parse_workstreams(value: object) -> list[PlanWorkstream] | None:
     for item in value[:8]:
         if not isinstance(item, dict):
             return None
-        status = item.get("status")
+        status = _normalize_workstream_status(item.get("status"))
         if status not in {"done", "in_progress", "todo", "blocked"}:
             return None
-        area = _as_text(item.get("area"))
+        # accept "name" as fallback for "area" (models sometimes use the wrong key)
+        area = _as_text(item.get("area")) or _as_text(item.get("name"))
         evidence = _as_text(item.get("evidence"))
         next_step = _as_text(item.get("next_step"))
         if not area:
@@ -620,6 +629,17 @@ def _as_text(value: object) -> str:
     if not isinstance(value, str):
         return ""
     return value.strip()
+
+
+def _normalize_workstream_status(value: object) -> str:
+    status = _as_text(value).lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "complete": "done",
+        "completed": "done",
+        "inprogress": "in_progress",
+        "in_progress": "in_progress",
+    }
+    return aliases.get(status, status)
 
 
 def _first_non_empty(items: list[str]) -> str:

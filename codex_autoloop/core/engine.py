@@ -354,6 +354,7 @@ class LoopEngine:
                     round_index=round_index,
                     session_id=session_id,
                     latest_review_completion_summary=review.completion_summary_markdown,
+                    main_summary=main_result.last_agent_message or "",
                 )
 
             round_summary = RoundSummary(
@@ -584,6 +585,7 @@ class LoopEngine:
         round_index: int,
         session_id: str | None,
         latest_review_completion_summary: str,
+        main_summary: str = "",
     ) -> PlanDecision | None:
         current_plan_mode = self._current_plan_mode()
         if current_plan_mode == "off" or self.planner is None:
@@ -595,6 +597,7 @@ class LoopEngine:
             session_id=session_id,
             latest_review_completion_summary=latest_review_completion_summary,
             latest_plan_overview=self.state_store.latest_plan_overview(),
+            main_summary=main_summary,
             config=PlannerConfig(
                 mode=current_plan_mode,
                 model=self.config.plan_model,
