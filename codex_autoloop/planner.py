@@ -70,7 +70,7 @@ class Planner:
             ),
             run_label="planner",
         )
-        parsed = parse_plan_text(result.last_agent_message)
+        parsed = _find_plan_in_messages(result.agent_messages)
         if parsed is None:
             return self._fallback_snapshot(
                 objective=objective,
@@ -163,7 +163,7 @@ class Planner:
             run_label="planner",
         )
         raw_output = result.last_agent_message or ""
-        parsed = parse_plan_text(raw_output)
+        parsed = _find_plan_in_messages(result.agent_messages)
         if parsed is None:
             parsed = self._fallback_snapshot(
                 objective=objective,
@@ -414,8 +414,34 @@ class Planner:
         return snapshot
 
 
+def _strip_markdown_fences(text: str) -> str:
+    """Strip leading/trailing markdown code fences (```json ... ``` or ``` ... ```)."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.split("\n")
+    start = 1  # skip the opening fence line
+    end = len(lines)
+    if lines[-1].strip() == "```":
+        end = len(lines) - 1
+    return "\n".join(lines[start:end]).strip()
+
+
+def _find_plan_in_messages(messages: list[str]) -> PlanSnapshot | None:
+    """Search agent_messages in reverse for the first parseable PlanSnapshot.
+    Falls back to trying the full concatenated blob so partial/split output
+    can still be rescued via the {…} extraction in parse_plan_text."""
+    for msg in reversed(messages):
+        result = parse_plan_text(msg)
+        if result is not None:
+            return result
+    if len(messages) > 1:
+        return parse_plan_text("\n".join(messages))
+    return None
+
+
 def parse_plan_text(text: str) -> PlanSnapshot | None:
-    candidate = text.strip()
+    candidate = _strip_markdown_fences(text.strip())
     parsed = _load_json(candidate)
     if parsed is None:
         left = candidate.find("{")

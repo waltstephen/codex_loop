@@ -62,7 +62,7 @@ class Reviewer:
             ),
             run_label="reviewer",
         )
-        if not result.last_agent_message:
+        if not result.agent_messages:
             return ReviewDecision(
                 status="continue",
                 confidence=0.0,
@@ -71,7 +71,7 @@ class Reviewer:
                 round_summary_markdown="# Review Summary\n\n- Reviewer returned empty output.\n",
             )
 
-        parsed = parse_decision_text(result.last_agent_message)
+        parsed = _find_decision_in_messages(result.agent_messages)
         if parsed is None:
             return ReviewDecision(
                 status="continue",
@@ -137,8 +137,33 @@ class Reviewer:
         )
 
 
+def _strip_markdown_fences(text: str) -> str:
+    """Strip leading/trailing markdown code fences."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.split("\n")
+    start = 1
+    end = len(lines)
+    if lines[-1].strip() == "```":
+        end = len(lines) - 1
+    return "\n".join(lines[start:end]).strip()
+
+
+def _find_decision_in_messages(messages: list[str]) -> "ReviewDecision | None":
+    """Search agent_messages in reverse for the first parseable ReviewDecision.
+    Falls back to the full concatenated blob as a last resort."""
+    for msg in reversed(messages):
+        result = parse_decision_text(msg)
+        if result is not None:
+            return result
+    if len(messages) > 1:
+        return parse_decision_text("\n".join(messages))
+    return None
+
+
 def parse_decision_text(text: str) -> ReviewDecision | None:
-    candidate = text.strip()
+    candidate = _strip_markdown_fences(text.strip())
     parsed = _load_json(candidate)
     if parsed is None:
         left = candidate.find("{")
