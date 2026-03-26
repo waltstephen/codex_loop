@@ -3,8 +3,11 @@ import datetime as dt
 from argparse import Namespace
 from pathlib import Path
 
+import codex_autoloop.telegram_daemon as telegram_daemon
+from codex_autoloop.objective_rewrite import ObjectiveRewriteResult
 from codex_autoloop.telegram_daemon import (
     append_plan_record_row,
+    build_active_run_run_conflict_message,
     build_plan_skip_message,
     build_session_plan_confirmation_required_message,
     build_parser,
@@ -21,6 +24,7 @@ from codex_autoloop.telegram_daemon import (
     log_contains_invalid_encrypted_content,
     normalize_plan_mode,
     parse_process_table,
+    plan_mode_allows_post_run_planning,
     resolve_last_session_id_from_archive,
     resolve_autoloop_command,
     resolve_resume_session_id,
@@ -52,6 +56,7 @@ def test_build_child_command_includes_core_args() -> None:
         run_planner_reasoning_effort="high",
         run_planner=True,
         run_plan_update_interval_seconds=1800,
+        run_plan_mode="execute-only",
         follow_up_auto_execute_seconds=3600,
         telegram_bot_token="123:abc",
         feishu_app_id=None,
@@ -101,6 +106,7 @@ def test_build_child_command_includes_core_args() -> None:
     assert "--plan-report-file" in cmd
     assert "--plan-todo-file" in cmd
     assert "--plan-update-interval-seconds" in cmd
+    assert "--no-follow-up-phase" in cmd
     assert "--session-id" in cmd
     assert "--check" in cmd
     assert "--runner-backend" in cmd
@@ -222,6 +228,7 @@ def test_build_child_command_includes_feishu_args_when_configured() -> None:
         run_planner_reasoning_effort=None,
         run_planner=True,
         run_plan_update_interval_seconds=1800,
+        run_plan_mode="execute-only",
         follow_up_auto_execute_seconds=3600,
         telegram_bot_token=None,
         feishu_app_id="cli_xxx",
@@ -260,6 +267,56 @@ def test_build_child_command_includes_feishu_args_when_configured() -> None:
     assert "--feishu-receive-id-type" in cmd
     assert "--feishu-timeout-seconds" in cmd
     assert "--no-feishu-control" in cmd
+
+
+def test_build_child_command_enables_follow_up_phase_in_fully_plan_mode() -> None:
+    args = Namespace(
+        codex_autoloop_bin="argusbot-run",
+        run_max_rounds=8,
+        run_model_preset=None,
+        run_main_model=None,
+        run_main_reasoning_effort=None,
+        run_reviewer_model=None,
+        run_reviewer_reasoning_effort=None,
+        run_planner_mode="auto",
+        run_planner_model=None,
+        run_planner_reasoning_effort=None,
+        run_planner=True,
+        run_plan_update_interval_seconds=1800,
+        run_plan_mode="fully-plan",
+        follow_up_auto_execute_seconds=3600,
+        telegram_bot_token="123:abc",
+        feishu_app_id=None,
+        feishu_app_secret=None,
+        feishu_chat_id=None,
+        feishu_receive_id_type="chat_id",
+        feishu_timeout_seconds=10,
+        telegram_control_whisper=True,
+        telegram_control_whisper_api_key=None,
+        telegram_control_whisper_model="whisper-1",
+        telegram_control_whisper_base_url="https://api.openai.com/v1",
+        telegram_control_whisper_timeout_seconds=90,
+        run_skip_git_repo_check=False,
+        run_full_auto=False,
+        run_yolo=True,
+        run_check=[],
+        run_stall_soft_idle_seconds=1200,
+        run_stall_hard_idle_seconds=10800,
+        run_state_file=".argusbot/last_state.json",
+        run_resume_last_session=True,
+        run_no_dashboard=True,
+    )
+    cmd = build_child_command(
+        args=args,
+        objective="do work",
+        chat_id="42",
+        control_file="/tmp/control.jsonl",
+        operator_messages_file="/tmp/operator_messages.md",
+        plan_report_file="/tmp/plan.md",
+        plan_todo_file="/tmp/todo.md",
+        resume_session_id=None,
+    )
+    assert "--follow-up-phase" in cmd
 
 
 def test_build_child_command_includes_copilot_proxy_args() -> None:
@@ -379,6 +436,12 @@ def test_normalize_plan_mode_defaults_to_fully_plan() -> None:
     assert normalize_plan_mode("execute-only") == "execute-only"
 
 
+def test_plan_mode_allows_post_run_planning_for_execute_only_and_fully_plan() -> None:
+    assert plan_mode_allows_post_run_planning("execute-only") is True
+    assert plan_mode_allows_post_run_planning("fully-plan") is True
+    assert plan_mode_allows_post_run_planning("record-only") is False
+
+
 def test_session_plan_goal_is_confirmed_accepts_pending_or_active_goal() -> None:
     assert (
         session_plan_goal_is_confirmed(
@@ -438,6 +501,14 @@ def test_build_session_plan_confirmation_required_message_mentions_plan_and_sess
     assert "/plan" in message
     assert "session goal" in message.lower()
     assert "本 session 总目标" in message
+
+
+def test_build_active_run_run_conflict_message_mentions_stop_and_retry_run() -> None:
+    message = build_active_run_run_conflict_message()
+    assert "/run was handled as /inject" in message
+    assert "/stop" in message
+    assert "当前已有 run 在执行" in message
+    assert "then send `/run` again" in message
 
 
 def test_build_plan_request_uses_review_guidance() -> None:
@@ -699,6 +770,11 @@ def test_build_parser_default_run_model_preset_is_none() -> None:
     assert args.run_model_preset is None
 
 
+def test_build_parser_default_run_objective_rewrite_is_disabled() -> None:
+    args = build_parser().parse_args(["--telegram-bot-token", "123:abc"])
+    assert args.run_objective_rewrite is False
+
+
 def test_build_parser_accepts_feishu_only_args() -> None:
     args = build_parser().parse_args(
         [
@@ -813,3 +889,66 @@ def test_terminate_process_tree_uses_taskkill_on_windows(monkeypatch) -> None:
     terminate_process_tree(process)
 
     assert calls == [["taskkill", "/PID", "2468", "/T", "/F"]]
+
+
+def test_maybe_rewrite_run_objective_uses_rewritten_text(monkeypatch, tmp_path: Path) -> None:
+    replies: list[tuple[str, str]] = []
+    events: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(
+        telegram_daemon,
+        "rewrite_run_objective",
+        lambda **kwargs: ObjectiveRewriteResult(
+            original_objective="整理下文档",
+            rewritten_objective="Final Goal:\n补齐文档\n\nCurrent Task:\n整理 README",
+            applied=True,
+        ),
+    )
+
+    result = telegram_daemon.maybe_rewrite_run_objective(
+        enabled=True,
+        objective="整理下文档",
+        source="telegram",
+        run_cwd=tmp_path,
+        runner=object(),
+        model=None,
+        reasoning_effort=None,
+        send_reply=lambda source, message: replies.append((source, message)),
+        log_event=lambda event_type, **kwargs: events.append((event_type, kwargs)),
+    )
+
+    assert result == "Final Goal:\n补齐文档\n\nCurrent Task:\n整理 README"
+    assert replies and "Original / 原始" in replies[0][1]
+    assert events[0][0] == "run.objective_rewrite.applied"
+
+
+def test_maybe_rewrite_run_objective_falls_back_to_original_on_failure(monkeypatch, tmp_path: Path) -> None:
+    replies: list[tuple[str, str]] = []
+    events: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(
+        telegram_daemon,
+        "rewrite_run_objective",
+        lambda **kwargs: ObjectiveRewriteResult(
+            original_objective="补个文档",
+            rewritten_objective="补个文档",
+            applied=False,
+            failure_reason="backend timeout",
+        ),
+    )
+
+    result = telegram_daemon.maybe_rewrite_run_objective(
+        enabled=True,
+        objective="补个文档",
+        source="telegram",
+        run_cwd=tmp_path,
+        runner=object(),
+        model=None,
+        reasoning_effort=None,
+        send_reply=lambda source, message: replies.append((source, message)),
+        log_event=lambda event_type, **kwargs: events.append((event_type, kwargs)),
+    )
+
+    assert result == "补个文档"
+    assert replies and "fell back" in replies[0][1].lower()
+    assert events[0][0] == "run.objective_rewrite.failed"

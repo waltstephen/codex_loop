@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rewritten_objective"
+  ],
+  "properties": {
+    "rewritten_objective": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A concise ArgusBot-ready rewrite of the user's /run objective."
+    }
+  }
+}

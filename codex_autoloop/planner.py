@@ -70,7 +70,7 @@ class Planner:
             ),
             run_label="planner",
         )
-        parsed = parse_plan_text(result.last_agent_message)
+        parsed = _find_plan_in_messages(result.agent_messages)
         if parsed is None:
             return self._fallback_snapshot(
                 objective=objective,
@@ -106,8 +106,38 @@ class Planner:
         session_id: str | None,
         latest_review_completion_summary: str,
         latest_plan_overview: str,
+        main_summary: str = "",
         config: PlannerConfig,
     ) -> PlanDecision:
+        plan, _ = self.evaluate_with_raw_output(
+            objective=objective,
+            plan_messages=plan_messages,
+            round_index=round_index,
+            session_id=session_id,
+            latest_review_completion_summary=latest_review_completion_summary,
+            latest_plan_overview=latest_plan_overview,
+            main_summary=main_summary,
+            config=config,
+        )
+        return plan
+
+    def evaluate_with_raw_output(
+        self,
+        *,
+        objective: str,
+        plan_messages: list[str],
+        round_index: int,
+        session_id: str | None,
+        latest_review_completion_summary: str,
+        latest_plan_overview: str,
+        main_summary: str = "",
+        config: PlannerConfig,
+    ) -> tuple[PlanDecision, str]:
+        """Evaluate and return both PlanDecision and raw JSON output.
+
+        Returns:
+            Tuple of (PlanDecision, raw_json_output)
+        """
         prompt = self._build_evaluate_prompt(
             objective=objective,
             plan_messages=plan_messages,
@@ -115,6 +145,7 @@ class Planner:
             session_id=session_id,
             latest_review_completion_summary=latest_review_completion_summary,
             latest_plan_overview=latest_plan_overview,
+            main_summary=main_summary,
             mode=config.mode,
         )
         result = self.runner.run_exec(
@@ -131,7 +162,8 @@ class Planner:
             ),
             run_label="planner",
         )
-        parsed = parse_plan_text(result.last_agent_message)
+        raw_output = result.last_agent_message or ""
+        parsed = _find_plan_in_messages(result.agent_messages)
         if parsed is None:
             parsed = self._fallback_snapshot(
                 objective=objective,
@@ -139,7 +171,7 @@ class Planner:
                 latest_checks=[],
                 trigger="loop-engine",
                 terminal=False,
-                error=result.last_agent_message or f"Planner returned empty output. exit={result.exit_code}",
+                error=raw_output or f"Planner returned empty output. exit={result.exit_code}",
             )
         if config.mode == PLANNER_MODE_RECORD:
             parsed.should_propose_follow_up = False
@@ -155,9 +187,12 @@ class Planner:
             checks=[],
             stop_reason=None,
         )
-        return self._snapshot_to_decision(
-            snapshot=parsed,
-            latest_review_completion_summary=latest_review_completion_summary,
+        return (
+            self._snapshot_to_decision(
+                snapshot=parsed,
+                latest_review_completion_summary=latest_review_completion_summary,
+            ),
+            raw_output,
         )
 
     def _build_evaluate_prompt(
@@ -169,11 +204,13 @@ class Planner:
         session_id: str | None,
         latest_review_completion_summary: str,
         latest_plan_overview: str,
+        main_summary: str = "",
         mode: str,
     ) -> str:
         plan_messages_text = "\n".join(f"- {line}" for line in plan_messages) if plan_messages else "- none"
         overview_text = latest_plan_overview.strip() if latest_plan_overview.strip() else "none"
         review_summary = latest_review_completion_summary.strip() if latest_review_completion_summary.strip() else "none"
+        main_summary_text = main_summary.strip()[:1500] if main_summary.strip() else "none"
         if mode == PLANNER_MODE_RECORD:
             mode_guidance = (
                 "Planner mode: record-only.\n"
@@ -188,6 +225,13 @@ class Planner:
             "You are the planning manager for an autoloop round.\n"
             "Return valid JSON matching the provided schema.\n"
             "Focus on concrete workstreams, next steps, and risks.\n\n"
+            "**Length constraints (strictly enforce):**\n"
+            "- Keep `summary` under 500 characters\n"
+            "- Keep `evidence` (in workstreams) under 300 characters\n"
+            "- Keep `next_step` (in workstreams) under 200 characters\n"
+            "- Keep `suggested_next_objective` under 300 characters\n"
+            "- Use concise phrases, not full sentences\n"
+            "- Avoid code blocks and lengthy explanations\n\n"
             f"{mode_guidance}"
             f"Round index: {round_index}\n"
             f"Session ID: {session_id or 'none'}\n\n"
@@ -195,6 +239,8 @@ class Planner:
             f"{objective}\n\n"
             "Plan-channel operator messages:\n"
             f"{plan_messages_text}\n\n"
+            "Main agent last message (what was actually done this round):\n"
+            f"{main_summary_text}\n\n"
             "Latest reviewer completion summary:\n"
             f"{review_summary}\n\n"
             "Latest plan overview markdown:\n"
@@ -292,6 +338,13 @@ class Planner:
             "Your job is to maintain the implementation framework, identify what is complete, "
             "what remains, what should be explored next, and what the next executable objective should be.\n"
             "Use the local $planner-manager-explorer skill if it exists.\n\n"
+            "**Length constraints (strictly enforce):**\n"
+            "- Keep `summary` under 500 characters\n"
+            "- Keep `evidence` (in workstreams) under 300 characters\n"
+            "- Keep `next_step` (in workstreams) under 200 characters\n"
+            "- Keep `suggested_next_objective` under 300 characters\n"
+            "- Use concise phrases, not full sentences\n"
+            "- Avoid code blocks and lengthy explanations\n\n"
             f"{mode_guidance}"
             "Strict rules:\n"
             "1) Work in read-only mode. Inspect the repository if useful, but do not modify files.\n"
@@ -361,8 +414,34 @@ class Planner:
         return snapshot
 
 
+def _strip_markdown_fences(text: str) -> str:
+    """Strip leading/trailing markdown code fences (```json ... ``` or ``` ... ```)."""
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.split("\n")
+    start = 1  # skip the opening fence line
+    end = len(lines)
+    if lines[-1].strip() == "```":
+        end = len(lines) - 1
+    return "\n".join(lines[start:end]).strip()
+
+
+def _find_plan_in_messages(messages: list[str]) -> PlanSnapshot | None:
+    """Search agent_messages in reverse for the first parseable PlanSnapshot.
+    Falls back to trying the full concatenated blob so partial/split output
+    can still be rescued via the {…} extraction in parse_plan_text."""
+    for msg in reversed(messages):
+        result = parse_plan_text(msg)
+        if result is not None:
+            return result
+    if len(messages) > 1:
+        return parse_plan_text("\n".join(messages))
+    return None
+
+
 def parse_plan_text(text: str) -> PlanSnapshot | None:
-    candidate = text.strip()
+    candidate = _strip_markdown_fences(text.strip())
     parsed = _load_json(candidate)
     if parsed is None:
         left = candidate.find("{")
@@ -541,10 +620,11 @@ def _parse_workstreams(value: object) -> list[PlanWorkstream] | None:
     for item in value[:8]:
         if not isinstance(item, dict):
             return None
-        status = item.get("status")
+        status = _normalize_workstream_status(item.get("status"))
         if status not in {"done", "in_progress", "todo", "blocked"}:
             return None
-        area = _as_text(item.get("area"))
+        # accept "name" as fallback for "area" (models sometimes use the wrong key)
+        area = _as_text(item.get("area")) or _as_text(item.get("name"))
         evidence = _as_text(item.get("evidence"))
         next_step = _as_text(item.get("next_step"))
         if not area:
@@ -575,6 +655,17 @@ def _as_text(value: object) -> str:
     if not isinstance(value, str):
         return ""
     return value.strip()
+
+
+def _normalize_workstream_status(value: object) -> str:
+    status = _as_text(value).lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "complete": "done",
+        "completed": "done",
+        "inprogress": "in_progress",
+        "in_progress": "in_progress",
+    }
+    return aliases.get(status, status)
 
 
 def _first_non_empty(items: list[str]) -> str:

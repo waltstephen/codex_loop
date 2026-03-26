@@ -47,6 +47,11 @@ class LoopConfig:
     plan_model: str | None = None
     plan_reasoning_effort: str | None = None
     plan_extra_args: list[str] | None = None
+    main_add_dirs: list[str] | None = None
+    main_plugin_dirs: list[str] | None = None
+    main_file_specs: list[str] | None = None
+    main_worktree_name: str | None = None
+    allow_follow_up_phase: bool = True
 
 
 @dataclass
@@ -136,6 +141,10 @@ class LoopEngine:
                     watchdog_hard_idle_seconds=self.config.stall_hard_idle_seconds,
                     inactivity_callback=inactivity_callback,
                     external_interrupt_reason_provider=self.state_store.consume_interrupt_reason,
+                    add_dirs=self.config.main_add_dirs,
+                    plugin_dirs=self.config.main_plugin_dirs,
+                    file_specs=self.config.main_file_specs,
+                    worktree_name=self.config.main_worktree_name,
                 ),
                 run_label="main",
             )
@@ -346,15 +355,13 @@ class LoopEngine:
                 main_last_message=main_result.last_agent_message,
                 plan=current_plan,
             )
-            if review.status == "done" and checks_ok:
-                self._finalize_success_report(session_id=session_id, rounds=rounds + [round_for_report])
-
             planned_follow_up: PlanDecision | None = None
             if review.status == "done" and checks_ok and current_plan_mode != "off":
                 planned_follow_up = self._maybe_run_planner(
                     round_index=round_index,
                     session_id=session_id,
                     latest_review_completion_summary=review.completion_summary_markdown,
+                    main_summary=main_result.last_agent_message or "",
                 )
 
             round_summary = RoundSummary(
@@ -391,6 +398,22 @@ class LoopEngine:
                         session_id=session_id,
                         rounds=rounds,
                         stop_reason="Reviewer marked done, checks passed, and planner recorded the final summary.",
+                    )
+                if not self.config.allow_follow_up_phase:
+                    if planned_follow_up is not None and planned_follow_up.follow_up_required:
+                        return self._complete(
+                            success=True,
+                            session_id=session_id,
+                            rounds=rounds,
+                            stop_reason=(
+                                "Reviewer marked done, checks passed, and planner proposed a future-session follow-up."
+                            ),
+                        )
+                    return self._complete(
+                        success=True,
+                        session_id=session_id,
+                        rounds=rounds,
+                        stop_reason="Reviewer marked done, checks passed, and planner did not require a follow-up phase.",
                     )
                 if planned_follow_up is None or not planned_follow_up.follow_up_required:
                     return self._complete(
@@ -673,17 +696,19 @@ class LoopEngine:
         round_index: int,
         session_id: str | None,
         latest_review_completion_summary: str,
+        main_summary: str = "",
     ) -> PlanDecision | None:
         current_plan_mode = self._current_plan_mode()
         if current_plan_mode == "off" or self.planner is None:
             return None
-        plan = self.planner.evaluate(
+        plan, raw_output = self.planner.evaluate_with_raw_output(
             objective=self.config.objective,
             plan_messages=self.state_store.list_messages_for_role("plan"),
             round_index=round_index,
             session_id=session_id,
             latest_review_completion_summary=latest_review_completion_summary,
             latest_plan_overview=self.state_store.latest_plan_overview(),
+            main_summary=main_summary,
             config=PlannerConfig(
                 mode=current_plan_mode,
                 model=self.config.plan_model,
@@ -704,6 +729,7 @@ class LoopEngine:
                 "next_explore": plan.next_explore,
                 "main_instruction": plan.main_instruction,
                 "review_instruction": plan.review_instruction,
+                "raw_output": raw_output,
             }
         )
         return plan

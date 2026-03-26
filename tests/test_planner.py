@@ -83,6 +83,39 @@ def test_parse_plan_text_rejects_empty_follow_up_objective() -> None:
     assert snapshot is None
 
 
+def test_parse_plan_text_accepts_common_status_aliases() -> None:
+    snapshot = parse_plan_text(
+        """
+        {
+          "summary": "Planner aliases should still parse.",
+          "workstreams": [
+            {
+              "area": "Planner parsing",
+              "status": "in-progress",
+              "evidence": "model used hyphenated status",
+              "next_step": "keep parsing"
+            },
+            {
+              "area": "Planner completion",
+              "status": "completed",
+              "evidence": "model used completed alias",
+              "next_step": "ship report"
+            }
+          ],
+          "done_items": [],
+          "remaining_items": [],
+          "risks": [],
+          "next_steps": ["continue"],
+          "exploration_items": [],
+          "suggested_next_objective": "",
+          "should_propose_follow_up": false
+        }
+        """
+    )
+    assert snapshot is not None
+    assert [item.status for item in snapshot.workstreams] == ["in_progress", "done"]
+
+
 def test_format_plan_markdown_includes_follow_up() -> None:
     snapshot = PlanSnapshot(
         plan_id="plan-1",
@@ -185,3 +218,51 @@ def test_planner_evaluate_fallback_when_output_invalid() -> None:
     assert decision.follow_up_required is False
     assert decision.main_instruction != ""
     assert decision.overview_markdown.strip() != ""
+
+
+def test_planner_evaluate_with_status_aliases_does_not_fallback() -> None:
+    class _FakeRunner:
+        def run_exec(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            payload = """
+            {
+              "summary": "Planner kept the model-emitted aliases.",
+              "workstreams": [
+                {
+                  "area": "Planner parsing",
+                  "status": "in-progress",
+                  "evidence": "alias preserved in raw output",
+                  "next_step": "keep the parsed plan"
+                },
+                {
+                  "area": "Planner wrap-up",
+                  "status": "completed",
+                  "evidence": "follow-up suggestion ready",
+                  "next_step": "offer next objective"
+                }
+              ],
+              "done_items": ["parser accepted aliases"],
+              "remaining_items": ["offer next run"],
+              "risks": ["none"],
+              "next_steps": ["offer next run"],
+              "exploration_items": ["compare planner outputs"],
+              "suggested_next_objective": "Offer the next planner run without fallback",
+              "should_propose_follow_up": true
+            }
+            """
+            return CodexRunResult(command=["codex", "exec"], exit_code=0, agent_messages=[payload])
+
+    planner = Planner(runner=_FakeRunner())  # type: ignore[arg-type]
+    decision = planner.evaluate(
+        objective="ship feature",
+        plan_messages=[],
+        round_index=2,
+        session_id="thread-2",
+        latest_review_completion_summary="checks passed",
+        latest_plan_overview="previous plan",
+        config=PlannerConfig(mode="auto"),
+    )
+    assert decision.follow_up_required is True
+    assert decision.main_instruction == "Offer the next planner run without fallback"
+    assert "Planner fallback snapshot due to invalid manager output." not in decision.overview_markdown
+    assert "Planner kept the model-emitted aliases." in decision.overview_markdown

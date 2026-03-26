@@ -15,7 +15,8 @@
   "properties": {
     "summary": {
       "type": "string",
-      "description": "Short manager summary of the current implementation state."
+      "description": "Short manager summary of the current implementation state.",
+      "maxLength": 3000
     },
     "workstreams": {
       "type": "array",
@@ -44,10 +45,12 @@
             ]
           },
           "evidence": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 1500
           },
           "next_step": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 800
           }
         }
       }
@@ -89,7 +92,8 @@
     },
     "suggested_next_objective": {
       "type": "string",
-      "description": "One concrete objective for the next session if a follow-up run should be offered."
+      "description": "One concrete objective for the next session if a follow-up run should be offered.",
+      "maxLength": 1000
     },
     "should_propose_follow_up": {
       "type": "boolean",

@@ -478,6 +478,11 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             stall_soft_idle_seconds=args.stall_soft_idle_seconds,
             stall_hard_idle_seconds=args.stall_hard_idle_seconds,
             initial_session_id=args.session_id,
+            main_add_dirs=args.add_dir,
+            main_plugin_dirs=args.plugin_dir,
+            main_file_specs=args.file_specs,
+            main_worktree_name=args.worktree_name,
+            allow_follow_up_phase=args.follow_up_phase,
         ),
     )
 

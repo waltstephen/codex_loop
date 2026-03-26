@@ -135,6 +135,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop, "prompt_objective_rewrite_choice", lambda: False)
     monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["run_cd"] == str(tmp_path.resolve())
@@ -146,6 +147,7 @@ def test_run_interactive_config_uses_passed_run_cd(monkeypatch, tmp_path: Path) 
     assert config["run_plan_mode"] == "execute-only"
     assert config["run_plan_request_delay_seconds"] == 600
     assert config["run_plan_auto_execute_delay_seconds"] == 600
+    assert config["run_objective_rewrite"] is False
     assert config["run_yolo"] is True
     assert config["run_full_auto"] is False
     assert config["run_copilot_proxy"] is False
@@ -162,6 +164,7 @@ def test_run_interactive_config_supports_feishu_channel(monkeypatch, tmp_path: P
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
     monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", lambda preferred=False: (False, None, 18080))
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop, "prompt_objective_rewrite_choice", lambda: False)
     monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
     config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
     assert config["telegram_bot_token"] is None
@@ -187,11 +190,40 @@ def test_run_interactive_config_marks_copilot_preset_as_preferred(monkeypatch, t
     monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: "copilot")
     monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", fake_prompt_copilot_proxy_choice)
     monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop, "prompt_objective_rewrite_choice", lambda: False)
     monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
 
     codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
 
     assert observed == {"preferred": True}
+
+
+def test_prompt_runner_backend_choice_accepts_copilot(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "3")
+    assert codexloop.prompt_runner_backend_choice() == "copilot"
+
+
+def test_run_interactive_config_skips_copilot_proxy_for_native_copilot_backend(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(codexloop, "prompt_control_channel", lambda default="telegram": "telegram")
+    monkeypatch.setattr(codexloop, "prompt_runner_backend_choice", lambda default="codex": "copilot")
+    monkeypatch.setattr(codexloop, "prompt_token", lambda: "123:abc")
+    monkeypatch.setattr(codexloop, "prompt_chat_id", lambda: "auto")
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "")
+    monkeypatch.setattr(codexloop, "prompt_model_choice", lambda: None)
+    monkeypatch.setattr(codexloop, "prompt_play_mode", lambda: codexloop.PLAY_MODES[1])
+    monkeypatch.setattr(codexloop, "prompt_objective_rewrite_choice", lambda: False)
+    monkeypatch.setattr(codexloop.shutil, "which", lambda x: "/usr/bin/" + x)
+
+    def fail_prompt_copilot_proxy_choice(preferred=False):
+        raise AssertionError("native copilot backend should not prompt for copilot-proxy")
+
+    monkeypatch.setattr(codexloop, "prompt_copilot_proxy_choice", fail_prompt_copilot_proxy_choice)
+
+    config = codexloop.run_interactive_config(home_dir=tmp_path / ".argusbot", run_cd=tmp_path)
+
+    assert config["run_runner_backend"] == "copilot"
+    assert config["run_runner_bin"] == "/usr/bin/copilot"
+    assert config["run_copilot_proxy"] is False
 
 
 def test_prompt_control_channel_default_is_telegram(monkeypatch) -> None:
@@ -210,6 +242,11 @@ def test_prompt_play_mode_selection(monkeypatch) -> None:
     mode = codexloop.prompt_play_mode()
     assert mode.name == "record"
     assert mode.run_plan_mode == "record-only"
+
+
+def test_prompt_objective_rewrite_choice_accepts_enabled_option(monkeypatch) -> None:
+    monkeypatch.setattr(codexloop, "prompt_input", lambda prompt, default: "2")
+    assert codexloop.prompt_objective_rewrite_choice() is True
 
 
 def test_prompt_model_choice_selection(monkeypatch) -> None:
@@ -332,6 +369,7 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
         "run_plan_auto_execute_delay_seconds": 600,
         "follow_up_auto_execute_seconds": 900,
         "run_resume_last_session": True,
+        "run_objective_rewrite": True,
         "run_model_preset": "claude-sonnet",
         "run_runner_backend": "claude",
         "run_runner_bin": "/opt/homebrew/bin/claude",
@@ -365,6 +403,7 @@ def test_build_daemon_command_uses_config(monkeypatch, tmp_path: Path) -> None:
     assert "--run-skip-git-repo-check" in cmd
     assert "--run-yolo" in cmd
     assert "--run-resume-last-session" in cmd
+    assert "--run-objective-rewrite" in cmd
     follow_up_index = cmd.index("--follow-up-auto-execute-seconds")
     assert cmd[follow_up_index + 1] == "900"
     child_command_index = cmd.index("--argusbot-bin")
@@ -390,6 +429,7 @@ def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
         "run_planner_mode": "off",
         "run_plan_mode": "execute-only",
         "run_resume_last_session": True,
+        "run_objective_rewrite": False,
         "run_model_preset": "quality",
         "bus_dir": str(home_dir / "bus"),
         "logs_dir": str(home_dir / "logs"),
@@ -397,6 +437,7 @@ def test_build_daemon_command_forces_yolo(monkeypatch, tmp_path: Path) -> None:
     cmd = codexloop.build_daemon_command(config=config, home_dir=home_dir, token_lock_dir="/tmp/token-locks")
     assert "--run-yolo" in cmd
     assert "--no-run-yolo" not in cmd
+    assert "--no-run-objective-rewrite" in cmd
 
 
 def test_build_daemon_command_includes_feishu(monkeypatch, tmp_path: Path) -> None:

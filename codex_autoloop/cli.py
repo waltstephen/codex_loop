@@ -121,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=18080,
         help="Local copilot-proxy port.",
     )
-    parser.add_argument("--session-id", default=None, help="Resume an existing Codex exec session id.")
+    parser.add_argument("--session-id", default=None, help="Resume an existing backend session id.")
     parser.add_argument("--max-rounds", type=int, default=500, help="Maximum primary-agent rounds.")
     parser.add_argument(
         "--max-no-progress-rounds",
@@ -166,19 +166,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--main-extra-arg",
         action="append",
-        help="Extra argument passed to main `codex exec` command (repeatable).",
+        help="Extra argument passed to the main backend command (repeatable).",
     )
     parser.add_argument(
         "--reviewer-extra-arg",
         action="append",
-        help="Extra argument passed to reviewer `codex exec` command (repeatable).",
+        help="Extra argument passed to the reviewer backend command (repeatable).",
     )
     parser.add_argument(
         "--plan-extra-arg",
         "--planner-extra-arg",
         dest="plan_extra_arg",
         action="append",
-        help="Extra argument passed to planner `codex exec` command (repeatable).",
+        help="Extra argument passed to the planner backend command (repeatable).",
     )
     parser.add_argument(
         "--plan-mode",
@@ -200,12 +200,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=1800,
         help="Reserved compatibility flag for daemon-launched runs.",
     )
-    parser.add_argument("--skip-git-repo-check", action="store_true", help="Pass through to Codex CLI.")
-    parser.add_argument("--full-auto", action="store_true", help="Pass `--full-auto` to Codex CLI.")
+    parser.add_argument(
+        "--follow-up-phase",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--skip-git-repo-check",
+        action="store_true",
+        help="Pass through when supported by the selected backend.",
+    )
+    parser.add_argument(
+        "--full-auto",
+        action="store_true",
+        help="Request automatic tool approval mode when supported by the selected backend.",
+    )
     parser.add_argument(
         "--yolo",
         action="store_true",
-        help="Pass `--dangerously-bypass-approvals-and-sandbox` to Codex CLI.",
+        help="Request the selected backend's highest-permission autonomous mode.",
     )
     parser.add_argument("--state-file", default=None, help="Write state JSON after each loop round.")
     parser.add_argument(
@@ -444,6 +458,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose-events",
         action="store_true",
         help="Print raw Codex JSONL and stderr lines while running.",
+    )
+    parser.add_argument(
+        "--add-dir",
+        action="append",
+        help="Additional directory to allow tool access (repeatable).",
+    )
+    parser.add_argument(
+        "--plugin-dir",
+        action="append",
+        help="Load plugins from a directory (repeatable).",
+    )
+    parser.add_argument(
+        "--file",
+        dest="file_specs",
+        action="append",
+        help="File resource to download. Format: file_id:relative_path (repeatable).",
+    )
+    parser.add_argument(
+        "--worktree",
+        dest="worktree_name",
+        nargs="?",
+        const="default",
+        default=None,
+        help="Create a new git worktree for this session (optionally specify a name).",
     )
     return parser
 

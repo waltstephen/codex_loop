@@ -48,7 +48,9 @@ def test_feishu_event_sink_live_updates_flush_on_close() -> None:
     sink.handle_stream_line("main.stdout", line)
     sink.close()
     assert len(notifier.messages) == 1
-    assert "main: hello from main" in notifier.messages[0]
+    # Format is markdown with bold actor header
+    assert "**main:**" in notifier.messages[0]
+    assert "hello from main" in notifier.messages[0]
 
 
 def test_feishu_event_sink_discards_live_update_backlog_after_completion() -> None:
