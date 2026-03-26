@@ -478,6 +478,8 @@ def main() -> None:
     scheduled_plan_request_at: dt.datetime | None = None
     pending_follow_up: PlanFollowUp | None = None
     pending_attachment_batches: dict[str, list[Any]] = {}
+    pending_pptx_run_objective: str | None = None
+    pending_pptx_run_source: str | None = None
     feishu_heartbeat_interval_seconds = max(0, int(args.feishu_heartbeat_interval_seconds))
     last_feishu_heartbeat_monotonic = time.monotonic()
     run_copilot_proxy = config_from_args(args, prefix="run_")
@@ -617,7 +619,7 @@ def main() -> None:
             },
         )
 
-    def start_child(objective: str, *, resume_last_session: bool = True) -> None:
+    def start_child(objective: str, *, resume_last_session: bool = True, pptx_report: bool = True) -> None:
         nonlocal child, child_objective, child_log_path, child_started_at, child_control_bus
         nonlocal child_run_id, child_control_path, child_resume_session_id
         nonlocal child_main_prompt_path, child_plan_report_path, child_plan_todo_path
@@ -655,6 +657,7 @@ def main() -> None:
             plan_todo_file=str(plan_todo_path),
             review_summaries_dir=str(review_summaries_dir),
             resume_session_id=resume_session_id,
+            pptx_report=pptx_report,
         )
         log_file = log_path.open("w", encoding="utf-8")
         child = subprocess.Popen(
@@ -828,7 +831,27 @@ def main() -> None:
         nonlocal child, child_control_bus, pending_follow_up
         nonlocal plan_mode, planner_mode
         nonlocal pending_session_plan_goal, active_session_plan_goal
+        nonlocal pending_pptx_run_objective, pending_pptx_run_source
         log_event("command.received", source=source, kind=command.kind, text=command.text[:700])
+
+        # Handle pending PPTX confirmation reply
+        if pending_pptx_run_objective is not None:
+            reply = command.text.strip().lower()
+            if reply in ("y", "yes", "n", "no"):
+                objective = pending_pptx_run_objective
+                pptx_enabled = reply in ("y", "yes")
+                pending_pptx_run_objective = None
+                pending_pptx_run_source = None
+                if pending_plan_request or scheduled_plan_request_at is not None:
+                    clear_planner_state(reason="manual_override")
+                start_child(objective, pptx_report=pptx_enabled)
+                return
+            # Non-Y/N reply while pending: cancel the pending run and fall through
+            send_reply(source, "[daemon] PPTX confirmation cancelled. Send /run again to start.")
+            pending_pptx_run_objective = None
+            pending_pptx_run_source = None
+            # fall through to handle the command normally
+
         if command.kind == "help":
             send_reply(source, help_text())
             return
@@ -1117,18 +1140,10 @@ def main() -> None:
             if pending_plan_request or scheduled_plan_request_at is not None:
                 clear_planner_state(reason="manual_override")
                 send_reply(source, "[daemon] pending plan request cleared by manual command.")
-            rewritten_objective = maybe_rewrite_run_objective(
-                enabled=bool(getattr(args, "run_objective_rewrite", False)),
-                objective=objective,
-                source=source,
-                run_cwd=run_cwd,
-                runner=daemon_runner,
-                model=(preset.main_model if preset is not None else args.run_main_model),
-                reasoning_effort=(preset.main_reasoning_effort if preset is not None else args.run_main_reasoning_effort),
-                send_reply=send_reply,
-                log_event=log_event,
-            )
-            start_child(rewritten_objective)
+            # Ask about PPTX report before launching
+            pending_pptx_run_objective = objective
+            pending_pptx_run_source = source
+            send_reply(source, "Generate a PPTX run report at the end? Reply Y or N")
             return
         if command.kind == "stop":
             running = child is not None and child.poll() is None
@@ -1544,6 +1559,7 @@ def build_child_command(
     plan_todo_file: str,
     review_summaries_dir: str = "",
     resume_session_id: str | None,
+    pptx_report: bool = True,
 ) -> list[str]:
     planner_mode = resolve_planner_mode(planner_enabled_flag=args.run_planner, planner_mode=args.run_planner_mode)
     preset = get_preset(args.run_model_preset) if args.run_model_preset else None
@@ -1663,6 +1679,10 @@ def build_child_command(
         cmd.extend(["--state-file", args.run_state_file])
     if args.run_no_dashboard:
         cmd.append("--no-dashboard")
+    if pptx_report:
+        cmd.append("--pptx-report")
+    else:
+        cmd.append("--no-pptx-report")
     if getattr(args, "run_plan_mode", PLAN_MODE_FULLY_PLAN) == PLAN_MODE_FULLY_PLAN:
         cmd.append("--follow-up-phase")
     else:

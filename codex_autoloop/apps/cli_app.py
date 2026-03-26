@@ -36,6 +36,7 @@ from .shell_utils import (
     resolve_btw_messages_file,
     resolve_final_report_file,
     resolve_plan_overview_file,
+    resolve_pptx_report_file,
     resolve_review_summaries_dir,
     resolve_operator_messages_file,
 )
@@ -72,6 +73,15 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         control_file=args.control_file,
         state_file=args.state_file,
     )
+    if getattr(args, "pptx_report", None) is False:
+        pptx_report_file: str | None = None
+    else:
+        pptx_report_file = resolve_pptx_report_file(
+            explicit_path=getattr(args, "pptx_report_file", None),
+            operator_messages_file=operator_messages_file,
+            control_file=args.control_file,
+            state_file=args.state_file,
+        )
     btw_messages_file = resolve_btw_messages_file(
         explicit_path=None,
         operator_messages_file=operator_messages_file,
@@ -85,6 +95,7 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
         plan_overview_file=plan_overview_file,
         review_summaries_dir=review_summaries_dir,
         final_report_file=final_report_file,
+        pptx_report_file=pptx_report_file,
         main_prompt_file=args.main_prompt_file,
         check_commands=args.check or [],
         plan_mode=args.plan_mode,
@@ -487,6 +498,8 @@ def run_cli(args: Namespace) -> tuple[dict[str, Any], int]:
             "review_summaries_dir": state_store.review_summaries_dir(),
             "final_report_file": state_store.final_report_path(),
             "final_report_ready": state_store.has_final_report(),
+            "pptx_report_file": state_store.pptx_report_path(),
+            "pptx_report_ready": state_store.has_pptx_report(),
             "rounds": [
                 {
                     "round": item.round_index,

@@ -15,6 +15,7 @@ from .apps.shell_utils import (
     resolve_final_report_file,
     resolve_operator_messages_file,
     resolve_plan_overview_file,
+    resolve_pptx_report_file,
     resolve_review_summaries_dir,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "resolve_operator_messages_file",
     "resolve_plan_report_file",
     "resolve_plan_todo_file",
+    "resolve_pptx_report_file",
     "resolve_review_summaries_dir",
 ]
 
@@ -56,6 +58,14 @@ def main() -> None:
 
     if args.main_prompt_file is None:
         args.main_prompt_file = resolve_main_prompt_file(state_file=args.state_file, control_file=args.control_file)
+
+    # Interactive PPTX report prompt: when --pptx-report is not explicitly set
+    # and stdin is a terminal, ask the user before starting.
+    if args.pptx_report is None and _should_prompt_pptx():
+        args.pptx_report = _ask_pptx_report()
+    # --no-pptx-report explicitly disables PPTX generation.
+    if args.pptx_report is False:
+        args.pptx_report_file = None
 
     try:
         payload, exit_code = run_cli(args)
@@ -243,6 +253,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-prompt-file",
         default=None,
         help="Markdown file path for the latest main prompt sent to Codex.",
+    )
+    parser.add_argument(
+        "--pptx-report",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable/disable PPTX run report generation. When omitted, interactive runs prompt the user.",
+    )
+    parser.add_argument(
+        "--pptx-report-file",
+        default=None,
+        help="Output path for the auto-generated PPTX run report.",
     )
     parser.add_argument(
         "--control-file",
@@ -495,6 +516,23 @@ def resolve_main_prompt_file(*, state_file: str | None, control_file: str | None
     if state_file:
         return str(Path(state_file).resolve().parent / "main_prompt.md")
     return None
+
+
+def _should_prompt_pptx() -> bool:
+    """Return True when we should interactively ask about PPTX generation."""
+    import sys
+    return sys.stdin.isatty()
+
+
+def _ask_pptx_report() -> bool:
+    """Prompt the user to decide whether to generate a PPTX run report."""
+    import sys
+    try:
+        answer = input("Generate a PPTX run report at the end? [Y/n] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("", file=sys.stderr)
+        return False
+    return answer in ("", "y", "yes")
 
 
 def _mirror_plan_report_to_todo(*, report_path: object, todo_path: str) -> None:

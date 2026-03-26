@@ -55,6 +55,20 @@ def test_loop_engine_stops_immediately_on_quota_exhaustion() -> None:
                 fatal_error="You exceeded your current quota, please check your plan and billing details.",
             )
         ]
+
+
+class _CapturingEventSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    def handle_event(self, event: dict[str, object]) -> None:
+        self.events.append(event)
+
+    def handle_stream_line(self, stream: str, line: str) -> None:
+        return
+
+    def close(self) -> None:
+        return
     )
     engine = LoopEngine(
         runner=runner,  # type: ignore[arg-type]
@@ -480,3 +494,84 @@ def test_loop_engine_fully_plan_continues_follow_up_but_emits_final_report_once(
     assert len(result.rounds) == 2
     assert [call.get("run_label") for call in runner.calls].count("main-final-report") == 1
     assert [event.get("type") for event in event_sink.events].count("final.report.ready") == 1
+
+
+def test_loop_engine_generates_pptx_report_on_completion(tmp_path: Path, monkeypatch) -> None:
+    report_path = tmp_path / "final-task-report.md"
+    pptx_path = tmp_path / "run-report.pptx"
+    runner = _ReportWritingRunner(
+        outputs=[
+            CodexRunResult(
+                command=["codex", "exec"],
+                exit_code=0,
+                thread_id="thread-1",
+                agent_messages=["DONE:\n- implemented\nREMAINING:\n- none\nBLOCKERS:\n- none"],
+                turn_completed=True,
+                turn_failed=False,
+                fatal_error=None,
+            ),
+            CodexRunResult(
+                command=["codex", "exec", "resume"],
+                exit_code=0,
+                thread_id="thread-1",
+                agent_messages=[f"REPORT_PATH: {report_path}\nREPORT_STATUS: written"],
+                turn_completed=True,
+                turn_failed=False,
+                fatal_error=None,
+            ),
+            # Third call: main agent PPTX attempt (will "fail" so fallback kicks in)
+            CodexRunResult(
+                command=["codex", "exec", "resume"],
+                exit_code=0,
+                thread_id="thread-1",
+                agent_messages=["PPTX_REPORT_STATUS: failed"],
+                turn_completed=True,
+                turn_failed=False,
+                fatal_error=None,
+            ),
+        ],
+        report_path=report_path,
+    )
+    state_store = LoopStateStore(
+        objective="完成实验",
+        final_report_file=str(report_path),
+        pptx_report_file=str(pptx_path),
+        plan_mode="off",
+    )
+    state_store.record_message(
+        text="operator requested a PPTX run report",
+        source="operator",
+        kind="initial-objective",
+    )
+    event_sink = _CapturingEventSink()
+    observed: dict[str, object] = {}
+
+    def fake_generate_pptx_fallback(**kwargs):  # type: ignore[no-untyped-def]
+        observed.update(kwargs)
+        output_path = Path(str(kwargs["output_path"]))
+        output_path.write_bytes(b"pptx")
+        return str(output_path)
+
+    monkeypatch.setattr("codex_autoloop.core.engine.generate_pptx_report_fallback", fake_generate_pptx_fallback)
+
+    engine = LoopEngine(
+        runner=runner,  # type: ignore[arg-type]
+        reviewer=_DoneReviewer(),  # type: ignore[arg-type]
+        planner=None,
+        state_store=state_store,
+        event_sink=event_sink,  # type: ignore[arg-type]
+        config=LoopConfig(
+            objective="完成实验",
+            max_rounds=3,
+        ),
+    )
+
+    result = engine.run()
+
+    assert result.success is True
+    assert pptx_path.exists()
+    assert state_store.has_pptx_report() is True
+    assert observed["objective"] == "完成实验"
+    assert observed["output_path"] == str(pptx_path)
+    assert observed["plan_mode"] == "off"
+    assert any(item["type"] == "pptx.report.ready" for item in event_sink.events)

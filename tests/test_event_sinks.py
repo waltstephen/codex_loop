@@ -83,6 +83,18 @@ def test_feishu_event_sink_sends_final_report_immediately(tmp_path: Path) -> Non
     assert notifier.files == [(str(report), "ArgusBot final task report")]
 
 
+def test_feishu_event_sink_sends_pptx_report_immediately(tmp_path: Path) -> None:
+    notifier = _FakeFeishuNotifier()
+    report = tmp_path / "run-report.pptx"
+    report.write_bytes(b"pptx")
+    sink = FeishuEventSink(notifier=notifier, live_updates=False, live_interval_seconds=30)
+
+    sink.handle_event({"type": "pptx.report.ready", "path": str(report)})
+
+    assert notifier.messages == []
+    assert notifier.files == [(str(report), "ArgusBot run report (PPTX)")]
+
+
 def test_telegram_event_sink_sends_final_report_immediately(tmp_path: Path) -> None:
     notifier = _FakeFeishuNotifier()
     report = tmp_path / "final-task-report.md"
@@ -94,6 +106,18 @@ def test_telegram_event_sink_sends_final_report_immediately(tmp_path: Path) -> N
     assert notifier.messages and "final task report ready" in notifier.messages[0]
     assert "# report" in notifier.messages[0]
     assert notifier.files == [(str(report), "ArgusBot final task report")]
+
+
+def test_telegram_event_sink_sends_pptx_report_immediately(tmp_path: Path) -> None:
+    notifier = _FakeFeishuNotifier()
+    report = tmp_path / "run-report.pptx"
+    report.write_bytes(b"pptx")
+    sink = TelegramEventSink(notifier=notifier, live_updates=False, live_interval_seconds=30)
+
+    sink.handle_event({"type": "pptx.report.ready", "path": str(report)})
+
+    assert notifier.messages == []
+    assert notifier.files == [(str(report), "ArgusBot run report (PPTX)")]
 
 
 def test_telegram_event_sink_discards_live_update_backlog_after_final_report(tmp_path: Path) -> None:

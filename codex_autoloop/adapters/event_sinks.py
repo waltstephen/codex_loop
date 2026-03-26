@@ -99,6 +99,8 @@ class TelegramEventSink:
         if event_type == "final.report.ready":
             self._stop_stream_reporter(flush=False)
             _send_final_report_via_notifier(self.notifier, event)
+        elif event_type == "pptx.report.ready":
+            _send_pptx_report_via_notifier(self.notifier, event)
         elif event_type == "loop.completed":
             self._stop_stream_reporter(flush=False)
         self.notifier.notify_event(event)
@@ -151,6 +153,8 @@ class FeishuEventSink:
         if event_type == "final.report.ready":
             self._stop_stream_reporter(flush=False)
             _send_final_report_via_notifier(self.notifier, event)
+        elif event_type == "pptx.report.ready":
+            _send_pptx_report_via_notifier(self.notifier, event)
         elif event_type == "loop.completed":
             self._stop_stream_reporter(flush=False)
         self.notifier.notify_event(event)
@@ -188,6 +192,16 @@ def _send_final_report_via_notifier(notifier, event: dict[str, object]) -> None:
     if rendered:
         notifier.send_message(rendered)
     notifier.send_local_file(path, caption="ArgusBot final task report")
+
+
+def _send_pptx_report_via_notifier(notifier, event: dict[str, object]) -> None:
+    raw_path = str(event.get("path") or "").strip()
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    if not path.exists():
+        return
+    notifier.send_local_file(path, caption="ArgusBot run report (PPTX)")
 
 
 def _render_final_report_message(event: dict[str, object]) -> str:

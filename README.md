@@ -95,7 +95,9 @@ During `argusbot init`, first choose control channel (`1. Telegram`, `2. Feishu 
 - Single-word operator entrypoint: `argusbot` (first run setup, later auto-attach monitor).
 - Token-exclusive daemon lock: one active daemon per Telegram token.
 - Operator message history persisted to markdown and fed to reviewer decisions.
-- Final task report generated after reviewer `done`, with optional `--final-report-file` output path and notifier delivery when ready.
+- PPTX auto-generation for run handoff: builds a presentation-ready slide deck summarizing the completed work.
+- Interactive PPTX opt-in: when running `argusbot-run` interactively, the CLI asks whether to generate a PPTX report before starting. Answer `Y` (default) to enable or `n` to skip. Daemon-launched runs (Telegram/Feishu) also ask via the control channel before each `/run` launch — reply `Y` or `N` to confirm. Use `--pptx-report` / `--no-pptx-report` to bypass the prompt.
+- Final handoff artifacts generated after reviewer `done`: Markdown via `--final-report-file` and PPTX via `--pptx-report-file`, with notifier delivery when ready.
 - Run archive persisted as JSONL with date/workspace/session metadata for resume continuity.
 - Utility scripts: start/kill/watch daemon logs, plus sanitized cross-project setup examples.
 
@@ -120,6 +122,16 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+### PPTX Report Dependencies (optional)
+
+The PPTX run report generator uses a Node.js script. To enable it:
+
+```bash
+npm install   # installs pptxgenjs and other JS dependencies
+```
+
+If `node` is not available, PPTX generation is silently skipped and does not block the loop.
 
 ## GitHub Copilot via `copilot-proxy`
 
@@ -250,6 +262,20 @@ argusbot-run \
   "Implement feature X and keep iterating until tests pass"
 ```
 
+Report artifact example:
+
+```bash
+argusbot-run \
+  --state-file .argusbot/state.json \
+  --final-report-file .argusbot/review_summaries/final-task-report.md \
+  --pptx-report-file .argusbot/run-report.pptx \
+  "实现功能并同时产出 Markdown 与 PPTX 汇报"
+```
+
+This keeps both handoff artifacts in predictable paths. The PPTX report is also the file pushed by Telegram/Feishu when the run emits `pptx.report.ready`.
+
+Release note: if `--pptx-report-file` is not passed, ArgusBot still resolves a default PPTX artifact path under the run artifact directory using the standard file name `run-report.pptx`.
+
 Common options:
 
 - `--runner-backend {codex,claude,copilot}`: select the execution backend
@@ -263,6 +289,7 @@ Common options:
 - `--full-auto`: request automatic tool approval mode when supported by the selected backend
 - `--state-file <file>`: write round-by-round state JSON
 - `--final-report-file <file>`: write the final handoff Markdown report after reviewer `done`
+- `--pptx-report-file <file>`: write the auto-generated PPTX run report (default artifact name: `run-report.pptx`)
 - `--plan-report-file <file>`: write the latest planner markdown snapshot
 - `--plan-todo-file <file>`: write the latest planner TODO board markdown
 - `--plan-update-interval-seconds 1800`: run background planning sweeps every 30 minutes

@@ -1,3 +1,5 @@
+import json
+
 from codex_autoloop.control_state import LoopControlState
 from codex_autoloop.core.state_store import LoopStateStore
 from codex_autoloop.models import PlanDecision, ReviewDecision, RoundSummary
@@ -135,6 +137,28 @@ def test_state_store_writes_plan_and_review_docs(tmp_path) -> None:
     state.record_final_report(str(final_report))
     assert state.has_final_report() is True
     assert state.final_report_path() == str(final_report)
+
+
+def test_state_store_records_pptx_report_in_runtime_and_state_file(tmp_path) -> None:
+    state_file = tmp_path / "state.json"
+    pptx_report = tmp_path / "run-report.pptx"
+    state = LoopStateStore(
+        objective="ship feature",
+        state_file=str(state_file),
+        pptx_report_file=str(pptx_report),
+        plan_mode="off",
+    )
+
+    assert state.has_pptx_report() is False
+
+    state.record_pptx_report(str(pptx_report))
+
+    assert state.has_pptx_report() is True
+    assert state.pptx_report_path() == str(pptx_report)
+
+    payload = json.loads(state_file.read_text(encoding="utf-8"))
+    assert payload["pptx_report_file"] == str(pptx_report)
+    assert payload["pptx_report_ready"] is True
 
 
 def test_state_store_renders_plan_and_review_context(tmp_path) -> None:

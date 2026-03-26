@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+import json
 import re
 
 from .checks import summarize_checks
@@ -16,6 +18,19 @@ class FinalReportRequest:
     session_id: str | None
     operator_messages: list[str]
     round_summary: RoundSummary
+
+
+@dataclass(frozen=True)
+class PptxReportRequest:
+    objective: str
+    pptx_path: str
+    session_id: str | None
+    success: bool
+    stop_reason: str
+    operator_messages: list[str]
+    rounds: list[RoundSummary]
+    final_report_markdown: str = ""
+    plan_mode: str = "off"
 
 
 def resolve_final_report_file(
@@ -367,3 +382,106 @@ def _resolve_artifact_dir(
     if default_root:
         return Path(default_root).resolve()
     return Path(".").resolve() / ".argusbot"
+
+
+def build_pptx_report_prompt(request: PptxReportRequest) -> str:
+    """Build the prompt for the main agent to generate a PPTX work presentation."""
+    last_round = request.rounds[-1] if request.rounds else None
+    checks_passed = 0
+    checks_total = 0
+    if last_round:
+        for c in last_round.checks:
+            checks_total += 1
+            if c.passed:
+                checks_passed += 1
+
+    meta_lines = [
+        f"- Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        f"- Session ID: {request.session_id or 'N/A'}",
+        f"- Rounds executed: {len(request.rounds)}",
+        f"- Outcome: {'Success' if request.success else 'Incomplete'}",
+        f"- Checks: {checks_passed}/{checks_total} passed",
+    ]
+    meta_block = "\n".join(meta_lines)
+
+    report_block = request.final_report_markdown.strip() if request.final_report_markdown else "No final report available."
+
+    return (
+        "You are the main execution agent, now in the PPTX presentation phase.\n"
+        "The Markdown final report is already written. Now create a PPTX slide deck.\n"
+        "Use the local $pptx-run-report skill and the $pptx skill (PptxGenJS).\n\n"
+        "IMPORTANT: You are NOT making a 'loop run report' about rounds and checks.\n"
+        "You are making a **work presentation** — something you'd show to a mentor, colleague, or classmate.\n"
+        "Focus on WHAT was accomplished, WHY it matters, HOW it was done, and WHAT the results are.\n\n"
+        f"Write the PPTX to this exact absolute path:\n{request.pptx_path}\n\n"
+        "== ORIGINAL OBJECTIVE ==\n"
+        f"{request.objective}\n\n"
+        "== METADATA ==\n"
+        f"{meta_block}\n\n"
+        "== FINAL TASK REPORT (Markdown) ==\n"
+        "Use this as your primary content source. Extract the key points for the slides.\n\n"
+        f"{report_block}\n\n"
+        "== INSTRUCTIONS ==\n"
+        "1. Read the $pptx-run-report skill for slide structure and style guidance.\n"
+        "2. Choose a color palette that fits the topic (don't always use the same one).\n"
+        "3. Adapt the slide structure to the type of work (research/feature/bugfix/etc).\n"
+        "4. Generate 6-10 slides. Quality over quantity.\n"
+        "5. Match the language of the objective and report.\n"
+        "6. Use PptxGenJS to write the .pptx file.\n\n"
+        "After writing the PPTX file, reply with only these two lines:\n"
+        f"PPTX_REPORT_PATH: {request.pptx_path}\n"
+        "PPTX_REPORT_STATUS: written\n"
+    )
+
+
+def _build_pptx_data_payload(request: PptxReportRequest) -> dict[str, Any]:
+    """Build the structured data dict for the PPTX report."""
+    last_round = request.rounds[-1] if request.rounds else None
+
+    final_checks: list[dict[str, Any]] = []
+    checks_passed = 0
+    checks_failed = 0
+    if last_round:
+        for check in last_round.checks:
+            final_checks.append({
+                "command": check.command,
+                "exit_code": check.exit_code,
+                "passed": check.passed,
+            })
+            if check.passed:
+                checks_passed += 1
+            else:
+                checks_failed += 1
+
+    round_data = []
+    for r in request.rounds:
+        round_data.append({
+            "round_index": r.round_index,
+            "review_status": r.review.status,
+            "review_confidence": r.review.confidence,
+            "checks_passed": all(c.passed for c in r.checks) if r.checks else True,
+        })
+
+    obj_short = request.objective[:80] + "..." if len(request.objective) > 80 else request.objective
+    return {
+        "objective": request.objective,
+        "objective_short": obj_short,
+        "session_id": request.session_id,
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "success": request.success,
+        "stop_reason": request.stop_reason,
+        "total_rounds": len(request.rounds),
+        "checks_passed": checks_passed,
+        "checks_failed": checks_failed,
+        "checks_total": checks_passed + checks_failed,
+        "reviewer_verdict": last_round.review.status if last_round else None,
+        "reviewer_reason": last_round.review.reason if last_round else None,
+        "reviewer_next_action": last_round.review.next_action if last_round else None,
+        "planner_follow_up_required": last_round.plan.follow_up_required if last_round and last_round.plan else None,
+        "planner_next_explore": last_round.plan.next_explore if last_round and last_round.plan else None,
+        "planner_main_instruction": last_round.plan.main_instruction if last_round and last_round.plan else None,
+        "plan_mode": request.plan_mode,
+        "final_checks": final_checks,
+        "rounds": round_data,
+        "operator_messages": request.operator_messages or [],
+    }

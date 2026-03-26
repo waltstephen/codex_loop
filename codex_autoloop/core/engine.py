@@ -8,9 +8,16 @@ from typing import Any
 from ..checks import all_checks_passed, run_checks
 from ..codex_runner import CodexRunner, InactivitySnapshot, RunnerOptions
 from ..failure_modes import build_progress_signature, build_quota_exhaustion_stop_reason, looks_like_quota_exhaustion
-from ..final_report import FinalReportRequest, build_final_report_prompt, write_fallback_final_report
+from ..final_report import (
+    FinalReportRequest,
+    PptxReportRequest,
+    build_final_report_prompt,
+    build_pptx_report_prompt,
+    write_fallback_final_report,
+)
 from ..models import PlanDecision, PlanMode, ReviewDecision, RoundSummary
 from ..planner import Planner, PlannerConfig
+from ..pptx_report import generate_pptx_report as generate_pptx_report_fallback
 from ..reviewer import Reviewer, ReviewerConfig
 from ..stall_subagent import analyze_stall
 from .ports import EventSink
@@ -479,6 +486,12 @@ class LoopEngine:
     ) -> LoopResult:
         if success and not self.state_store.has_final_report():
             self._finalize_success_report(session_id=session_id, rounds=rounds)
+        self._finalize_pptx_report(
+            success=success,
+            session_id=session_id,
+            rounds=rounds,
+            stop_reason=stop_reason,
+        )
         self.state_store.record_completion(success=success, stop_reason=stop_reason, session_id=session_id)
         self._emit(
             {
@@ -493,6 +506,104 @@ class LoopEngine:
             rounds=rounds,
             stop_reason=stop_reason,
         )
+
+    def _finalize_pptx_report(
+        self,
+        *,
+        success: bool,
+        session_id: str | None,
+        rounds: list[RoundSummary],
+        stop_reason: str,
+    ) -> None:
+        pptx_path = self.state_store.pptx_report_path()
+        if not pptx_path:
+            return
+        # Read the already-generated Markdown final report as content source
+        final_report_md = self.state_store.read_final_report_markdown() or ""
+        request = PptxReportRequest(
+            objective=self.config.objective,
+            pptx_path=pptx_path,
+            session_id=session_id,
+            success=success,
+            stop_reason=stop_reason,
+            operator_messages=self.state_store.list_messages_for_role("all"),
+            rounds=rounds,
+            final_report_markdown=final_report_md,
+            plan_mode=self._current_plan_mode(),
+        )
+        # Try main agent first (uses pptx skill)
+        agent_failure = self._try_generate_pptx_with_main_agent(request=request, session_id=session_id)
+        pptx_file = Path(pptx_path)
+        # Fallback to Node.js script if agent didn't produce the file
+        if agent_failure is not None or not pptx_file.exists():
+            try:
+                fallback_result = generate_pptx_report_fallback(
+                    objective=self.config.objective,
+                    rounds=rounds,
+                    session_id=session_id,
+                    success=success,
+                    stop_reason=stop_reason,
+                    output_path=pptx_path,
+                    operator_messages=self.state_store.list_messages(),
+                    plan_mode=self._current_plan_mode(),
+                )
+                if not fallback_result:
+                    return
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning("PPTX fallback generation failed", exc_info=True)
+                return
+        self.state_store.record_pptx_report(str(pptx_file))
+        self._emit({
+            "type": "pptx.report.ready",
+            "path": str(pptx_file),
+            "generated_by": "main-agent" if agent_failure is None and pptx_file.exists() else "fallback",
+        })
+
+    def _try_generate_pptx_with_main_agent(
+        self,
+        *,
+        request: PptxReportRequest,
+        session_id: str | None,
+    ) -> str | None:
+        """Try to have the main agent generate the PPTX. Returns None on success, error string on failure."""
+        prompt = build_pptx_report_prompt(request)
+        pptx_path = Path(request.pptx_path)
+        before_bytes: bytes | None = None
+        if pptx_path.exists():
+            try:
+                before_bytes = pptx_path.read_bytes()
+            except OSError:
+                before_bytes = b""
+        last_round_index = request.rounds[-1].round_index if request.rounds else 0
+        self.state_store.record_main_prompt(
+            round_index=last_round_index,
+            phase="pptx-report",
+            prompt=prompt,
+        )
+        result = self.runner.run_exec(
+            prompt=prompt,
+            resume_thread_id=session_id,
+            options=RunnerOptions(
+                model=self.config.main_model,
+                reasoning_effort=self.config.main_reasoning_effort,
+                dangerous_yolo=self.config.dangerous_yolo,
+                full_auto=self.config.full_auto,
+                skip_git_repo_check=self.config.skip_git_repo_check,
+                extra_args=self.config.main_extra_args,
+            ),
+            run_label="main-pptx-report",
+        )
+        if pptx_path.exists():
+            try:
+                after_bytes = pptx_path.read_bytes()
+            except OSError:
+                after_bytes = None
+            if before_bytes is None or after_bytes != before_bytes:
+                return None  # Success: file was created/changed
+        if result.fatal_error:
+            return result.fatal_error
+        return "main agent did not create the PPTX report file"
 
     def _finalize_success_report(self, *, session_id: str | None, rounds: list[RoundSummary]) -> None:
         if not rounds:

@@ -112,6 +112,25 @@ def resolve_final_report_file(
     )
 
 
+def resolve_pptx_report_file(
+    *,
+    explicit_path: str | None,
+    operator_messages_file: str | None,
+    control_file: str | None,
+    state_file: str | None,
+    default_root: str | None = None,
+) -> str:
+    if explicit_path:
+        return explicit_path
+    base = _resolve_artifact_dir(
+        operator_messages_file=operator_messages_file,
+        control_file=control_file,
+        state_file=state_file,
+        default_root=default_root,
+    )
+    return str(base / "run-report.pptx")
+
+
 def format_control_status(state: dict[str, Any]) -> str:
     status = state.get("status", "unknown")
     round_index = state.get("round", 0)
@@ -125,6 +144,8 @@ def format_control_status(state: dict[str, Any]) -> str:
     review_summaries_dir = state.get("review_summaries_dir")
     final_report_file = state.get("final_report_file")
     final_report_ready = state.get("final_report_ready")
+    pptx_report_file = state.get("pptx_report_file")
+    pptx_report_ready = state.get("pptx_report_ready")
     lines = [
         "[autoloop] status",
         f"status={status}",
@@ -149,6 +170,10 @@ def format_control_status(state: dict[str, Any]) -> str:
         lines.append(f"final_report_file={final_report_file}")
     if final_report_ready is not None:
         lines.append(f"final_report_ready={final_report_ready}")
+    if pptx_report_file:
+        lines.append(f"pptx_report_file={pptx_report_file}")
+    if pptx_report_ready is not None:
+        lines.append(f"pptx_report_ready={pptx_report_ready}")
     return "\n".join(lines)
 
 
