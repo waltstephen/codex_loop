@@ -472,6 +472,10 @@ def parse_command_text(*, text: str, plain_text_as_inject: bool) -> TelegramComm
         return TelegramCommand(kind="run", text=content[len("/run ") :].strip())
     if lowered == "/run":
         return None
+    if lowered.startswith("/clock "):
+        return TelegramCommand(kind="clock", text=content[len("/clock "):].strip())
+    if lowered == "/clock":
+        return TelegramCommand(kind="clock", text="")
     if lowered in {"/stop", "/halt"}:
         return TelegramCommand(kind="stop", text="")
     if lowered in {"/daemon-stop", "/shutdown-daemon", "/disable"}:

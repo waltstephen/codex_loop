@@ -57,6 +57,7 @@ Version: none
 - Added automatic final task report generation after reviewer `done`, with the report written to a Markdown file for final delivery.
 - Added `--final-report-file` so runs can write the final handoff report to an explicit path.
 - Added notifier delivery for the final task report when the file is ready.
+- Added `/clock <XhXmin>` command: set a maximum run duration (e.g. `/clock 2h30min`). If the run is still active when the timer fires, it is automatically stopped and a markdown timeout report is sent. Works across Telegram, Feishu, and Terminal control channels. Wrong format prompts correct usage.
 
 ### Changed
 
